@@ -11,8 +11,10 @@ import * as Schema from "effect/Schema";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as DesktopAssets from "../../app/DesktopAssets.ts";
+import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import { SET_DOCK_PALETTE_ICON_CHANNEL } from "../channels.ts";
+import { prepareWindowsPaletteIcon } from "./windowsPaletteIcon.ts";
 
 // Personal build: the app icon follows the selected theme: the Dock on macOS,
 // each window's icon (what the taskbar shows) on Windows and Linux. Built-in
@@ -47,11 +49,18 @@ export const installDockPaletteIcon = Effect.fn("desktop.ipc.installDockPaletteI
   const ipc = yield* DesktopIpc.DesktopIpc;
   const platform = yield* HostProcess.Platform;
   const iconPaths = yield* (yield* DesktopAssets.DesktopAssets).iconPaths;
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
   // The icon windows opened later should get too; null keeps the default.
   let windowIcon: Electron.NativeImage | null = null;
+  let windowAppDetails: Electron.AppDetailsOptions | null = null;
+  const applyWindowIcon = (window: Electron.BrowserWindow) => {
+    if (window.isDestroyed()) return;
+    if (windowIcon) window.setIcon(windowIcon);
+    if (windowAppDetails) window.setAppDetails(windowAppDetails);
+  };
   if (platform !== "darwin") {
     Electron.app.on("browser-window-created", (_event, window) => {
-      if (windowIcon) window.setIcon(windowIcon);
+      applyWindowIcon(window);
     });
   }
   yield* ipc.handle(
@@ -71,8 +80,20 @@ export const installDockPaletteIcon = Effect.fn("desktop.ipc.installDockPaletteI
             const image = Electron.nativeImage.createFromPath(path);
             if (image.isEmpty()) return;
             windowIcon = image;
+            if (platform === "win32") {
+              windowAppDetails = prepareWindowsPaletteIcon({
+                image,
+                iconPath: path,
+                appId: environment.appUserModelId,
+                displayName: environment.displayName,
+                executablePath: Electron.app.getPath("exe"),
+                userDataDirectory: Electron.app.getPath("userData"),
+                appDataDirectory: environment.appDataDirectory,
+                isPackaged: environment.isPackaged,
+              });
+            }
             for (const window of Electron.BrowserWindow.getAllWindows()) {
-              if (!window.isDestroyed()) window.setIcon(image);
+              applyWindowIcon(window);
             }
             return;
           }
