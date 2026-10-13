@@ -2838,6 +2838,101 @@ export default function Sidebar() {
     [routeThreadKey, workingGroupCollapsed, workingThreads],
   );
 
+  // A thread needs you when its turn finished unread, it is waiting on an
+  // approval or input, or it failed. Same rules the rows use for their fill.
+  const lastVisitedAtByKey = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const toggleGroup = useCallback((group: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      window.localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+  const threadNeedsYou = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      const status = resolveSidebarThreadStatus(thread);
+      if (status === "approval" || status === "input" || status === "failed") {
+        return true;
+      }
+      const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      // Personal build: woken threads wait in Needs you until read.
+      if (isThreadWoke(thread, lastVisitedAtByKey[key], snoozeNow)) return true;
+      return hasUnseenCompletion({
+        ...thread,
+        lastVisitedAt: lastVisitedAtByKey[key],
+      });
+    },
+    [lastVisitedAtByKey, snoozeNow],
+  );
+  // Include every visible row in the measured order. Older servers disable
+  // pickup on their rows without changing where those rows render.
+  const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
+    const rowsOf = (
+      list: readonly EnvironmentThreadShell[],
+      section: SidebarSection,
+    ): SidebarListItem[] =>
+      list.map((thread) => {
+        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return { kind: "thread", key, section };
+      });
+    if (
+      pinnedThreads.length +
+        activeThreads.length +
+        workingThreads.length +
+        snoozedThreads.length +
+        settledThreads.length ===
+      0
+    ) {
+      return [];
+    }
+    // A collapsed group keeps only the open thread, like the Snoozed and
+    // Settled shelves, and leaves the list here so row motion sees it.
+    const unlessCollapsed = (list: readonly EnvironmentThreadShell[], group: string) =>
+      getVisibleSidebarGroupThreads({
+        threads: list,
+        collapsed: collapsedGroups.has(group),
+        routeThreadKey,
+        threadKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      });
+    const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
+    const pinnedRows = rowsOf(unlessCollapsed(pinnedThreads, "pinned"), "pinned");
+    items.push(...pinnedRows);
+    items.push({ kind: "marker", marker: "pinned-divider" });
+    // Grouped by what the thread needs from you: needs you, then working,
+    // then everything else that is open.
+    const needsYou = activeThreads.filter(threadNeedsYou);
+    const open = activeThreads.filter((thread) => !threadNeedsYou(thread));
+    items.push(...rowsOf(unlessCollapsed(needsYou, "needs-you"), "active"));
+    if (workingThreads.length > 0) {
+      items.push({ kind: "marker", marker: "working-header" });
+      items.push(...rowsOf(visibleWorkingThreads, "working"));
+    }
+    items.push({ kind: "marker", marker: "active-placeholder" });
+    items.push(...rowsOf(unlessCollapsed(open, "open"), "active"));
+    if (snoozedThreads.length > 0) {
+      items.push({ kind: "marker", marker: "snoozed-header" });
+      items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
+    }
+    items.push({ kind: "marker", marker: "settled-header" });
+    const settledRows = rowsOf(renderedSettledThreads, "settled");
+    items.push({ kind: "marker", marker: "settled-placeholder" });
+    items.push(...settledRows);
+    return items;
+  }, [
+    activeThreads,
+    collapsedGroups,
+    pinnedThreads,
+    renderedSettledThreads,
+    routeThreadKey,
+    settledThreads.length,
+    snoozedThreads.length,
+    visibleSnoozedThreads,
+    visibleWorkingThreads,
+    threadNeedsYou,
+    workingThreads,
+  ]);
   const orderedThreads = useMemo(
     () => [
       ...pinnedThreads,
@@ -2854,12 +2949,12 @@ export default function Sidebar() {
       renderedSettledThreads,
     ],
   );
+  // Personal build: the rows exactly as drawn (Needs you, Working, Open…, with
+  // collapsed groups left out), so shift-click ranges, keyboard moves, and
+  // jump shortcuts follow what's on screen.
   const orderedThreadKeys = useMemo(
-    () =>
-      orderedThreads.map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-    [orderedThreads],
+    () => sidebarListItems.flatMap((item) => (item.kind === "thread" ? [item.key] : [])),
+    [sidebarListItems],
   );
   // Rows call back into the click handler without carrying the ordered list as
   // a prop — a fresh array identity per shell update would defeat every row's
@@ -3436,101 +3531,6 @@ export default function Sidebar() {
     },
     [sectionByThreadKey],
   );
-  // A thread needs you when its turn finished unread, it is waiting on an
-  // approval or input, or it failed. Same rules the rows use for their fill.
-  const lastVisitedAtByKey = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const toggleGroup = useCallback((group: string) => {
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      window.localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
-  const threadNeedsYou = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      const status = resolveSidebarThreadStatus(thread);
-      if (status === "approval" || status === "input" || status === "failed") {
-        return true;
-      }
-      const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-      // Personal build: woken threads wait in Needs you until read.
-      if (isThreadWoke(thread, lastVisitedAtByKey[key], snoozeNow)) return true;
-      return hasUnseenCompletion({
-        ...thread,
-        lastVisitedAt: lastVisitedAtByKey[key],
-      });
-    },
-    [lastVisitedAtByKey, snoozeNow],
-  );
-  // Include every visible row in the measured order. Older servers disable
-  // pickup on their rows without changing where those rows render.
-  const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
-    const rowsOf = (
-      list: readonly EnvironmentThreadShell[],
-      section: SidebarSection,
-    ): SidebarListItem[] =>
-      list.map((thread) => {
-        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-        return { kind: "thread", key, section };
-      });
-    if (
-      pinnedThreads.length +
-        activeThreads.length +
-        workingThreads.length +
-        snoozedThreads.length +
-        settledThreads.length ===
-      0
-    ) {
-      return [];
-    }
-    // A collapsed group keeps only the open thread, like the Snoozed and
-    // Settled shelves, and leaves the list here so row motion sees it.
-    const unlessCollapsed = (list: readonly EnvironmentThreadShell[], group: string) =>
-      getVisibleSidebarGroupThreads({
-        threads: list,
-        collapsed: collapsedGroups.has(group),
-        routeThreadKey,
-        threadKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      });
-    const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(unlessCollapsed(pinnedThreads, "pinned"), "pinned");
-    items.push(...pinnedRows);
-    items.push({ kind: "marker", marker: "pinned-divider" });
-    // Grouped by what the thread needs from you: needs you, then working,
-    // then everything else that is open.
-    const needsYou = activeThreads.filter(threadNeedsYou);
-    const open = activeThreads.filter((thread) => !threadNeedsYou(thread));
-    items.push(...rowsOf(unlessCollapsed(needsYou, "needs-you"), "active"));
-    if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
-      items.push(...rowsOf(visibleWorkingThreads, "working"));
-    }
-    items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...rowsOf(unlessCollapsed(open, "open"), "active"));
-    if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
-      items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
-    }
-    items.push({ kind: "marker", marker: "settled-header" });
-    const settledRows = rowsOf(renderedSettledThreads, "settled");
-    items.push({ kind: "marker", marker: "settled-placeholder" });
-    items.push(...settledRows);
-    return items;
-  }, [
-    activeThreads,
-    collapsedGroups,
-    pinnedThreads,
-    renderedSettledThreads,
-    routeThreadKey,
-    settledThreads.length,
-    snoozedThreads.length,
-    visibleSnoozedThreads,
-    visibleWorkingThreads,
-    threadNeedsYou,
-    workingThreads,
-  ]);
   useEffect(() => {
     if (
       dragState !== null &&
