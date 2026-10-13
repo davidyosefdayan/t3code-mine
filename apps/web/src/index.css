@@ -663,6 +663,15 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   ::highlight(t3-assistant-citation-comment) {
     background-color: color-mix(in oklab, var(--primary) 45%, transparent);
   }
+  /* Personal build: read aloud marks the sentence being spoken, and the word
+     within it a little more strongly. */
+  ::highlight(read-aloud-sentence) {
+    background-color: color-mix(in oklab, var(--primary) 9%, transparent);
+  }
+  ::highlight(read-aloud-word) {
+    background-color: color-mix(in oklab, var(--primary) 30%, transparent);
+    color: var(--foreground);
+  }
   :root {
     /* Keep the original T3 Code artwork palettes as the defaults. Built-in
        themes override them with their own pigments in the components layer. */

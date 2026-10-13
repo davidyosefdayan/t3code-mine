@@ -1,3 +1,4 @@
+import * as NodeModule from "node:module";
 import * as NodeZlib from "node:zlib";
 
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
@@ -14,6 +15,14 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
+
+// Personal build: read aloud serves ONNX Runtime's engine from the app. It ships
+// in transformers.js's dist, matching the runtime it bundles, but isn't exported.
+const kokoroOrtDist = NodeModule.createRequire(
+  NodeModule.createRequire(import.meta.url).resolve("kokoro-js"),
+)
+  .resolve("@huggingface/transformers")
+  .replace(/[\\/][^\\/]+$/, "");
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -218,6 +227,7 @@ export default defineConfig(() => {
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },
     resolve: {
+      alias: { "kokoro-ort-dist": kokoroOrtDist },
       tsconfigPaths: true,
       dedupe: ["react", "react-dom"],
     },

@@ -165,6 +165,7 @@ import {
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { ReadAloudButton } from "./ReadAloudButton";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -2655,6 +2656,7 @@ function AssistantCopyButton({
   showCopyButton: boolean;
   streaming: boolean;
 }) {
+  const { routeThreadKey } = use(TimelineRowCtx);
   const assistantCopyState = resolveAssistantMessageCopyState({
     text: message.text ?? null,
     showCopyButton,
@@ -2665,7 +2667,17 @@ function AssistantCopyButton({
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  // Personal build: read aloud sits next to copy, on the same finished answers.
+  return (
+    <div className="flex items-center gap-0.5">
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReadAloudButton
+        messageId={message.id}
+        threadKey={routeThreadKey}
+        text={assistantCopyState.text ?? ""}
+      />
+    </div>
+  );
 }
 
 function ProposedPlanTimelineRow({
