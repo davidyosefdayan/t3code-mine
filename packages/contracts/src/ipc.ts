@@ -28,6 +28,7 @@ export interface ContextMenuItem<T extends string = string> {
   destructive?: boolean;
   disabled?: boolean;
   header?: boolean;
+  /** Icon keyword resolved by the web fallback. Personal build: macOS native menus show a matching SF Symbol (apps/desktop/src/electron/menuSymbols.ts). */
   icon?: string;
   separatorBefore?: boolean;
   checked?: boolean;
