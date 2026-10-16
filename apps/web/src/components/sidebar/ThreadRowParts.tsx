@@ -45,9 +45,9 @@ type ProviderBadgeEntry = Pick<
 // Flat, Arc-like surfaces. List rows have no fill at rest and the open row is
 // solid. Unsent work reads as a "Draft" label on the row's second line rather
 // than a tint, which looked like a selection.
-export const restSurfaceClassName = "bg-transparent hover:bg-sidebar-row-hover";
-export const activeSurfaceClassName = "bg-sidebar-row-active";
-export const selectedSurfaceClassName = "bg-sidebar-row-selected";
+export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
+export const activeSurfaceClassName = "bg-row-active";
+export const selectedSurfaceClassName = "bg-row-selected";
 
 /** The model's provider logo on the corner of a chat's avatar. */
 function ChatAvatarModelBadge(props: {
@@ -89,7 +89,7 @@ export function ThreadAvatar(props: {
       {/* A chosen icon sits in its own rounded square, like a project's icon,
           so it reads as the chat's avatar. */}
       {pinLine !== null ? (
-        <span className="flex size-7 items-center justify-center rounded-md bg-sidebar-control-surface">
+        <span className="flex size-7 items-center justify-center rounded-md bg-chip">
           <pinLine.Icon
             aria-hidden
             className={cn(
@@ -101,7 +101,7 @@ export function ThreadAvatar(props: {
       ) : chosen !== null ? (
         <span
           aria-hidden
-          className="flex size-7 items-center justify-center rounded-md bg-sidebar-control-surface text-base leading-none"
+          className="flex size-7 items-center justify-center rounded-md bg-chip text-base leading-none"
         >
           {chosen}
         </span>
