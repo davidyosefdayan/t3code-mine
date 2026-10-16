@@ -13,6 +13,7 @@ import { SkillsIcon } from "../skills/SkillsIcon";
 import { ForkUpdateRailButton } from "./ForkUpdateRailButton";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { useNavigateToMainApp } from "./mainAppLocation";
+import { useNeedsYouCount } from "../needsYouCount";
 
 // Route chunks behind the rail: the thread views and each rail page.
 const RAIL_ROUTE_IDS = [
@@ -43,10 +44,12 @@ const settingsGear: IconNode = [
 // the page's sidebar. Threads is home; Pull requests, Usage, Skills, and Settings
 // are separate pages rather than footer buttons.
 // `activeFill` selects the parts of the icon that fill in on the active page.
+// `dot` marks the page as having something waiting for you.
 function RailButton(props: {
   label: string;
   active: boolean;
   activeFill: string;
+  dot?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -70,6 +73,12 @@ function RailButton(props: {
         }
       >
         {props.children}
+        {props.dot ? (
+          <span
+            aria-hidden="true"
+            className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-sidebar-shell"
+          />
+        ) : null}
       </TooltipTrigger>
       <TooltipPopup side="right">{props.label}</TooltipPopup>
     </Tooltip>
@@ -84,6 +93,7 @@ export function AppRail() {
   // Builds without an update feed (unsigned Mac builds, the browser) have nothing to offer.
   const desktopUpdatesEnabled = useDesktopUpdateState()?.enabled === true;
   const router = useRouter();
+  const needsYouCount = useNeedsYouCount();
   // Pages are split chunks. Load every rail destination once the app is idle so
   // switching pages never renders an empty frame while code downloads.
   useEffect(() => {
@@ -135,8 +145,9 @@ export function AppRail() {
       className="relative z-20 hidden h-[calc(100dvh-var(--app-topbar-height))] w-(--app-rail-width) shrink-0 flex-col items-center gap-1.5 bg-sidebar-shell py-(--app-rail-inset) pl-px md:flex [&_button]:[-webkit-app-region:no-drag]"
     >
       <RailButton
-        label="Threads"
+        label={needsYouCount > 0 ? `Threads, ${needsYouCount} need you` : "Threads"}
         active={page === "threads"}
+        dot={needsYouCount > 0}
         activeFill="[&_path:first-child]:fill-current"
         onClick={() => void navigateToMainApp()}
       >
