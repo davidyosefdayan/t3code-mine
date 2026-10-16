@@ -166,3 +166,61 @@ export class UsageReadError extends Schema.TaggedError<UsageReadError>()("UsageR
     return `Usage read failed (${this.reason}): ${this.detail}`;
   }
 }
+
+/**
+ * Usage per provider session inside one quota window, so the Limits view can
+ * show where a weekly allowance went. Sessions are matched to T3 threads and
+ * projects where the environment knows them; the rest carry the transcript's
+ * working directory and title so CLI and background work still has a name.
+ */
+export const UsageBreakdownInput = Schema.Struct({
+  provider: UsageProviderKind,
+  /** Inclusive UTC instant; the window's start. */
+  sinceTime: TrimmedNonEmptyString,
+  /** Exclusive UTC instant, normally now. At most 32 days after `sinceTime`. */
+  untilTime: TrimmedNonEmptyString,
+});
+export type UsageBreakdownInput = typeof UsageBreakdownInput.Type;
+
+/** API-equivalent cost and responses in one UTC hour. */
+export const UsageBreakdownHour = Schema.Struct({
+  hourStart: TrimmedNonEmptyString,
+  costUsd: Schema.Number,
+  records: NonNegativeInt,
+});
+export type UsageBreakdownHour = typeof UsageBreakdownHour.Type;
+
+export const UsageBreakdownSession = Schema.Struct({
+  provider: UsageProviderKind,
+  sessionId: TrimmedNonEmptyString,
+  threadId: Schema.optional(TrimmedNonEmptyString),
+  /** Thread title, else the provider's own session title. */
+  title: Schema.optional(TrimmedNonEmptyString),
+  projectId: Schema.optional(TrimmedNonEmptyString),
+  projectTitle: Schema.optional(TrimmedNonEmptyString),
+  /** The session's working directory, when the transcript records one. */
+  cwd: Schema.optional(TrimmedNonEmptyString),
+  /** The client that started the session, as the transcript names it (`codex_exec`, `cli`). */
+  origin: Schema.optional(TrimmedNonEmptyString),
+  costUsd: Schema.Number,
+  totals: UsageTokenTotals,
+  records: NonNegativeInt,
+  models: ForwardCompatibleArray(
+    Schema.Struct({
+      model: TrimmedNonEmptyString,
+      costUsd: Schema.Number,
+      records: NonNegativeInt,
+    }),
+  ),
+  hours: ForwardCompatibleArray(UsageBreakdownHour),
+});
+export type UsageBreakdownSession = typeof UsageBreakdownSession.Type;
+
+export const UsageBreakdown = Schema.Struct({
+  readAt: Schema.String,
+  provider: UsageProviderKind,
+  sinceTime: TrimmedNonEmptyString,
+  untilTime: TrimmedNonEmptyString,
+  sessions: ForwardCompatibleArray(UsageBreakdownSession),
+});
+export type UsageBreakdown = typeof UsageBreakdown.Type;

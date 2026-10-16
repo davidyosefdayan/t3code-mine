@@ -94,6 +94,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  ForkWsRpcGroup,
+  UpstreamWsRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import {
@@ -228,7 +230,8 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { featureUsage } from "./telemetry/FeatureUsage.ts";
 import type { TelemetryOwner } from "./telemetry/Identify.ts";
 import * as UsageService from "./usage/UsageService.ts";
-// Personal build: the Skills page.
+// Personal build: Usage → Limits and the Skills page.
+import { readUsageBreakdown } from "./usage/usageBreakdown.ts";
 import * as SkillLibrary from "./skills/SkillLibrary.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -547,6 +550,29 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+// Personal build: the fork's methods get their own handler layer (see ForkWsRpcGroup).
+const UpstreamServerWsRpcGroup = UpstreamWsRpcGroup.middleware(RpcInstrumentation);
+const ForkServerWsRpcGroup = ForkWsRpcGroup.middleware(RpcInstrumentation);
+
+const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const usage = yield* UsageService.UsageService;
+    const sql = yield* SqlClient.SqlClient;
+    const skillLibrary = yield* SkillLibrary.SkillLibrary;
+    return ForkServerWsRpcGroup.of({
+      [WS_METHODS.serverGetUsageBreakdown]: (input) =>
+        readUsageBreakdown(input).pipe(
+          Effect.provideService(UsageService.UsageService, usage),
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      [WS_METHODS.skillsCreate]: (input) => skillLibrary.create(input),
+      [WS_METHODS.skillsSave]: (input) => skillLibrary.save(input),
+      [WS_METHODS.skillsSetEnabled]: (input) => skillLibrary.setEnabled(input),
+      [WS_METHODS.skillsShare]: (input) => skillLibrary.share(input),
+      [WS_METHODS.skillsDelete]: (input) => skillLibrary.delete(input),
+    });
+  }),
+);
 // Replaying each intervening event costs a shell refetch; past this gap a
 // single O(active-threads) snapshot is cheaper and bounded.
 const SHELL_RESUME_MAX_GAP = 1_000;
@@ -1190,7 +1216,7 @@ export const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  UpstreamServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1249,7 +1275,6 @@ export const layerWsRpc = (
               Effect.orElseSucceed(() => null),
             );
       const usage = yield* UsageService.UsageService;
-      const skillLibrary = yield* SkillLibrary.SkillLibrary;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
@@ -1807,7 +1832,7 @@ export const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = UpstreamServerWsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2699,12 +2724,6 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
-        // Personal build: managing skills from the Skills page.
-        [WS_METHODS.skillsCreate]: (input) => skillLibrary.create(input),
-        [WS_METHODS.skillsSave]: (input) => skillLibrary.save(input),
-        [WS_METHODS.skillsSetEnabled]: (input) => skillLibrary.setEnabled(input),
-        [WS_METHODS.skillsShare]: (input) => skillLibrary.share(input),
-        [WS_METHODS.skillsDelete]: (input) => skillLibrary.delete(input),
         [WS_METHODS.filesystemGetMetadata]: (input) => workspaceFileSystem.getMetadata(input),
         [WS_METHODS.filesystemBrowse]: (input) =>
           workspaceEntries.browse(input).pipe(
@@ -3224,6 +3243,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(layerForkWsRpc),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.

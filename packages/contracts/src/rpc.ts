@@ -330,7 +330,14 @@ import {
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
 } from "./providerUsageLimits.ts";
-import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
+import {
+  UsageBreakdown,
+  UsageBreakdownInput,
+  UsagePricing,
+  UsageReadError,
+  UsageSummary,
+  UsageSummaryInput,
+} from "./usage.ts";
 import {
   SkillCreateInput,
   SkillCreateResult,
@@ -527,6 +534,8 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+  // Personal build: where a weekly limit went, for Usage → Limits.
+  serverGetUsageBreakdown: "server.getUsageBreakdown",
 
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -914,6 +923,13 @@ const WsServerCheckOtlpEndpointRpc = Rpc.make(WS_METHODS.serverCheckOtlpEndpoint
 const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
   payload: UsageSummaryInput,
   success: UsageSummary,
+  error: Schema.Union([EnvironmentAuthorizationError, UsageReadError]),
+});
+
+/** Personal build: per-session usage inside one quota window, for Usage → Limits. */
+const WsServerGetUsageBreakdownRpc = Rpc.make(WS_METHODS.serverGetUsageBreakdown, {
+  payload: UsageBreakdownInput,
+  success: UsageBreakdown,
   error: Schema.Union([EnvironmentAuthorizationError, UsageReadError]),
 });
 
@@ -1922,7 +1938,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const UpstreamWsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2039,11 +2055,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
-  WsSkillsCreateRpc,
-  WsSkillsSaveRpc,
-  WsSkillsSetEnabledRpc,
-  WsSkillsShareRpc,
-  WsSkillsDeleteRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,
   WsAgentSessionsScanRpc,
@@ -2127,3 +2138,20 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
+
+/**
+ * Personal build: the fork's own methods (Skills page, Usage → Limits
+ * breakdown). They live in their own group so the server can build their
+ * handlers apart from upstream's: one handler object for every method
+ * exceeds TypeScript's instantiation depth.
+ */
+export const ForkWsRpcGroup = RpcGroup.make(
+  WsServerGetUsageBreakdownRpc,
+  WsSkillsCreateRpc,
+  WsSkillsSaveRpc,
+  WsSkillsSetEnabledRpc,
+  WsSkillsShareRpc,
+  WsSkillsDeleteRpc,
+).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = UpstreamWsRpcGroup.merge(ForkWsRpcGroup);
