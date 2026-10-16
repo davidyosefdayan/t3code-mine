@@ -23,6 +23,8 @@ import {
 } from "../../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { claudeUsageReader } from "./claudeUsage.ts";
+// Personal build: skills managed from the Skills page.
+import { makeClaudeSkillLibrary } from "./ClaudeSkillLibrary.ts";
 import { makeClaudeScopedLimitNames } from "../claudeUsageLimits.ts";
 import * as ClaudeResetCredits from "../claudeResetCredits.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
@@ -407,6 +409,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       orchestrationAdapter,
       textGeneration,
       consumeResetCredit,
+      // Personal build: skills managed from the Skills page.
+      skillLibrary: makeClaudeSkillLibrary({
+        configDir,
+        driver: DRIVER_KIND,
+        instanceId,
+        fileSystem,
+        path,
+        refresh: snapshot.refresh,
+      }),
     } satisfies ProviderInstance;
   }),
 };
