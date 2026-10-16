@@ -84,13 +84,6 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
       },
     },
   ],
-  // Personal build: "Change icon…" in the thread menu.
-  smile: [
-    { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
-    { tag: "path", attrs: { d: "M8 14s1.5 2 4 2 4-2 4-2" } },
-    { tag: "line", attrs: { x1: "9", x2: "9.01", y1: "9", y2: "9" } },
-    { tag: "line", attrs: { x1: "15", x2: "15.01", y1: "9", y2: "9" } },
-  ],
   "pin-off": [
     { tag: "path", attrs: { d: "M12 17v5" } },
     { tag: "path", attrs: { d: "M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" } },
