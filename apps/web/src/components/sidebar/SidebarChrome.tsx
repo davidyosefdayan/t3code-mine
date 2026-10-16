@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -9,8 +9,6 @@ import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
-  resolveSidebarStageBackdropVariant,
-  SidebarStageBackdrop,
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
@@ -33,45 +31,51 @@ import { observeResize } from "~/lib/observeResize";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
+  title = "Threads",
 }: {
   isElectron: boolean;
+  /** Personal build: every page sidebar is titled with its page. */
+  title?: string;
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const backdropVariant = resolveSidebarStageBackdropVariant(
-    stageLabel,
-    environmentIdentificationMode === "artwork",
-  );
   const pillLabel =
     environmentIdentificationMode === "pill"
       ? resolveEnvironmentIdentificationPillLabel(stageLabel)
       : null;
 
   return (
+    // The titlebar row, not a padded SidebarHeader: it aligns to the window controls.
+    // Personal build: the app name lives in the top bar, so every sidebar shares
+    // this header instead: its page title and a collapse button. No stage
+    // artwork; dev and nightly builds can still be marked with the pill setting.
     <div
       className={cn(
-        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 pr-3",
+        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 pr-3 md:ps-4 md:pe-2",
         isElectron && "drag-region",
       )}
     >
-      {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
+      {/* Match the fixed control's inset and border compensation inside the sheet's safe area. */}
       <div className="relative top-[calc(var(--workspace-controls-top)-env(safe-area-inset-top))] z-10 ml-[calc(var(--workspace-controls-left)+1px-env(safe-area-inset-left))] flex shrink-0 items-center md:hidden">
         <SidebarTrigger
-          variant={backdropVariant ? "media-navigation" : "ghost"}
+          variant="ghost"
           className="relative top-auto translate-y-0"
           aria-label="Toggle main sidebar"
         />
       </div>
-      <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
-        <SidebarBrand onBackdrop={backdropVariant !== null} />
-        {pillLabel ? (
-          <div className="ml-1 flex h-7 items-center">
-            <Badge data-environment-identification="pill" size="sm" variant="secondary">
-              {pillLabel}
-            </Badge>
-          </div>
-        ) : null}
-      </div>
+      <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-sidebar-foreground">
+        {title}
+      </h2>
+      {pillLabel ? (
+        <Badge data-environment-identification="pill" size="sm" variant="secondary">
+          {pillLabel}
+        </Badge>
+      ) : null}
+      <SidebarTrigger
+        variant="ghost"
+        className="relative top-auto z-10 hidden translate-y-0 md:inline-flex"
+        aria-label="Toggle main sidebar"
+      />
     </div>
   );
 });
@@ -97,21 +101,6 @@ export function SidebarBrandWidthProbe({
         <SidebarBrandMark onBackdrop={false} />
       </div>
     </div>
-  );
-}
-
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
-  return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <SidebarBrandMark onBackdrop={onBackdrop} />
-    </Link>
   );
 }
 
@@ -156,6 +145,7 @@ function SidebarUtilityItem({
   );
 }
 
+// oxlint-disable-next-line no-unused-vars -- Personal build: the app rail replaces this menu.
 const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
@@ -234,11 +224,12 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter({
   showUndoNotice?: boolean;
 }) {
   return (
-    <SidebarFooter>
+    // Personal build: pages and updates live in the app rail, so the footer
+    // holds only transient notices and takes no space while empty.
+    <SidebarFooter className="empty:hidden">
       {showUndoNotice ? <SidebarThreadUndoNotice /> : null}
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
-      <SidebarUtilityMenu />
     </SidebarFooter>
   );
 });

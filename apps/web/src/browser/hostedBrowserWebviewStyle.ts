@@ -12,7 +12,7 @@ export interface HostedBrowserWebviewWrapperStyle {
   readonly height: number;
   readonly zIndex: number;
   readonly pointerEvents: "auto" | "none";
-  readonly borderRadius?: number;
+  readonly borderRadius?: number | string;
   readonly visibility?: "hidden" | "visible";
 }
 
@@ -22,7 +22,7 @@ export function resolveHostedBrowserWebviewWrapperStyle(input: {
   readonly active: boolean;
   readonly renderingActive: boolean;
   readonly keepPaintableWhenInactive?: boolean;
-  readonly cornerRadius?: number;
+  readonly cornerRadius?: number | string;
   readonly zIndex?: number;
   readonly rect: BrowserSurfaceRect | null;
   readonly hiddenSize: HostedBrowserWebviewSize;
@@ -44,7 +44,7 @@ export function resolveHostedBrowserWebviewWrapperStyle(input: {
       height: rect.height,
       zIndex,
       pointerEvents: "auto",
-      ...(cornerRadius > 0 ? { borderRadius: cornerRadius } : {}),
+      ...(cornerRadius !== 0 ? { borderRadius: cornerRadius } : {}),
     };
   }
 
