@@ -76,6 +76,7 @@ import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "./wsl/DesktopWslServerTree.ts";
+import { explainAndQuit, findOtherRunningT3Code } from "./otherInstanceGuard.ts";
 
 if (process.argv.includes("--version")) {
   try {
@@ -240,4 +241,10 @@ const layerDesktopRuntime = layerDesktopClerk.pipe(
   Layer.provideMerge(DesktopPreReadyPlatform.layer),
 );
 
-DesktopApp.program.pipe(Effect.provide(layerDesktopRuntime), NodeRuntime.runMain);
+// Personal build: never run beside another T3 Code app; they share one database.
+const otherRunningT3Code = findOtherRunningT3Code();
+if (otherRunningT3Code === null) {
+  DesktopApp.program.pipe(Effect.provide(layerDesktopRuntime), NodeRuntime.runMain);
+} else {
+  explainAndQuit(otherRunningT3Code);
+}
