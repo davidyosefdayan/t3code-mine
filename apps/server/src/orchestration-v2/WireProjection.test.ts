@@ -7,6 +7,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  RunId,
   ThreadId,
   TurnItemId,
   type OrchestrationV2ThreadProjection,
@@ -147,6 +148,84 @@ describe("orchestration V2 wire projection", () => {
 
     expect(shell.latestVisibleMessage).toBeNull();
     expect(JSON.stringify(shell).length).toBeLessThan(2_000);
+  });
+
+  it("bounds the shell's reply preview and live step", () => {
+    const now = DateTime.makeUnsafe("2026-08-13T00:00:00.000Z");
+    const threadId = ThreadId.make("thread-shell-live");
+    const runId = RunId.make("run-shell-live");
+    const itemBase = {
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      title: null,
+      startedAt: now,
+      completedAt: null,
+      updatedAt: now,
+    };
+    const reply = {
+      ...itemBase,
+      id: TurnItemId.make("reply"),
+      type: "assistant_message",
+      ordinal: 1,
+      status: "completed",
+      messageId: MessageId.make("message-reply"),
+      text: "x".repeat(1_000_000),
+      streaming: false,
+    } satisfies OrchestrationV2TurnItem;
+    const step = {
+      ...itemBase,
+      id: TurnItemId.make("step"),
+      type: "command_execution",
+      ordinal: 2,
+      status: "running",
+      input: "y".repeat(100_000),
+      output: "z".repeat(1_000_000),
+    } satisfies OrchestrationV2TurnItem;
+    const projection = {
+      thread: {
+        id: threadId,
+        projectId: ProjectId.make("project-shell-live"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        activeProviderThreadId: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        deletedAt: null,
+      },
+      runs: [{ id: runId, ordinal: 1, status: "running", requestedAt: now, startedAt: now }],
+      attempts: [],
+      runtimeRequests: [],
+      messages: [],
+      providerSessions: [],
+      providerThreads: [],
+      turnItems: [reply, step],
+      visibleTurnItems: [reply, step].map((item, position) => ({
+        position,
+        visibility: "local",
+        sourceThreadId: threadId,
+        sourceItemId: item.id,
+        item,
+      })),
+      plans: [],
+      updatedAt: now,
+    } as unknown as OrchestrationV2ThreadProjection;
+
+    const shell = threadShellFromProjection(projection);
+
+    expect(shell.latestVisibleMessage?.id).toBe(reply.messageId);
+    expect(shell.latestVisibleMessage?.text.endsWith("…")).toBe(true);
+    expect(shell.liveActivity?.id).toBe(step.id);
+    expect(shell.liveActivity).not.toHaveProperty("output");
+    expect(JSON.stringify(shell).length).toBeLessThan(3_000);
   });
 
   it("omits even small dynamic tool results while retaining input", () => {

@@ -1842,6 +1842,12 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   usageLimitResetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
+  /**
+   * Personal build: the newest step still running in the thread's active run,
+   * trimmed (no output, short strings) so shell rows stay small. Absent or
+   * null while nothing runs.
+   */
+  liveActivity: Schema.optional(Schema.NullOr(OrchestrationV2TurnItem)),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /**
    * The last message the user wrote. Wakes and agent messages also use the
@@ -2368,6 +2374,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummaryJson),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummaryJson),
+  liveActivity: Schema.optional(Schema.NullOr(OrchestrationV2TurnItemJson)),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   createdAt: Schema.DateTimeUtcFromString,
