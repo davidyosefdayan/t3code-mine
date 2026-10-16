@@ -128,6 +128,26 @@ export interface ProviderInstance {
       readonly providerId: string;
     }) => Effect.Effect<void, AcpRegistryOperationError>;
   };
+  /**
+   * Personal build: where this provider keeps skills and its own switch for
+   * turning one off, for the Skills page. Absent when T3 Code cannot manage
+   * the provider's skills.
+   */
+  readonly skillLibrary?: ProviderSkillLibrary;
+}
+
+/** Personal build: see {@link ProviderInstance.skillLibrary}. */
+export interface ProviderSkillLibrary {
+  /** Folder of personal skills, one folder per skill holding its SKILL.md. */
+  readonly personalRoot: string;
+  /** The same, relative to a project folder. */
+  readonly projectFolder: string;
+  /** Switch one skill off or back on, then republish the provider snapshot. */
+  readonly setEnabled: (input: {
+    readonly path: string;
+    readonly name: string;
+    readonly enabled: boolean;
+  }) => Effect.Effect<void, ProviderDriverError>;
 }
 
 export interface ProviderContinuationIdentity {

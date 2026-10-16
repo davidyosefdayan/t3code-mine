@@ -73,6 +73,8 @@ import {
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
 import { makeManagedCodexProvider } from "./CodexManagedProvider.ts";
+// Personal build: skills managed from the Skills page.
+import { makeCodexSkillLibrary } from "./CodexSkillLibrary.ts";
 import { codexUsageReader } from "./codexUsage.ts";
 import * as CodexInstallation from "../CodexInstallation.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
@@ -384,6 +386,30 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
         consumeResetCredit,
         orchestrationAdapter,
         textGeneration,
+        // Personal build: skills managed from the Skills page.
+        skillLibrary: makeCodexSkillLibrary({
+          homePath: homeLayout.sharedHomePath,
+          driver: DRIVER_KIND,
+          instanceId,
+          path: pathService,
+          writeSkillConfig: (params) =>
+            Effect.gen(function* () {
+              const { client } = yield* withCodexAppServerClient({
+                binaryPath: effectiveConfig.binaryPath,
+                homePath: effectiveConfig.homePath,
+                launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv),
+                // Account-level request; any directory serves, same as the status probe.
+                cwd: process.cwd(),
+                environment: processEnv,
+              });
+              return yield* client.request("skills/config/write", params);
+            }).pipe(
+              Effect.scoped,
+              Effect.timeout("20 seconds"),
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            ),
+          refresh: snapshot.refresh,
+        }),
       } satisfies ProviderInstance;
     }),
 };

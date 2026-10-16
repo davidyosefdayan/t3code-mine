@@ -143,6 +143,12 @@ const RPC_AGGREGATES = {
   [WS_METHODS.projectsEnsureScratch]: "orchestration",
   [WS_METHODS.projectsCreateNew]: "orchestration",
   [WS_METHODS.shellOpenInEditor]: "workspace",
+  // Personal build: the Skills page.
+  [WS_METHODS.skillsCreate]: "workspace",
+  [WS_METHODS.skillsSave]: "workspace",
+  [WS_METHODS.skillsSetEnabled]: "workspace",
+  [WS_METHODS.skillsShare]: "workspace",
+  [WS_METHODS.skillsDelete]: "workspace",
   [WS_METHODS.filesystemBrowse]: "workspace",
   [WS_METHODS.filesystemGetMetadata]: "workspace",
   [WS_METHODS.agentSessionsScan]: "workspace",

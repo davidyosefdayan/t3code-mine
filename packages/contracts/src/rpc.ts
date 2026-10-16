@@ -325,6 +325,16 @@ import {
 } from "./providerUsageLimits.ts";
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import {
+  SkillCreateInput,
+  SkillCreateResult,
+  SkillDeleteInput,
+  SkillDeleteResult,
+  SkillLibraryError,
+  SkillSaveInput,
+  SkillSetEnabledInput,
+  SkillShareInput,
+} from "./skills.ts";
+import {
   StorageCleanupReport,
   ServerSettings,
   ServerSettingsError,
@@ -385,6 +395,13 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+
+  // Personal build: managing skills from the Skills page.
+  skillsCreate: "skills.create",
+  skillsSave: "skills.save",
+  skillsSetEnabled: "skills.setEnabled",
+  skillsShare: "skills.share",
+  skillsDelete: "skills.delete",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -510,7 +527,6 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
-
   // Scheduled tasks
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -1264,6 +1280,31 @@ const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
 });
 
+// Personal build: managing skills from the Skills page.
+const SkillLibraryRpcError = Schema.Union([SkillLibraryError, EnvironmentAuthorizationError]);
+const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+  payload: SkillCreateInput,
+  success: SkillCreateResult,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsSaveRpc = Rpc.make(WS_METHODS.skillsSave, {
+  payload: SkillSaveInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
+  payload: SkillSetEnabledInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsShareRpc = Rpc.make(WS_METHODS.skillsShare, {
+  payload: SkillShareInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
+  payload: SkillDeleteInput,
+  success: SkillDeleteResult,
+  error: SkillLibraryRpcError,
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -1989,6 +2030,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
+  WsSkillsCreateRpc,
+  WsSkillsSaveRpc,
+  WsSkillsSetEnabledRpc,
+  WsSkillsShareRpc,
+  WsSkillsDeleteRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,
   WsAgentSessionsScanRpc,

@@ -78,6 +78,7 @@ import {
   SunIcon,
   TextSearchIcon,
 } from "lucide-react";
+import { SkillsIcon } from "./skills/SkillsIcon";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
   useCallback,
@@ -2230,6 +2231,18 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  // Personal build: the Skills page.
+  actionItems.push({
+    kind: "action",
+    value: "action:skills",
+    searchTerms: ["skills", "skill", "slash", "commands", "instructions", "SKILL.md"],
+    title: "Open skills",
+    icon: <SkillsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/skills" });
     },
   });
 
