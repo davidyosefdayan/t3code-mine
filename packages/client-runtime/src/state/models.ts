@@ -149,6 +149,15 @@ export interface EnvironmentThreadShell {
   /** Pending title regeneration marker; null when no request is in flight. */
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
   readonly deletedAt: string | null;
+  /** Personal build: the agent's latest finished reply, cut short. Servers
+      fill it for unsettled threads only. */
+  readonly latestVisibleMessage?: {
+    readonly role: string;
+    readonly text: string;
+    readonly updatedAt: string;
+  } | null;
+  /** Personal build: the newest step still running, trimmed. */
+  readonly liveActivity?: OrchestrationV2ThreadShell["liveActivity"];
   readonly source: OrchestrationV2ThreadShell;
 }
 
@@ -296,6 +305,16 @@ export function presentThreadShell(
             startedAt: iso(thread.titleRegeneration.startedAt),
           },
     deletedAt: nullableIso(thread.deletedAt),
+    ...(thread.latestVisibleMessage === null
+      ? {}
+      : {
+          latestVisibleMessage: {
+            role: thread.latestVisibleMessage.role,
+            text: thread.latestVisibleMessage.text,
+            updatedAt: iso(thread.latestVisibleMessage.updatedAt),
+          },
+        }),
+    ...(thread.liveActivity == null ? {} : { liveActivity: thread.liveActivity }),
     source: thread,
   };
 }
