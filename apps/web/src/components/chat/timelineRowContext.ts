@@ -49,6 +49,8 @@ export interface TimelineRowSharedState {
   onRespondToApproval:
     | ((requestId: RuntimeRequestId, decision: ProviderApprovalDecision) => Promise<unknown>)
     | undefined;
+  /** Personal build: rows render in the chat-style layout (chatTimelineRows.ts). */
+  chatStyle: boolean;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;

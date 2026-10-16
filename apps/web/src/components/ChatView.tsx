@@ -3453,6 +3453,8 @@ export default function ChatView(props: ChatViewProps) {
                 isPreparingWorktree={isPreparingWorktree}
                 footer={timelineFooter}
                 listRef={legendListRef}
+                // Personal build: the chat-style conversation (chat/chatTimelineRows.ts).
+                chatStyle
                 runs={serverProjection?.runs ?? []}
                 latestRun={activeActivityRun}
                 announcedRun={announcedRun(activeActivityRun, serverProjection?.runs ?? [])}

@@ -2,13 +2,13 @@ import { useState } from "react";
 import {
   computeStableMessagesTimelineRows,
   handoffRunsSignature,
-  type MessagesTimelineRowsInput,
   sameRowsInput,
   deriveMessagesTimelineRowsWithState,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
+import { type ChatTimelineRowsInput } from "./chatTimelineRows";
 
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
 
@@ -41,12 +41,15 @@ export function useStableHandoffRuns(
  */
 export function useIncrementalTimelineRows(
   identity: string,
-  input: MessagesTimelineRowsInput,
+  input: ChatTimelineRowsInput,
+  // Personal build: the chat-style layout passes its own row builder; it is
+  // part of the identity, so a projection never mixes the two.
+  derive: (input: ChatTimelineRowsInput) => MessagesTimelineRow[],
 ): MessagesTimelineRow[] {
   const [state, setState] = useState(() => ({
     identity,
     input,
-    projection: deriveMessagesTimelineRowsWithState(input),
+    projection: deriveMessagesTimelineRowsWithState(input, null, derive),
   }));
   if (state.identity === identity && sameRowsInput(state.input, input)) {
     return state.projection.rows;
@@ -54,6 +57,7 @@ export function useIncrementalTimelineRows(
   const projection = deriveMessagesTimelineRowsWithState(
     input,
     state.identity === identity ? state.projection : null,
+    derive,
   );
   setState({ identity, input, projection });
   return projection.rows;
