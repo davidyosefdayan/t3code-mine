@@ -228,7 +228,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      // Personal build: matches the installer's app id (build-desktop-artifact.ts),
+      // which Windows needs for notifications and taskbar grouping.
+      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code.mine",
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
