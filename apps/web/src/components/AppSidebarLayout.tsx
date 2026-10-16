@@ -40,6 +40,7 @@ import {
 } from "../panelAnimations";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
+import { NeedsYouDockBadge } from "./needsYouCount";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { AppRail } from "./sidebar/AppRail";
@@ -593,6 +594,7 @@ export function AppSidebarLayout({
         </Sidebar>
         {children}
         <BackgroundThreadAnnouncer />
+        <NeedsYouDockBadge />
         <SidebarControl showSidebar={showSidebar} />
         {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
