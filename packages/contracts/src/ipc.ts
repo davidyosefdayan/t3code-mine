@@ -1008,6 +1008,8 @@ export interface DesktopBridge {
   getPathForFile?: (file: File) => string;
   getClientPlatform?: () => string;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
+  /** Personal build: switch the app icon (Dock, or window icons off macOS) to the theme's icon. */
+  setDockPaletteIcon?: (palette: string) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
   /**
