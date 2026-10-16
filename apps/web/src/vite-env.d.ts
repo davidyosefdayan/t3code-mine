@@ -16,6 +16,8 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
   readonly T3CODE_DESKTOP_UPDATE_REPOSITORY: string;
   readonly T3CODE_FEATURE_SECRETS: string;
+  /** "1" in the fork maintainer's own builds: shows the fork update button. */
+  readonly VITE_T3_FORK_MAINTAINER: string;
   readonly APP_VERSION: string;
 }
 
