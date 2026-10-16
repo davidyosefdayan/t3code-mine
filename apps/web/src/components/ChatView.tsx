@@ -254,6 +254,7 @@ import {
   PullRequestThreadDialogHost,
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
+import { collectChatMedia, withChatMedia } from "./chat/chatMediaGallery";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import type { MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
 import { ThreadTimeline } from "./chat/ThreadTimeline";
@@ -3044,7 +3045,14 @@ export default function ChatView(props: ChatViewProps) {
   ]);
 
   const onExpandTimelineImage = (preview: ExpandedImagePreview) => {
-    openExpandedImagePreview(routeThreadKey, preview);
+    // Personal build: the lightbox browses every image and video in the chat. The
+    // list is built on click from the messages, since the timeline is virtualized.
+    const chatMedia = collectChatMedia(timelineMessages, {
+      environmentId: activeThreadRef?.environmentId ?? null,
+      threadRef: activeThreadRef ?? null,
+      cwd: gitCwd ?? undefined,
+    });
+    openExpandedImagePreview(routeThreadKey, withChatMedia(preview, chatMedia));
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
 
