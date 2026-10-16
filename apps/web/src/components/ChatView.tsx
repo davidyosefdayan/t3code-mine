@@ -450,6 +450,7 @@ import { createPageScrollController, type PageScrollKey } from "./chat/pageScrol
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
+import { collectChatMedia, withChatMedia } from "./chat/chatMediaGallery";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { MessagesTimeline, type MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
@@ -10799,7 +10800,14 @@ export default function ChatView(props: ChatViewProps) {
   };
 
   const onExpandTimelineImage = (preview: ExpandedImagePreview) => {
-    setExpandedImage(preview);
+    // Personal build: the lightbox browses every image and video in the chat. The
+    // list is built on click from the messages, since the timeline is virtualized.
+    const chatMedia = collectChatMedia(timelineMessages, {
+      environmentId: activeThreadRef?.environmentId ?? null,
+      threadRef: activeThreadRef ?? null,
+      cwd: gitCwd ?? undefined,
+    });
+    setExpandedImage(withChatMedia(preview, chatMedia));
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const onOpenTurnDiff = (runId: RunId, filePath?: string) => {

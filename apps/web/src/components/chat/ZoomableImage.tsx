@@ -19,11 +19,14 @@ export function ZoomableImage({
   src,
   name,
   onError,
+  reservedHeight = 160,
   ref,
 }: {
   src: string;
   name: string;
   onError: () => void;
+  /** Personal build: room kept free for the lightbox's top bar and film strip. */
+  reservedHeight?: number;
   ref?: Ref<ZoomableImageHandle>;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -44,7 +47,10 @@ export function ZoomableImage({
   } | null>(null);
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const maxHeight = Math.max(1, Math.min(windowSize.height * 0.86, windowSize.height - 160));
+  const maxHeight = Math.max(
+    1,
+    Math.min(windowSize.height * 0.86, windowSize.height - reservedHeight),
+  );
   const fit = Math.min(
     1,
     (windowSize.width * 0.92 - (windowSize.width >= 640 ? 96 : 0)) / (naturalSize.width || 1),
