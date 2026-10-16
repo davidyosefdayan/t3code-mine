@@ -1,4 +1,4 @@
-import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
+import { SidebarGroupButton } from "./ThreadRowParts";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type ReactNode, useLayoutEffect } from "react";
@@ -107,40 +107,47 @@ export function SidebarDragBoundary(props: {
   );
 }
 
+/** Personal build: a group's id in the keyboard tree; its rows name it as their parent. */
+export function sidebarShelfId(marker: SidebarListMarker | undefined): string {
+  if (marker === undefined) return "new";
+  if (marker === "pinned-divider" || marker === "active-placeholder") return "active";
+  if (marker === "settled-placeholder") return "settled";
+  return marker.replace(/-header$/, "");
+}
+
+// Personal build: one title style for every group (New threads, Unread,
+// Pinned, Open, Working, Snoozed, Settled); clicking it collapses the group.
 export function SidebarSectionHeader(props: {
-  marker: "working-header" | "snoozed-header" | "settled-header";
+  // The group's place in the drag list, so drops can tell which group they
+  // land in. The New threads title sits above the list and has none.
+  marker?: SidebarListMarker;
   label: string;
-  /** A muted trailing count. */
   count: number;
   className?: string;
-  dragging?: boolean;
   isDropTarget?: boolean;
+  // The count reads as a badge: these threads are waiting on you.
+  emphasis?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
 }) {
-  const shelf =
-    props.marker === "working-header"
-      ? "working"
-      : props.marker === "snoozed-header"
-        ? "snoozed"
-        : "settled";
+  const button = (
+    <SidebarGroupButton
+      label={props.label}
+      count={props.count}
+      expanded={props.toggle.expanded}
+      onToggle={props.toggle.onToggle}
+      isDropTarget={props.isDropTarget}
+      emphasis={props.emphasis}
+      rowId={`shelf:${sidebarShelfId(props.marker)}`}
+    />
+  );
+  if (props.marker === undefined) return <li className="list-none pt-3">{button}</li>;
   return (
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("relative mx-0.5 h-8", props.className)}
+      className={cn("pt-3", props.className)}
     >
-      <CollapsibleSectionHeader
-        role="treeitem"
-        tabIndex={-1}
-        data-sidebar-row={`shelf:${shelf}`}
-        onClick={props.toggle.onToggle}
-        expanded={props.toggle.expanded}
-        tone={props.isDropTarget ? "accent" : props.dragging ? "emphasized" : "muted"}
-        data-testid={`sidebar-${shelf}-shelf-toggle`}
-        accessory={<span className="font-normal tabular-nums">{props.count}</span>}
-      >
-        {props.label}
-      </CollapsibleSectionHeader>
+      {button}
     </SortableSidebarMarker>
   );
 }
