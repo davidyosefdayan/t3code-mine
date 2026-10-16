@@ -15,8 +15,7 @@ function isUsageView(value: unknown): value is UsageView {
 // read loosely so the sidebar can render a frame apart from the page.
 export function UsageSidebarNav() {
   const router = useRouter();
-  const saved: { readonly metric: UsageView; readonly spendMetric?: "cost" | "tokens" } =
-    readUsagePagePreferences();
+  const saved = readUsagePagePreferences();
   const searchMetric = useLocation({
     select: (location) => (location.search as { readonly metric?: unknown }).metric,
   });
