@@ -46,6 +46,7 @@ import { AppRail } from "./sidebar/AppRail";
 import { AppTopBar } from "./sidebar/AppTopBar";
 import { PullRequestsSidebarNav } from "./pullRequest/PullRequestsSidebarNav";
 import { UsageSidebarNav } from "./usage/UsageSidebarNav";
+import { SkillsSidebarNav } from "./skills/SkillsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
@@ -368,6 +369,17 @@ function resolvePageSidebar(
         <>
           <SidebarChromeHeader isElectron={isElectron} title="Usage" />
           <UsageSidebarNav />
+        </>
+      ),
+    };
+  }
+  if (pathname.startsWith("/skills")) {
+    return {
+      label: "Skills",
+      content: (
+        <>
+          <SidebarChromeHeader isElectron={isElectron} title="Skills" />
+          <SkillsSidebarNav />
         </>
       ),
     };
