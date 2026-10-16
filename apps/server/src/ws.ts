@@ -242,6 +242,8 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { commandFeatureUsage, featureUsage } from "./telemetry/FeatureUsage.ts";
 import type { TelemetryOwner } from "./telemetry/Identify.ts";
 import * as UsageService from "./usage/UsageService.ts";
+// Personal build: the Skills page.
+import * as SkillLibrary from "./skills/SkillLibrary.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -1476,6 +1478,7 @@ export const layerWsRpc = (
               Effect.orElseSucceed(() => null),
             );
       const usage = yield* UsageService.UsageService;
+      const skillLibrary = yield* SkillLibrary.SkillLibrary;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
@@ -3043,6 +3046,12 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
+        // Personal build: managing skills from the Skills page.
+        [WS_METHODS.skillsCreate]: (input) => skillLibrary.create(input),
+        [WS_METHODS.skillsSave]: (input) => skillLibrary.save(input),
+        [WS_METHODS.skillsSetEnabled]: (input) => skillLibrary.setEnabled(input),
+        [WS_METHODS.skillsShare]: (input) => skillLibrary.share(input),
+        [WS_METHODS.skillsDelete]: (input) => skillLibrary.delete(input),
         [WS_METHODS.filesystemGetMetadata]: (input) => workspaceFileSystem.getMetadata(input),
         [WS_METHODS.filesystemBrowse]: (input) =>
           workspaceEntries.browse(input).pipe(

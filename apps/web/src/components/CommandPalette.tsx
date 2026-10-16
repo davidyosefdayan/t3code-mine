@@ -79,6 +79,7 @@ import {
   TextSearchIcon,
   UserPlusIcon,
 } from "lucide-react";
+import { SkillsIcon } from "./skills/SkillsIcon";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
   useDeferredValue,
@@ -1661,6 +1662,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+  // Personal build: the Skills page.
+  actionItems.push({
+    kind: "action",
+    value: "action:skills",
+    searchTerms: ["skills", "skill", "slash", "commands", "instructions", "SKILL.md"],
+    title: "Open skills",
+    icon: <SkillsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/skills" });
+    },
+  });
 
   actionItems.push({
     kind: "action",
