@@ -50,6 +50,7 @@ export * from "./threadTags.ts";
 export * from "./threadTitle.ts";
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
+export * from "./skills.ts";
 export * from "./project.ts";
 export * from "./filesystem.ts";
 export * from "./agentSessions.ts";
