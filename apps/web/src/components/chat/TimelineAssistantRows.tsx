@@ -1,4 +1,6 @@
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
+import { ReadAloudButton } from "./ReadAloudButton";
+import { AGENT_BUBBLE_CLASS_NAME } from "./ChatStyleRows";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { memo, use, useState } from "react";
@@ -26,10 +28,23 @@ import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts"
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  // Personal build: in the chat layout the answer (and what the agent tells you
+  // along the way) is a gray bubble; notes written along the way sit quietly in
+  // the turn's work, and the bubble's time and copy button are always shown.
+  const chatBubble = row.chat === "answer" || row.chat === "to-user";
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div
+        className={cn(
+          "relative min-w-0",
+          chatBubble
+            ? AGENT_BUBBLE_CLASS_NAME
+            : row.chat === "note"
+              ? "px-1 py-0.5 opacity-75"
+              : "px-1 py-0.5",
+        )}
+      >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <div data-thread-find-text="true">
           <AssistantCitationSource
@@ -59,7 +74,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
-        {row.showAssistantMeta ? (
+        {row.showAssistantMeta && !chatBubble ? (
           <AssistantMessageMeta
             className="mt-1.5"
             projectedItem={row.projectedItem}
@@ -69,6 +84,17 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
           />
         ) : null}
       </div>
+      {chatBubble ? (
+        // Every bubble gets its copy button, speaker, and time, even mid-turn.
+        <AssistantMessageMeta
+          className="mt-1 px-1"
+          projectedItem={row.projectedItem}
+          message={row.message}
+          showCopyButton
+          copyStreaming={row.assistantCopyStreaming}
+          alwaysVisible
+        />
+      ) : null}
     </>
   );
 }
@@ -207,11 +233,22 @@ function AssistantCopyButton({
     streaming,
   });
 
+  const { routeThreadKey } = use(TimelineRowCtx);
   if (!assistantCopyState.visible) {
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  // Personal build: read aloud sits next to copy, on the same finished answers.
+  return (
+    <div className="flex items-center gap-0.5">
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReadAloudButton
+        messageId={message.id}
+        threadKey={routeThreadKey}
+        text={assistantCopyState.text ?? ""}
+      />
+    </div>
+  );
 }
 
 export function ProposedPlanTimelineRow({

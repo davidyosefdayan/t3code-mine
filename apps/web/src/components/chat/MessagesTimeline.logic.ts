@@ -524,6 +524,8 @@ type MessagesTimelineRowContent =
       groupedEntries: WorkLogEntry[];
       isExpandedToolGroup: boolean;
       displayLabel?: string;
+      /** Personal build: a step inside a chat work line, or a centered chat event. */
+      chat?: "step" | "event";
     }
   | {
       kind: "work-live";
@@ -600,6 +602,8 @@ type MessagesTimelineRowContent =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Personal build: how the chat-style layout shows this message. */
+      chat?: "answer" | "note" | "to-user";
     }
   | {
       kind: "assistant-meta";
@@ -638,6 +642,33 @@ type MessagesTimelineRowContent =
       itemId: TurnItemId;
       revision: string;
       mcpApp: McpAppReference;
+    }
+  // Personal build: chat-style rows (chatTimelineRows.ts).
+  | {
+      /** One "Worked for …" line per stretch of a turn's work; live while it works. */
+      kind: "chat-work";
+      id: string;
+      createdAt: string | null;
+      label: string;
+      live: boolean;
+      expanded: boolean;
+      stepCount: number;
+      /** The agent is compacting its context, so it is not typing an answer. */
+      compacting: boolean;
+    }
+  | {
+      /** Where the answer will appear while the agent works. */
+      kind: "chat-typing";
+      id: string;
+      createdAt: string | null;
+      compacting: boolean;
+    }
+  | {
+      /** Your answer to a question the agent asked, as your reply. */
+      kind: "chat-reply";
+      id: string;
+      createdAt: string;
+      entry: WorkLogEntry;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -701,7 +732,8 @@ export function resolveAssistantMessageCopyState({
   };
 }
 
-function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<TimelineEntry>) {
+// Personal build: shared with the chat-style rows (chatTimelineRows.ts).
+export function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<TimelineEntry>) {
   const lastAssistantMessageIdByResponseKey = new Map<string, string>();
   let nullTurnResponseIndex = 0;
 
@@ -838,7 +870,7 @@ function deriveSupersededAttemptFolds(
  * still the "active" one until the server creates the new turn, and folding
  * must not flicker through that window.
  */
-function deriveUnsettledRunId(
+export function deriveUnsettledRunId(
   latestRun: TimelineLatestRun | null,
   runningRunId: RunId | null = null,
 ): RunId | null {
@@ -944,7 +976,7 @@ function lastResponseBoundaryIndex(timelineEntries: ReadonlyArray<TimelineEntry>
   return timelineEntries.findLastIndex(timelineEntryStartsResponse);
 }
 
-function deriveActiveVisualResponseRunIds(input: {
+export function deriveActiveVisualResponseRunIds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   unsettledRunId: RunId | null;
   isWorking: boolean;
@@ -1371,7 +1403,7 @@ function settleSupersededReasoning(entries: ReadonlyArray<TimelineEntry>) {
   });
 }
 
-function timelineRowEntries(entries: ReadonlyArray<TimelineEntry>) {
+export function timelineRowEntries(entries: ReadonlyArray<TimelineEntry>) {
   return withoutSubagentDelegationRows(settleSupersededReasoning(entries));
 }
 
@@ -2070,7 +2102,7 @@ function attachCreatedThreadSummaries(
   });
 }
 
-const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
+export const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
 
 export type MessagesTimelineRowsInput = Parameters<typeof deriveMessagesTimelineRows>[0];
 
@@ -2199,15 +2231,16 @@ function replaceStreamingMessageRows(
   });
 }
 
-export function deriveMessagesTimelineRowsWithState(
-  input: MessagesTimelineRowsInput,
+export function deriveMessagesTimelineRowsWithState<Input extends MessagesTimelineRowsInput>(
+  input: Input,
   previous: MessagesTimelineRowsProjection | null = null,
+  // Personal build: the chat-style layout derives its own rows (chatTimelineRows.ts).
+  derive: (input: Input) => MessagesTimelineRow[] = deriveMessagesTimelineRows,
 ): MessagesTimelineRowsProjection {
   return {
     input,
     rows:
-      (previous === null ? null : replaceStreamingMessageRows(input, previous)) ??
-      deriveMessagesTimelineRows(input),
+      (previous === null ? null : replaceStreamingMessageRows(input, previous)) ?? derive(input),
   };
 }
 
@@ -2301,6 +2334,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.isExpandedToolGroup === bw.isExpandedToolGroup &&
         a.displayLabel === bw.displayLabel &&
+        a.chat === bw.chat &&
+        a.continuesWorkLog === bw.continuesWorkLog &&
         Equal.equals(a.groupedEntries, bw.groupedEntries)
       );
     }
@@ -2343,9 +2378,30 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.chat === bm.chat
       );
     }
+
+    case "chat-work": {
+      const bc = b as typeof a;
+      return (
+        a.createdAt === bc.createdAt &&
+        a.label === bc.label &&
+        a.live === bc.live &&
+        a.expanded === bc.expanded &&
+        a.stepCount === bc.stepCount &&
+        a.compacting === bc.compacting
+      );
+    }
+
+    case "chat-typing": {
+      const bc = b as typeof a;
+      return a.createdAt === bc.createdAt && a.compacting === bc.compacting;
+    }
+
+    case "chat-reply":
+      return a.entry === (b as typeof a).entry;
   }
 }
 

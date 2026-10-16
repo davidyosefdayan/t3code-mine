@@ -1,4 +1,5 @@
 import { findRevealRef } from "./markdownFindContext";
+import { USER_BUBBLE_CLASS_NAME } from "./ChatStyleRows";
 import { type MessageId, type ServerProviderSkill, ThreadId } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
@@ -433,9 +434,16 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ) : null}
       <div
         className={cn(
-          "relative min-w-0 max-w-[80%] rounded-2xl bg-message text-message-foreground",
-          !folded && "p-3",
-          folded && expanded && "w-full",
+          "relative min-w-0 max-w-[80%]",
+          // Personal build: your own messages are a theme-color bubble in the chat layout;
+          // messages from agents keep upstream's folded row.
+          ctx.chatStyle && !folded
+            ? USER_BUBBLE_CLASS_NAME
+            : cn(
+                "rounded-2xl bg-message text-message-foreground",
+                !folded && "p-3",
+                folded && expanded && "w-full",
+              ),
         )}
       >
         {folded ? (
@@ -581,7 +589,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       </div>
       <UserMessageProjectedStatus row={row} />
       {!folded || expanded ? (
-        <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+        <div
+          className={cn(
+            "flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums",
+            // Personal build: always visible in the chat layout, so your message doesn't end in a gap.
+            !(ctx.chatStyle && !folded) &&
+              "opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
+          )}
+        >
           <div className="flex shrink-0 items-center gap-2">
             {folded && senderThreadId ? (
               <InlineButton onClick={() => ctx.onOpenThread(senderThreadId)} tone="muted">
