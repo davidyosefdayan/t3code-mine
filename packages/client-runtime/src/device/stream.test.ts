@@ -4,6 +4,7 @@ import {
   createDeviceStreamClient,
   AvccDemuxer,
   avcCodecString,
+  hidStrokesForText,
   parseSemuPacket,
   scanAccessUnit,
 } from "./stream.ts";
@@ -114,19 +115,27 @@ describe("native device stream transport", () => {
     socket.onopen?.();
     expect(socket.send).not.toHaveBeenCalled();
     socket.onmessage?.({ data: Uint8Array.of(0x83).buffer });
-    client.sendText("hello");
-    expect(socket.send).not.toHaveBeenCalled();
+    const sent = () =>
+      socket.send.mock.calls.map(([bytes]) => {
+        const packet = bytes as Uint8Array;
+        return {
+          tag: packet[0],
+          body: JSON.parse(new TextDecoder().decode(packet.subarray(1))) as unknown,
+        };
+      });
+    // Personal build: iOS types text as HID keystrokes.
+    client.sendText("hi");
+    expect(sent()).toEqual([
+      { tag: 0x06, body: { type: "down", usage: 0x0b } },
+      { tag: 0x06, body: { type: "up", usage: 0x0b } },
+      { tag: 0x06, body: { type: "down", usage: 0x0c } },
+      { tag: 0x06, body: { type: "up", usage: 0x0c } },
+    ]);
+    socket.send.mockClear();
     client.setOrientation("landscape_right");
     client.pressButton("home");
     client.sendTouch("begin", 0.25, 0.75);
-    const messages = socket.send.mock.calls.map(([bytes]) => {
-      const packet = bytes as Uint8Array;
-      return {
-        tag: packet[0],
-        body: JSON.parse(new TextDecoder().decode(packet.subarray(1))) as unknown,
-      };
-    });
-    expect(messages).toEqual([
+    expect(sent()).toEqual([
       { tag: 0x07, body: { orientation: "landscape_right" } },
       { tag: 0x04, body: { button: "home" } },
       { tag: 0x03, body: { type: "begin", x: 0.25, y: 0.75 } },
@@ -1198,5 +1207,24 @@ describe("WebRTC-only iOS devices", () => {
     expect(fixture.peers).toHaveLength(1);
     expect(fixture.requests("/helper/udid-1/webrtc/offer")).toHaveLength(1);
     fixture.client.stop();
+  });
+});
+
+describe("hidStrokesForText", () => {
+  it("types a pasted email with shifted symbols", () => {
+    expect(hidStrokesForText("Ab@1.")).toEqual([
+      { usage: 0x04, shift: true },
+      { usage: 0x05, shift: false },
+      { usage: 0x1f, shift: true },
+      { usage: 0x1e, shift: false },
+      { usage: 0x37, shift: false },
+    ]);
+  });
+
+  it("maps line breaks to Return and skips characters without a US key", () => {
+    expect(hidStrokesForText("a\r\n😀é")).toEqual([
+      { usage: 0x04, shift: false },
+      { usage: 0x28, shift: false },
+    ]);
   });
 });
