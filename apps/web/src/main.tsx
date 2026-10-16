@@ -5,6 +5,7 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 import "./index.css";
 
 import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
+import { holdBootSplash } from "./bootSplash";
 import { isElectron } from "./env";
 import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
@@ -70,6 +71,8 @@ export const startup = Promise.all([
     // that fetched every chunk it asked for.
     if (reloadScheduled) return;
     if (!chunkLoadFailed) clearChunkReloadGuard();
+    // Personal build: the splash stays up until the first data lands (bootSplash.ts).
+    holdBootSplash();
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
         {ManagedAuthShell && clerkPublishableKey ? (

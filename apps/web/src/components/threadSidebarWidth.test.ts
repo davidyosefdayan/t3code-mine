@@ -20,7 +20,12 @@ describe("resolveThreadSidebarMinimumWidth", () => {
 describe("resolveThreadSidebarMaximumWidth", () => {
   it("never drops below a raised minimum on a narrow viewport", () => {
     expect(resolveThreadSidebarMaximumWidth(800, 238)).toBe(238);
-    expect(resolveThreadSidebarMaximumWidth(1200, 238)).toBe(560);
+    expect(resolveThreadSidebarMaximumWidth(1000, 238)).toBe(360);
+  });
+
+  // Personal build: the list stops widening at 28rem however wide the window is.
+  it("caps the sidebar on wide windows", () => {
+    expect(resolveThreadSidebarMaximumWidth(1200, 238)).toBe(448);
   });
 });
 

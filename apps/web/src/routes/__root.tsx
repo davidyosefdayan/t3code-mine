@@ -77,7 +77,13 @@ import {
   primaryServerConfigEventAtom,
   primaryServerWelcomeAtom,
 } from "../state/server";
-import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import {
+  readProject,
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+  useAllEnvironmentShellsBootstrapped,
+} from "../state/entities";
+import { releaseBootSplash } from "../bootSplash";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -166,6 +172,14 @@ function RootRouteView() {
     };
   }, [pathname]);
 
+  // Personal build: pages outside the workspace have no startup data to wait for.
+  const workspaceRoute =
+    primaryEnvironmentAuthenticated &&
+    pathname !== "/pair" &&
+    pathname !== "/connect" &&
+    pathname !== "/connect-agent";
+  useReleaseBootSplash(!workspaceRoute);
+
   if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
     return (
       <>
@@ -195,7 +209,6 @@ function RootRouteView() {
           <DocumentTitleSync />
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
-          <GlassAppearanceSync />
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
@@ -236,7 +249,6 @@ function RootRouteView() {
         <DocumentTitleSync />
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
-        <GlassAppearanceSync />
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
@@ -279,6 +291,24 @@ function RootRouteView() {
   );
 }
 
+/** Personal build: uncovers the startup splash once the workspace's first data
+ * has landed: every environment's shell snapshot and the primary server's
+ * config, which together decide what the sidebar and thread view show. */
+function useReleaseBootSplash(skip: boolean) {
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const serverWelcome = useAtomValue(primaryServerWelcomeAtom);
+  const pathname = useLocation({ select: (location) => location.pathname });
+  // EventRouter moves a fresh "/" into the welcome's bootstrap thread; wait for
+  // the welcome and that hop so the empty start page never flashes first.
+  const bootstrapHopPending =
+    pathname === "/" && (serverWelcome === null || Boolean(serverWelcome.bootstrapThreadId));
+  const ready = skip || (bootstrapped && serverConfig !== null && !bootstrapHopPending);
+  useEffect(() => {
+    if (ready) releaseBootSplash();
+  }, [ready]);
+}
+
 /** Follows the palette the primary environment's machine publishes, if any. */
 function EnvironmentThemeSync() {
   useEnvironmentThemeSync();
@@ -304,22 +334,6 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);
-
-  return null;
-}
-
-function GlassAppearanceSync() {
-  const glassOpacity = useClientSettings((settings) => settings.glassOpacity);
-
-  useEffect(() => {
-    const style = document.documentElement.style;
-    style.setProperty("--glass-opacity", `${glassOpacity}%`);
-    if (glassOpacity === 100) {
-      style.setProperty("--glass-blur", "0px");
-    } else {
-      style.removeProperty("--glass-blur");
-    }
-  }, [glassOpacity]);
 
   return null;
 }

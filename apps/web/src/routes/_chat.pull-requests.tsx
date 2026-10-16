@@ -1886,11 +1886,9 @@ function PullRequestsRouteView() {
   );
   const openPanelControls = (
     <div
-      // The bare workspace-titlebar-controls inset plus mr-px: the same
-      // anchor the thread view's controls and the sidebar trigger use, so
-      // every titlebar cluster in the app sits one shared inset from its
-      // edge.
-      className="absolute top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
+      // Personal build: the same fixed viewport anchor as the thread view's controls, so the
+      // toggle sits in the same spot on every page.
+      className="fixed top-[calc(var(--workspace-controls-top)+0.5rem)] right-[calc(var(--workspace-controls-right)+0.5rem)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
       {rightPanelState.isOpen ? (

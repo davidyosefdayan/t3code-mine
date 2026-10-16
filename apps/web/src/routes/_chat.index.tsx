@@ -87,7 +87,7 @@ function IndexDraftLanding() {
   }, [handleNewThread, mostRecentProject, startState.retryRequest]);
 
   if (!bootstrapped) {
-    return null;
+    return <EmptyPanel />;
   }
   if (mostRecentProject !== null) {
     return startState.failed ? (
@@ -99,11 +99,19 @@ function IndexDraftLanding() {
           }));
         }}
       />
-    ) : null;
+    ) : (
+      <EmptyPanel />
+    );
   }
   // First-run routing to the welcome wizard happens in FirstRunGate at the
   // root, before this route ever renders.
   return <NoProjectsHero />;
+}
+
+// Personal build: holds the content panel in place while the index decides where
+// to go (it redirects into a draft), so the app frame never shows through for a frame.
+function EmptyPanel() {
+  return <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none" />;
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {

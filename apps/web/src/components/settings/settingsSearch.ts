@@ -258,13 +258,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["colors borders interface"],
   },
   {
-    // Prefixed because the slider control already owns the `glass-opacity` id.
-    id: "setting-glass-opacity",
-    title: "Glass opacity",
-    to: "/settings/appearance",
-    searchTerms: ["transparent transparency solid menus dialogs composer"],
-  },
-  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",

@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_OTLP_TRACES_URL: string;
   readonly VITE_RELAY_OTLP_TRACES_DATASET: string;
   readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
+  /** "1" in the fork maintainer's own builds: shows the fork update button. */
+  readonly VITE_T3_FORK_MAINTAINER: string;
   readonly APP_VERSION: string;
 }
 
