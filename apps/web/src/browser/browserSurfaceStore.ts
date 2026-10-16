@@ -14,7 +14,8 @@ export interface BrowserSurfacePresentation {
   readonly content: BrowserSurfaceContentPresentation | null;
   readonly fittedSourceContent: BrowserSurfaceContentPresentation | null;
   readonly fitSourceContent: boolean;
-  readonly cornerRadius: number;
+  /** Pixels for every corner, or a CSS border-radius list for individual corners. */
+  readonly cornerRadius: number | string;
   readonly updatedAt: number;
   readonly owner: symbol | null;
 }
@@ -39,7 +40,7 @@ interface BrowserSurfaceStoreState {
     owner: symbol,
     rect: BrowserSurfaceRect,
     visible: boolean,
-    cornerRadius: number,
+    cornerRadius: number | string,
     zIndex: number,
   ) => void;
   readonly presentContent: (tabId: string, content: BrowserSurfaceContentPresentation) => void;
@@ -50,7 +51,7 @@ export interface BrowserSurfaceLease {
   readonly present: (
     rect: BrowserSurfaceRect,
     visible: boolean,
-    cornerRadius?: number,
+    cornerRadius?: number | string,
     zIndex?: number,
   ) => boolean;
   readonly release: () => void;
