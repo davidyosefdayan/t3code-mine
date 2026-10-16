@@ -1629,6 +1629,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               tool_timeout_sec: 3_900,
               http_headers: { Authorization: "Bearer secret-codex-token" },
               disabled_tools: ["t3_thread_wait"],
+              tools: { message_user: { approval_mode: "approve" } },
             },
             "mcp_servers.t3-code-direct": {
               url: "http://127.0.0.1:43123/mcp",
