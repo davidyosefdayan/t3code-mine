@@ -4,7 +4,13 @@ import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { makeThreadFind, findProjectedThreadItems } from "./ThreadFind.ts";
-import { latestAssistantMessagePreview, liveActivityForShell } from "./ShellLiveSummary.ts";
+import {
+  assistantMessagePreview,
+  latestAssistantMessagePreview,
+  liveActivityForShell,
+  liveActivityFromStep,
+  SHELL_MESSAGE_PREVIEW_SQL_CHARS,
+} from "./ShellLiveSummary.ts";
 import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -1133,6 +1139,8 @@ type ShellThreadRow = {
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
+  readonly latest_reply_json: string | null;
+  readonly live_step_payload_json: string | null;
 };
 
 type ShellRunRow = {
@@ -1266,6 +1274,16 @@ const decodePlanJson = Schema.decodeUnknownEffect(
 );
 const decodeTurnItemPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2TurnItemJsonSchema),
+);
+// Personal build: the shell row's latest-reply summary (see latest_reply_json).
+const decodeShellReply = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      messageId: MessageId,
+      text: Schema.String,
+      at: Schema.DateTimeUtcFromString,
+    }),
+  ),
 );
 const decodeCheckpointScopePayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2CheckpointScopeJsonSchema),
@@ -1811,6 +1829,8 @@ type ShellThreadState = {
   readonly updatedAt: OrchestrationV2ThreadProjection["updatedAt"];
   readonly runOrdinalById: ReadonlyMap<RunId, number>;
   readonly itemCountByRunId: ReadonlyMap<RunId, number>;
+  readonly latestVisibleMessage: OrchestrationV2ThreadShell["latestVisibleMessage"];
+  readonly liveActivity: OrchestrationV2TurnItem | null;
 };
 
 function shellStatusFromStoredRunStatus(status: string | null): OrchestrationV2ShellThreadStatus {
@@ -1957,7 +1977,9 @@ function shellFromState(input: {
     usageLimitResetAt: input.state.usageLimitResetAt,
     pendingRuntimeRequest: input.state.pendingRuntimeRequest,
     pendingGuestMessageCount: pendingGuestMessageCount(input.state.thread.guestShare),
-    latestVisibleMessage: null,
+    // Personal build: sidebar previews and turn-finished notifications.
+    latestVisibleMessage: input.state.latestVisibleMessage,
+    liveActivity: input.state.liveActivity,
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
@@ -5934,7 +5956,56 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 WHERE plan.thread_id = t.thread_id
                   AND plan.kind = 'proposed_plan'
                   AND plan.status = 'active'
-              ) AS has_actionable_proposed_plan
+              ) AS has_actionable_proposed_plan,
+              -- Personal build: the newest finished reply, for the row preview.
+              -- Walks back from the newest item on the (thread_id, ordinal)
+              -- index and stops at the first match; settled and archived rows
+              -- skip it. Runless items count (imported V1 history).
+              CASE
+                WHEN json_extract(t.payload_json, '$.archivedAt') IS NULL
+                  AND json_extract(t.payload_json, '$.settledAt') IS NULL
+                  AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'
+                THEN (
+                  SELECT json_object(
+                    'messageId', json_extract(reply.payload_json, '$.messageId'),
+                    'text', substr(json_extract(reply.payload_json, '$.text'), 1, ${SHELL_MESSAGE_PREVIEW_SQL_CHARS}),
+                    'at', COALESCE(json_extract(reply.payload_json, '$.completedAt'), reply.updated_at)
+                  )
+                  FROM orchestration_v2_projection_turn_items reply
+                    INDEXED BY orchestration_v2_projection_turn_items_thread_ordinal_idx
+                  WHERE reply.thread_id = t.thread_id
+                    AND reply.type = 'assistant_message'
+                    AND json_extract(reply.payload_json, '$.streaming') = 0
+                    AND trim(json_extract(reply.payload_json, '$.text'), ' ' || char(9, 10, 13)) <> ''
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM orchestration_v2_projection_runs r
+                      WHERE r.run_id = reply.run_id AND r.status = 'rolled_back'
+                    )
+                  ORDER BY reply.ordinal DESC, reply.turn_item_id DESC
+                  LIMIT 1
+                )
+              END AS latest_reply_json,
+              -- Personal build: the newest step still running in a live run.
+              (
+                SELECT step.payload_json
+                -- Keep runs outermost so completed history is never scanned.
+                FROM orchestration_v2_projection_runs r
+                CROSS JOIN orchestration_v2_projection_turn_items step
+                  INDEXED BY orchestration_v2_projection_turn_items_thread_run_idx
+                WHERE r.thread_id = t.thread_id
+                  AND r.status IN ('preparing', 'starting', 'running', 'waiting')
+                  AND step.thread_id = t.thread_id AND step.run_id = r.run_id
+                  AND step.type IN (
+                    'command_execution', 'file_change', 'file_search', 'web_search',
+                    'dynamic_tool', 'subagent'
+                  )
+                  AND step.status IN ('running', 'pending')
+                ORDER BY json_extract(step.payload_json, '$.startedAt') IS NULL,
+                  json_extract(step.payload_json, '$.startedAt') DESC,
+                  step.ordinal DESC
+                LIMIT 1
+              ) AS live_step_payload_json
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -6404,6 +6475,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 : DateTime.makeUnsafe(row.blocking_run_completed_at);
           }
         }
+        const latestReply =
+          row.latest_reply_json === null
+            ? null
+            : yield* decodeShellReply(row.latest_reply_json).pipe(Effect.orElseSucceed(() => null));
+        const liveStep =
+          row.live_step_payload_json === null
+            ? null
+            : yield* decodeTurnItemPayload(row.live_step_payload_json).pipe(
+                Effect.orElseSucceed(() => null),
+              );
+        const activityRunStartedAt =
+          row.activity_run_started_at === null
+            ? null
+            : DateTime.makeUnsafe(row.activity_run_started_at);
         const pendingBackgroundTasks = [
           ...derivePendingBackgroundWork({
             latestRun:
@@ -6437,10 +6522,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 : { id: RunId.make(row.active_run_id), status: "running" },
             turnItems: pendingTurnItemsByThreadId.get(thread.id) ?? [],
           }),
-          activityRunStartedAt:
-            row.activity_run_started_at === null
-              ? null
-              : DateTime.makeUnsafe(row.activity_run_started_at),
+          activityRunStartedAt,
           activityRunStatus:
             row.activity_run_status === "preparing" ||
             row.activity_run_status === "starting" ||
@@ -6476,6 +6558,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           updatedAt: thread.updatedAt,
           runOrdinalById: runOrdinalsByThreadId.get(ThreadId.make(row.thread_id)) ?? new Map(),
           itemCountByRunId: itemCountsByThreadId.get(ThreadId.make(row.thread_id)) ?? new Map(),
+          latestVisibleMessage:
+            latestReply === null
+              ? null
+              : assistantMessagePreview(latestReply.messageId, latestReply.text, latestReply.at),
+          liveActivity:
+            liveStep === null
+              ? null
+              : liveActivityFromStep(liveStep, activityRunStartedAt ?? liveStep.updatedAt),
         } satisfies ShellThreadState;
       });
 
