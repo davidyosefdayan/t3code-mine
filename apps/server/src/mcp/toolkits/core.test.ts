@@ -74,6 +74,7 @@ const declaredFailure = (result: McpSchema.CallToolResult) => {
 };
 import { PullRequestsToolkit } from "./pullRequests/tools.ts";
 import { HtmlToolkit } from "./html/tools.ts";
+import { MessagesToolkit } from "./messages/tools.ts";
 import {
   resolveT3McpToolDefinition,
   resolveT3McpToolPresentation,
@@ -104,6 +105,7 @@ it("publishes unique tool names with reference-free object-root inputs", () => {
     DeviceToolkit,
     PullRequestsToolkit,
     HtmlToolkit,
+    MessagesToolkit,
   ]) {
     for (const tool of Object.values(toolkit.tools)) {
       expect(names.has(tool.name)).toBe(false);
@@ -312,6 +314,32 @@ it.effect("returns an HTML render reference that Codex and Claude tool rows both
           }),
         ),
       ),
+    ),
+  ),
+);
+
+// Personal build: the agent's mid-turn messages to the user.
+it.effect("shows message_user to thread agents only, always loaded", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const registered = server.tools.find(({ tool }) => tool.name === "message_user");
+    expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
+    const call = (invocation: McpInvocationContext.McpInvocationScope) =>
+      server
+        .callTool({ name: "message_user", arguments: { message: "Found it." } })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    expect((yield* call(scope)).structuredContent).toEqual({ shown: true });
+    const outside = yield* call({ ...scope, thread: undefined });
+    expect(outside.isError).toBe(true);
+    expect(outside.content[0]).toMatchObject({
+      text: expect.stringContaining("needs an agent running inside T3 Code"),
+    });
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerMessagesToolkit.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
     ),
   ),
 );

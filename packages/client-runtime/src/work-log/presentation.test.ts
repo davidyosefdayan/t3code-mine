@@ -8,6 +8,7 @@ import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
   liveThoughtLine,
+  messageToUserText,
   resolveViewedImageAsset,
   resolveWorkEntryToolPresentation,
   summarizeToolGroup,
@@ -20,6 +21,7 @@ import {
   workEntryIndicatesToolFailure,
   workEntryDisplayIndicatesToolFailure,
   workEntryIndicatesToolSuccess,
+  workEntryMessageToUserText,
 } from "./presentation.js";
 
 function commandItem(
@@ -1079,5 +1081,82 @@ describe("liveThoughtLine", () => {
       "This is really not fine in snake_case_names.",
     );
     expect(liveThoughtLine("   ")).toBe("");
+  });
+});
+
+describe("messageToUserText", () => {
+  function messageItem(
+    fields: Partial<Extract<OrchestrationV2TurnItem, { type: "dynamic_tool" }>> = {},
+  ): OrchestrationV2TurnItem {
+    const {
+      type: _type,
+      input: _input,
+      ...base
+    } = commandItem() as Extract<OrchestrationV2TurnItem, { type: "command_execution" }>;
+    return {
+      ...base,
+      type: "dynamic_tool",
+      toolName: "mcp__t3-code__message_user",
+      input: { message: "Done." },
+      ...fields,
+    };
+  }
+
+  it("reads the message from each provider's shape of a message_user call", () => {
+    expect(
+      messageToUserText({ toolName: "mcp__t3-code__message_user", input: { message: "Done." } }),
+    ).toBe("Done.");
+    expect(
+      messageToUserText({ toolName: "t3-code.message_user", input: { message: "Done." } }),
+    ).toBe("Done.");
+    expect(
+      messageToUserText({
+        item: { server: "t3-code", tool: "message_user", arguments: { message: "Done." } },
+      }),
+    ).toBe("Done.");
+  });
+
+  it("is null for other tools and for an empty message", () => {
+    expect(
+      messageToUserText({ toolName: "mcp__other__message_user", input: { message: "Hi" } }),
+    ).toBeNull();
+    expect(
+      messageToUserText({ toolName: "mcp__t3-code__link_pull_request", input: { message: "Hi" } }),
+    ).toBeNull();
+    expect(
+      messageToUserText({ toolName: "mcp__t3-code__message_user", input: { message: " " } }),
+    ).toBeNull();
+  });
+
+  it("reads a V2 work entry's dynamic_tool payload unless the call failed", () => {
+    expect(
+      workEntryMessageToUserText({
+        structuredPayload: messageItem(),
+        toolData: { input: { message: "Done." } },
+        toolLifecycleStatus: "completed",
+      }),
+    ).toBe("Done.");
+    expect(
+      workEntryMessageToUserText({
+        structuredPayload: messageItem({ toolName: "t3-code.message_user", status: "running" }),
+        toolLifecycleStatus: "inProgress",
+      }),
+    ).toBe("Done.");
+    for (const toolLifecycleStatus of ["failed", "declined", "stopped"] as const) {
+      expect(
+        workEntryMessageToUserText({ structuredPayload: messageItem(), toolLifecycleStatus }),
+      ).toBeNull();
+    }
+    expect(
+      workEntryMessageToUserText({
+        structuredPayload: messageItem({
+          output: {
+            isError: true,
+            content: [{ type: "text", text: '{"code":"thread_credential_required"}' }],
+          },
+        }),
+        toolLifecycleStatus: "completed",
+      }),
+    ).toBeNull();
   });
 });

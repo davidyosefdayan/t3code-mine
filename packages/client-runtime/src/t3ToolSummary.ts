@@ -437,6 +437,10 @@ export function summarizeT3ToolCalls(
     case "html-render":
       label = phrase("Rendered", "render", quantity(selected.length, "HTML page"));
       break;
+    // Personal build: the agent's mid-turn messages to the user.
+    case "message-user":
+      label = phrase("Sent", "send", `you ${quantity(selected.length, "message")}`);
+      break;
     case "capabilities":
       label = phrase("Checked", "check", `orchestration capabilities ${times}`);
       break;

@@ -10,6 +10,12 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
+  it("tells agents to send mid-turn findings with message_user", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Claude" });
+    expect(instructions).toContain("When the t3-code MCP server exposes message_user");
+    expect(instructions.endsWith("</messaging_the_user>")).toBe(true);
+  });
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

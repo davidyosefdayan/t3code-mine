@@ -674,6 +674,7 @@ describe("CodexAdapterV2 process spawning", () => {
               http_headers: {
                 Authorization: "Bearer secret-codex-token",
               },
+              tools: { message_user: { approval_mode: "approve" } },
             },
           },
         },
