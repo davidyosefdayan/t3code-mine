@@ -30,6 +30,12 @@ export function getThreadErrorBannerKey(threadKey: string, error: string | null)
   return error === null ? null : `${threadKey}\u0000${error}`;
 }
 
+// Personal build: matches the server's ProviderWorkspaceMissingError message. The banner offers
+// to move the thread onto the project's checkout instead of restoring the folder.
+export function isMissingWorkspaceError(error: string | null): boolean {
+  return error?.startsWith("This thread's workspace folder no longer exists") ?? false;
+}
+
 export function shouldShowThreadErrorBanner(
   threadKey: string,
   error: string | null,
@@ -55,11 +61,14 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   onDismiss,
   errorClass,
   chatGptUsageLimit = false,
+  onUseCurrentCheckout,
 }: {
   error: string | null;
   errorClass?: OrchestrationV2ProviderFailureClass | null;
   onDismiss?: () => void;
   chatGptUsageLimit?: boolean;
+  /** Offered when the thread's worktree is gone; moves the thread to the checkout. */
+  onUseCurrentCheckout?: (() => void) | undefined;
 }) {
   if (!error) return null;
   const variant = errorClass === "usage_limit" ? "warning" : "error";
@@ -81,9 +90,14 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             <ExpandableText text={error} collapsedText={getThreadErrorBannerMessage(error)} />
           )}
         </AlertDescription>
-        {(chatGptUsageLimit || onDismiss) && (
+        {(chatGptUsageLimit || onUseCurrentCheckout || onDismiss) && (
           <AlertAction>
             {chatGptUsageLimit ? <ChatGptUsageButton variant="default" size="sm" /> : null}
+            {onUseCurrentCheckout ? (
+              <Button variant="outline" size="sm" onClick={onUseCurrentCheckout}>
+                Use current checkout
+              </Button>
+            ) : null}
             {onDismiss ? (
               <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
                 <XIcon />

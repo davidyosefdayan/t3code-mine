@@ -454,6 +454,7 @@ import {
 import {
   dismissThreadErrorBannerForSession,
   getThreadErrorBannerKey,
+  isMissingWorkspaceError,
   isThreadErrorBannerDismissedForSession,
   shouldShowThreadErrorBanner,
   ThreadErrorBanner,
@@ -3477,6 +3478,34 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
   const scheduleComposerFocusStable = useStableCallback(scheduleComposerFocus);
+  // Personal build: when a thread's worktree and its branch are both gone, the
+  // server can't rebuild it. Dropping the worktree path moves the thread onto
+  // the project's checkout; the next turn resumes the conversation there.
+  const canUseCurrentCheckout =
+    isServerThread && Boolean(activeThread?.worktreePath) && isMissingWorkspaceError(threadError);
+  const moveToCurrentCheckout = async () => {
+    if (!activeThread) return;
+    const result = await updateThreadMetadata({
+      environmentId,
+      input: { threadId: activeThread.id, worktreePath: null },
+    });
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Couldn't switch to the current checkout",
+            description: chatActionErrorMessage(squashAtomCommandFailure(result)),
+          }),
+        );
+      }
+      return;
+    }
+    setThreadError(activeThread.id, null);
+    dismissThreadErrorBannerForSession(threadErrorBannerKey);
+    setThreadErrorBannerDismissTick((tick) => tick + 1);
+    scheduleComposerFocus();
+  };
   const insertArtifactTemplate = (template: CodexArtifactTemplate) => {
     const composer = composerRef.current;
     if (!composer) return;
@@ -8199,6 +8228,9 @@ export default function ChatView(props: ChatViewProps) {
                   localServerError === null && visibleThreadError === serverRuntime?.lastError
                     ? (serverRuntime?.lastErrorClass ?? null)
                     : null
+                }
+                onUseCurrentCheckout={
+                  canUseCurrentCheckout ? () => void moveToCurrentCheckout() : undefined
                 }
                 onDismiss={() => {
                   setThreadError(activeThread.id, null);
