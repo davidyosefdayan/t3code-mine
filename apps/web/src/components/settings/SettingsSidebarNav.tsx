@@ -31,6 +31,7 @@ import {
   ShieldCheckIcon,
   SmartphoneIcon,
   WrenchIcon,
+  Volume2Icon,
   XIcon,
 } from "lucide-react";
 import { resolveEventKeys } from "@t3tools/shared/keybindings";
@@ -96,6 +97,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
+  "/settings/read-aloud": Volume2Icon,
   "/settings/providers": BotIcon,
   "/settings/threads": MessagesSquareIcon,
   "/settings/browser": GlobeIcon,
