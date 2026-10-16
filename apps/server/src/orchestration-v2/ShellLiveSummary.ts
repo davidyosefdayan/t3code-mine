@@ -51,16 +51,30 @@ export function latestAssistantMessagePreview(projection: {
     if (row.visibility !== "local") continue;
     const item = row.item;
     if (item.type !== "assistant_message" || item.streaming) continue;
-    const text = item.text.replace(/\s+/g, " ").trim();
-    if (text.length === 0) continue;
-    return {
-      id: item.messageId,
-      role: "assistant",
-      text: truncateForShell(text, SHELL_MESSAGE_PREVIEW_MAX_CHARS),
-      updatedAt: item.completedAt ?? item.updatedAt,
-    };
+    const preview = assistantMessagePreview(
+      item.messageId,
+      item.text,
+      item.completedAt ?? item.updatedAt,
+    );
+    if (preview !== null) return preview;
   }
   return null;
+}
+
+/** Shapes a finished reply's text into the shell preview; null when blank. */
+export function assistantMessagePreview(
+  id: OrchestrationV2LatestVisibleMessageSummary["id"],
+  text: string,
+  updatedAt: DateTime.Utc,
+): OrchestrationV2LatestVisibleMessageSummary | null {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return null;
+  return {
+    id,
+    role: "assistant",
+    text: truncateForShell(collapsed, SHELL_MESSAGE_PREVIEW_MAX_CHARS),
+    updatedAt,
+  };
 }
 
 type LiveStepItem = Extract<
@@ -178,6 +192,18 @@ export function liveActivityForShell(
   const run = runsById.get(newest.runId!)!;
   return trimLiveStep(newest, newest.startedAt ?? run.requestedAt);
 }
+
+/** Trims one step already picked as the newest running one (the SQL shell
+    path picks it in the query). Null when it is not a running step. */
+export function liveActivityFromStep(
+  item: OrchestrationV2TurnItem,
+  fallbackAt: DateTime.Utc,
+): OrchestrationV2TurnItem | null {
+  return isLiveStep(item) ? trimLiveStep(item, item.startedAt ?? fallbackAt) : null;
+}
+
+/** The shell path's SQL keeps a prefix of the reply text; enough for a preview. */
+export const SHELL_MESSAGE_PREVIEW_SQL_CHARS = 1_000;
 
 function compareSteps(left: LiveStepItem, right: LiveStepItem): number {
   const leftStarted = left.startedAt === null ? null : DateTime.toEpochMillis(left.startedAt);
