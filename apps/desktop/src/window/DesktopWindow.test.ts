@@ -851,10 +851,11 @@ describe("DesktopWindow", () => {
           yield* desktopWindow.zoomMain(direction);
           const position = fakeWindow.setWindowButtonPosition.mock.lastCall?.[0];
           assert.isDefined(position);
-          // The 14-point native buttons should share the zoomed 52px header's center.
-          const headerCenter = 26 * fakeWindow.window.webContents.getZoomFactor();
+          // Personal build: the 14-point native buttons center between the window top and
+          // the panel (36px bar + 8px margin, zoomed) and keep an 18-point left margin.
+          const headerCenter = 22 * fakeWindow.window.webContents.getZoomFactor();
           assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
-          assert.equal(position.x, 16);
+          assert.equal(position.x, 18);
         }
 
         fakeWindow.isFullScreen.mockReturnValue(true);
@@ -864,7 +865,7 @@ describe("DesktopWindow", () => {
 
         fakeWindow.isFullScreen.mockReturnValue(false);
         fakeWindow.windowListeners.get("leave-full-screen")?.();
-        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 19 }]);
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 18, y: 15 }]);
       }).pipe(Effect.provide(layer));
     }),
   );

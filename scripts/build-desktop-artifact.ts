@@ -56,7 +56,8 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+// Personal build: its own bundle id so it installs beside the official app.
+const DESKTOP_APP_ID = "com.t3tools.t3code.mine";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -1112,6 +1113,11 @@ export const DESKTOP_EXTRA_RESOURCES = [
   {
     from: "apps/desktop/prod-resources/resource-monitor",
     to: "resource-monitor",
+  },
+  // Personal build: app icons that follow the selected theme.
+  {
+    from: "apps/desktop/resources/palette-icons",
+    to: "palette-icons",
   },
 ] as const;
 export const LINUX_CAPTURE_EXTRA_RESOURCES = [
@@ -3860,7 +3866,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
   const stagePackageJson: StagePackageJson = {
-    name: "t3code",
+    // Personal build: Windows installs into a folder named after this (and the
+    // updater caches downloads under it), so sharing upstream's "t3code" would
+    // install over the official app.
+    name: "t3code-mine",
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,

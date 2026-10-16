@@ -1,3 +1,7 @@
+> **Fork.** This is "T3 Code (Mine)": upstream T3 Code with a redesign on top, moved onto
+> each stable release. If this checkout has a `FORK.md` (the maintainer's local notes), read
+> it first.
+
 # T3 Code
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
@@ -85,6 +89,11 @@ The most common defect in this repo is a change that works on the path you teste
 - Stop what you started, by the PID you tracked. See rule 1.
 
 ## Test data
+
+> **Fork:** this fork overrides the section below. Never copy real data: a copied
+> database that marks a chat as running makes the dev server resume it, with real provider
+> sessions and credits. Seed a fake environment instead (`seedShowcaseEnvironment` in
+> `scripts/mobile-showcase-environment.ts`) and never start a real agent turn.
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 

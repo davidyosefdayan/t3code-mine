@@ -36,20 +36,29 @@ import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 
 const TITLEBAR_HEIGHT = 40;
-// Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
-// buttons are 14 points tall and do not scale with the renderer's zoom.
-const MACOS_WORKSPACE_TOPBAR_HEIGHT = 52;
+// Native macOS buttons are 14 points tall and do not scale with the renderer's zoom.
 const MACOS_WINDOW_BUTTON_RADIUS = 7;
+// Personal build: the window buttons sit in the app's top bar, 18pt from the left
+// edge and vertically between the window top and the panel (the 2.25rem bar plus
+// the panel's 0.5rem margin), like the bar's controls. Mirrors
+// --app-topbar-height (apps/web/src/index.css) and --app-topbar-start
+// (AppSidebarLayout.tsx) in the web app; change them together.
+const MACOS_APP_TOPBAR_HEIGHT = 36;
+const MACOS_PANEL_TOP_MARGIN = 8;
+const MACOS_WINDOW_BUTTONS_LEFT = 18;
+
+function macosWindowButtonPosition(zoom: number): { x: number; y: number } {
+  return {
+    x: MACOS_WINDOW_BUTTONS_LEFT,
+    y: Math.round(
+      ((MACOS_APP_TOPBAR_HEIGHT + MACOS_PANEL_TOP_MARGIN) * zoom) / 2 - MACOS_WINDOW_BUTTON_RADIUS,
+    ),
+  };
+}
 
 function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   if (window.isDestroyed() || window.isFullScreen()) return;
-  window.setWindowButtonPosition({
-    x: 16,
-    y: Math.round(
-      (MACOS_WORKSPACE_TOPBAR_HEIGHT * window.webContents.getZoomFactor()) / 2 -
-        MACOS_WINDOW_BUTTON_RADIUS,
-    ),
-  });
+  window.setWindowButtonPosition(macosWindowButtonPosition(window.webContents.getZoomFactor()));
 }
 
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
@@ -268,10 +277,7 @@ function getWindowTitleBarOptions(
   if (platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
-      trafficLightPosition: {
-        x: 16,
-        y: MACOS_WORKSPACE_TOPBAR_HEIGHT / 2 - MACOS_WINDOW_BUTTON_RADIUS,
-      },
+      trafficLightPosition: macosWindowButtonPosition(1),
     };
   }
 
