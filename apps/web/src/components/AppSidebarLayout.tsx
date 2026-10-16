@@ -32,6 +32,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
+import { useRenderedPathname } from "../hooks/useRenderedPathname";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -40,16 +41,21 @@ import {
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
-import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
-import { isAppModalPage } from "./sidebar/mainAppLocation";
+import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { AppRail } from "./sidebar/AppRail";
+import { AppTopBar } from "./sidebar/AppTopBar";
+import { PullRequestsSidebarNav } from "./pullRequest/PullRequestsSidebarNav";
+import { UsageSidebarNav } from "./usage/UsageSidebarNav";
+import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
+import { useProjects } from "../state/entities";
 import {
   clampThreadSidebarWidth,
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
-  resolveThreadSidebarMinimumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
+  THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
 import {
@@ -64,8 +70,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
-
-const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -233,7 +237,8 @@ function registerThreadUndoCommands(
   router: AnyRouter,
   readSidebarVisible: () => boolean,
 ): () => void {
-  const threadSidebarShown = () => !isAppModalPage(router.state.location.pathname);
+  // Personal build: undo belongs to the thread list's notice, so only its pages claim mod+z.
+  const threadSidebarShown = () => isThreadListPage(router.state.location.pathname);
   const unregister = registerCommands(
     {},
     {
@@ -372,11 +377,18 @@ function SidebarControl() {
   );
 
   return (
+    // The right-side layout controls carry mr-px (border compensation inside
+    // the panel), so the trigger mirrors it: both clusters sit one extra pixel
+    // off their edge and the titlebar reads symmetric.
+    // The sheet owns its trigger until its closing transition unmounts it.
+    // Personal build: with the app rail, the list collapses from its own header;
+    // this button only appears in the panel once the list is closed, to reopen it.
     <div
       ref={appShellCommandsRef}
       className={cn(
-        "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
+        "pointer-events-none fixed left-[calc(var(--workspace-controls-left)+0.5rem)] top-[calc(var(--workspace-controls-top)+0.5rem)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
         isMobile && mobileSheetMounted && "hidden",
+        isSidebarVisible && "hidden",
       )}
       data-sidebar-control=""
     >
@@ -401,23 +413,90 @@ function SidebarControl() {
   );
 }
 
+// Settings swaps the thread sidebar out of the tree. Keep the lightweight
+// project projection subscribed so returning to a draft never renders the
+// zero-project state while the environment snapshot reconnects.
+function ProjectProjectionRetention() {
+  useProjects();
+  return null;
+}
+
+// Personal build: pages that show the thread list (see resolvePageSidebar).
+function isThreadListPage(pathname: string): boolean {
+  return !(
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
+    pathname.startsWith("/usage") ||
+    pathname.startsWith("/pull-requests") ||
+    pathname.startsWith("/skills")
+  );
+}
+
+// Personal build: each page of the app shows its own sidebar next to the rail,
+// or none. A page without one renders like a collapsed sidebar. New pages
+// default to the thread list until they are given a sidebar of their own here.
+function resolvePageSidebar(
+  pathname: string,
+  routeReveal: SidebarRouteReveal,
+): { label: string; content: ReactNode } | null {
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return {
+      label: "Settings",
+      content: (
+        <>
+          <SidebarChromeHeader isElectron={isElectron} title="Settings" />
+          <SettingsSidebarNav pathname={pathname} />
+        </>
+      ),
+    };
+  }
+  if (pathname.startsWith("/usage")) {
+    return {
+      label: "Usage",
+      content: (
+        <>
+          <SidebarChromeHeader isElectron={isElectron} title="Usage" />
+          <UsageSidebarNav />
+        </>
+      ),
+    };
+  }
+  if (pathname.startsWith("/pull-requests")) {
+    return {
+      label: "Pull requests",
+      content: (
+        <>
+          <SidebarChromeHeader isElectron={isElectron} title="Pull requests" />
+          <PullRequestsSidebarNav />
+        </>
+      ),
+    };
+  }
+  return {
+    label: "Threads",
+    content: <ThreadSidebar routeReveal={routeReveal} />,
+  };
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
-  const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
     pendingKey: null,
   }));
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
-  const pathname = useLocation({ select: (location) => location.pathname });
+  // Personal build: the rendered page, so the page sidebar swaps in the same frame as content.
+  const pathname = useRenderedPathname();
   const panelAnimationsSuppressed = usePanelNavigationSuppression(pathname);
   const routePanelAnimationsActive = panelAnimationsActive && !panelAnimationsSuppressed;
+  const pageSidebar = resolvePageSidebar(pathname, sidebarRouteReveal);
+  const sidebarArea = workspaceAreaProps("sidebar", 0, pageSidebar?.label ?? "Sidebar");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // A clamped drag may not change width, so viewport changes need a separate subscription.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
-  const [brandWidth, setBrandWidth] = useState(0);
-  const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
+  // Personal build: the app name lives in the top bar, so no brand sets the minimum.
+  const sidebarMinimumWidth = THREAD_SIDEBAR_MIN_WIDTH;
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
   const resetSidebarWidth = () => {
     try {
@@ -431,15 +510,30 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     subscribeToWindowFullscreen,
     readWindowFullscreen,
   );
-  const windowControlsInsetStyle = (
-    isMacosDesktop && !isWindowFullscreen
-      ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
-      : {}
-  ) as CSSProperties;
   const sidebarProviderStyle = {
+    // Personal build: shell geometry. The top bar (--app-topbar-height in
+    // index.css) spans the window and holds the macOS window buttons; the rail
+    // owns the left gutter up to the panel, so its icons center by layout alone;
+    // its first and last icons sit the same distance inside the panel's top and
+    // bottom edges. The desktop app mirrors these numbers in
+    // macosWindowButtonPosition (DesktopWindow.ts); change both together.
+    // After the macOS window buttons (18pt in, 54pt wide) with a 24pt gap.
+    "--app-topbar-start": isMacosDesktop && !isWindowFullscreen ? "6rem" : "1rem",
+    "--app-rail-width": "3.5rem",
+    "--app-rail-inset": "1.125rem",
+    "--workspace-controls-top": "var(--app-topbar-height)",
+    // Native window buttons on Windows and Linux sit in the top bar, so panel
+    // headers below it need not leave room for them.
+    "--workspace-controls-right": "calc(env(safe-area-inset-right) + 0.75rem)",
+    "--workspace-native-controls-inset": "0px",
     "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
-    ...windowControlsInsetStyle,
+    // Panel titlebar controls start just inside the panel, right of the rail.
+    "--workspace-controls-left": "calc(var(--app-rail-width) + 0.25rem)",
+    // Collapsed-list title inset is padding inside the panel, so it is measured
+    // from the panel edge (the reopen button sits 0.75rem in), not the window.
+    "--workspace-titlebar-content-left":
+      "calc(0.75rem + var(--workspace-titlebar-control-size) + var(--workspace-titlebar-control-gap))",
   } as CSSProperties;
 
   return (
@@ -450,14 +544,18 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         defaultOpen
         style={sidebarProviderStyle}
       >
-        <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
+        <ProjectProjectionRetention />
+        <AppTopBar />
+        <AppRail />
         <Sidebar
           side="left"
+          variant="inset"
           collapsible="offcanvas"
           data-app-sidebar=""
           {...sidebarArea}
           role="navigation"
-          aria-label="Threads"
+          aria-label={pageSidebar?.label ?? "Sidebar"}
+          absent={pageSidebar === null}
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: sidebarMinimumWidth,
@@ -467,9 +565,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
             onResize: setSidebarWidth,
           }}
-          style={windowControlsInsetStyle}
         >
-          <ThreadSidebar routeReveal={sidebarRouteReveal} />
+          {pageSidebar?.content}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}

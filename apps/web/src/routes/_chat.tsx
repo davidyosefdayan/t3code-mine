@@ -28,6 +28,8 @@ function ChatRouteLayout() {
     setBackgroundTarget(threadTarget);
   }
   const shownTarget = modalOpen ? backgroundTarget : threadTarget;
+  // Personal build: Settings and Usage are pages, so nothing renders behind them.
+  if (modalOpen) return <Outlet />;
   return (
     <>
       {shownTarget?.kind === "server" && !modalOpen ? (
