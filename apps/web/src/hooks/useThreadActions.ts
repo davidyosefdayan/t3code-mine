@@ -109,13 +109,19 @@ export class ThreadSnoozeBlockedError extends Schema.TaggedError<ThreadSnoozeBlo
   }
 }
 
-function topOfPinnedRunOrderKey(): string | undefined {
-  let firstKey: string | null = null;
+/** Personal build: key that sorts after every arranged pinned thread, so a
+    fresh pin lands at the bottom. Undefined (keyless) while unarranged pins
+    exist, since keyless pins already sort below the arranged ones in pin
+    order, or when key math can't produce one — pinning must never fail on
+    placement. */
+function bottomOfPinnedRunOrderKey(): string | undefined {
+  let lastKey: string | null = null;
   for (const shell of readThreadShells()) {
-    if (shell.pinnedAt == null || shell.pinOrderKey == null) continue;
-    if (firstKey === null || shell.pinOrderKey < firstKey) firstKey = shell.pinOrderKey;
+    if (shell.pinnedAt == null) continue;
+    if (shell.pinOrderKey == null) return undefined;
+    if (lastKey === null || shell.pinOrderKey > lastKey) lastKey = shell.pinOrderKey;
   }
-  return pinOrderKeyBetween(null, firstKey) ?? undefined;
+  return pinOrderKeyBetween(lastKey, null) ?? undefined;
 }
 
 export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<ThreadAutoSettleOptOutUnsupportedError>()(
@@ -665,7 +671,7 @@ export function useThreadActions() {
     }
     // Older servers cannot decode orderKey, so send only the pin to them.
     const orderKey = readEnvironmentSupportsPinReorder(target.environmentId)
-      ? (opts.orderKey ?? topOfPinnedRunOrderKey())
+      ? (opts.orderKey ?? bottomOfPinnedRunOrderKey())
       : undefined;
     ThreadUndo.invalidate("pin", scopedThreadKey(target));
     // Pinning clears snooze, so older Settled or Snoozed undos would fight this pin.

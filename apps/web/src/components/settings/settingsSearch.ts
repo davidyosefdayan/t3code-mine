@@ -403,12 +403,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["redesign look style sidebar composer black quieter classic"],
   },
   {
-    id: "working-shelf",
-    title: "Working section",
-    to: "/settings/general",
-    searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
-  },
-  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",

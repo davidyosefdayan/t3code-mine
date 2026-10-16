@@ -1,16 +1,14 @@
-import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
+import { SidebarGroupButton } from "./ThreadRowParts";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type ReactNode } from "react";
 import { cn } from "~/lib/utils";
-import { useClientSettings } from "../../hooks/useSettings";
 import {
   animateSidebarLayoutChanges,
   sidebarMarkerId,
   type SidebarListMarker,
 } from "../Sidebar.logic";
 import { SIDEBAR_SORTABLE_DRAG_DISABLED } from "./SidebarThreadRow";
-import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 
 function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
@@ -101,50 +99,38 @@ export function SidebarDragBoundary(props: {
   );
 }
 
+// Personal build: one title style for every group (New threads, Unread,
+// Pinned, Open, Working, Snoozed, Settled); clicking it collapses the group.
 export function SidebarSectionHeader(props: {
-  marker: "working-header" | "snoozed-header" | "settled-header";
+  // The group's place in the drag list, so drops can tell which group they
+  // land in. The New threads title sits above the list and has none.
+  marker?: SidebarListMarker;
   label: string;
-  /** A muted trailing count; classic shows it only while the shelf is collapsed. */
   count: number;
   className?: string;
-  dragging?: boolean;
   isDropTarget?: boolean;
+  // The count reads as a badge: these threads are waiting on you.
+  emphasis?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
-  /** The first shelf at the bottom of the list hosts the undo notice just above itself. */
-  hostsUndoNotice?: boolean;
 }) {
-  const shelf =
-    props.marker === "working-header"
-      ? "working"
-      : props.marker === "snoozed-header"
-        ? "snoozed"
-        : "settled";
-  const redesign = useClientSettings((s) => s.redesignEnabled);
-  const collapsedCount = props.toggle.expanded ? null : props.count;
-  const count = redesign ? props.count : collapsedCount;
+  const button = (
+    <SidebarGroupButton
+      label={props.label}
+      count={props.count}
+      expanded={props.toggle.expanded}
+      onToggle={props.toggle.onToggle}
+      isDropTarget={props.isDropTarget}
+      emphasis={props.emphasis}
+    />
+  );
+  if (props.marker === undefined) return <li className="list-none pt-3">{button}</li>;
   return (
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("relative mx-0.5 h-8", props.className)}
+      className={cn("pt-3", props.className)}
     >
-      {props.hostsUndoNotice ? (
-        <SidebarThreadUndoNotice className="absolute inset-x-0 bottom-full bg-sidebar surface-grain" />
-      ) : null}
-      <CollapsibleSectionHeader
-        onClick={props.toggle.onToggle}
-        expanded={props.toggle.expanded}
-        tone={props.isDropTarget ? "accent" : props.dragging ? "emphasized" : "muted"}
-        data-testid={`sidebar-${shelf}-shelf-toggle`}
-        accessory={
-          redesign && count !== null ? (
-            <span className="font-normal tabular-nums">{count}</span>
-          ) : null
-        }
-      >
-        {props.label}
-        {!redesign && collapsedCount !== null ? ` (${collapsedCount})` : null}
-      </CollapsibleSectionHeader>
+      {button}
     </SortableSidebarMarker>
   );
 }

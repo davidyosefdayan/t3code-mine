@@ -1,4 +1,17 @@
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+/**
+ * The sidebar header: the search field (with the project scope inside it)
+ * and the new-thread button beside it.
+ *
+ * Search owns the row's text and spans it. Project scope collapses to an icon
+ * that sits with new-project and new-thread as a segmented group at the end.
+ * The scope icon swaps to the project favicon while a project is selected,
+ * so the header still names the scope after the row that showed it is gone.
+ *
+ * The scope picker itself is passed in: its combobox state lives with the rest
+ * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
+ * the picker's popup can anchor to that width rather than to its 28px trigger.
+ */
+import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,7 +29,7 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   hasProjects: boolean;
   projectScope: ReactNode;
-  onNewProject: () => void;
+  /** Receives the click so Shift+click can skip the project picker. */
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
@@ -36,7 +49,6 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   projectScope,
-  onNewProject,
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
@@ -59,12 +71,15 @@ export function SidebarThreadHeader({
     : "New thread";
 
   return (
-    <div className="flex items-center gap-1">
+    // Personal build: search with the project scope inside it (both narrow
+    // the list), and compose as its own button beside it, like a messages
+    // app. Adding a project lives in the scope menu.
+    <div className="flex items-center gap-1.5">
       <div
         ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground redesign:focus-within:bg-sidebar-row-hover redesign:focus-within:text-sidebar-foreground redesign:focus-within:ring-1 redesign:focus-within:ring-inset redesign:focus-within:ring-ring/70"
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-sidebar-control-surface ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground"
       >
-        <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
+        <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
           nativeInput
@@ -100,16 +115,10 @@ export function SidebarThreadHeader({
             <XIcon className="size-3" />
           </Button>
         ) : null}
+        {hasProjects ? projectScope : null}
       </div>
-      <div className="flex shrink-0 items-center">
-        {hasProjects ? (
-          <>
-            {projectScope}
-            <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
-              <FolderPlusIcon />
-            </SidebarHeaderIconButton>
-          </>
-        ) : null}
+      {/* Its own filled square beside the field, like a compose button. */}
+      <span className="flex shrink-0 rounded-lg bg-sidebar-control-surface">
         <SidebarHeaderIconButton
           label="New thread"
           tooltip={
@@ -125,12 +134,13 @@ export function SidebarThreadHeader({
               newThreadLabel
             )
           }
+          className="size-8"
           disabled={newThreadDisabled}
           onClick={onNewThread}
         >
           <SquarePenIcon />
         </SidebarHeaderIconButton>
-      </div>
+      </span>
     </div>
   );
 }
