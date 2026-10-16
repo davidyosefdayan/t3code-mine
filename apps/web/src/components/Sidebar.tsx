@@ -636,9 +636,9 @@ function SortableThreadRow(props: {
 // Personal build: flat, Arc-like surfaces. List rows have no fill at rest
 // and the open row is solid. Unsent work reads as a "Draft" label on the
 // row's second line rather than a tint, which looked like a selection.
-const restSurfaceClassName = "bg-transparent hover:bg-sidebar-row-hover";
-const activeSurfaceClassName = "bg-sidebar-row-active";
-const selectedSurfaceClassName = "bg-sidebar-row-selected";
+const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
+const activeSurfaceClassName = "bg-row-active";
+const selectedSurfaceClassName = "bg-row-selected";
 
 // Structural list items — the section headers and the
 // empty-section placeholders — take part in the sortable list so they shift
@@ -1417,7 +1417,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {/* A chosen icon sits in its own rounded square, like a
             project's icon, so it reads as the chat's avatar. */}
       {pinLine !== null ? (
-        <span className="flex size-7 items-center justify-center rounded-md bg-sidebar-control-surface">
+        <span className="flex size-7 items-center justify-center rounded-md bg-chip">
           <pinLine.Icon
             aria-hidden
             className={cn(
@@ -1429,7 +1429,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       ) : pinEmoji !== null ? (
         <span
           aria-hidden
-          className="flex size-7 items-center justify-center rounded-md bg-sidebar-control-surface text-base leading-none"
+          className="flex size-7 items-center justify-center rounded-md bg-chip text-base leading-none"
         >
           {pinEmoji}
         </span>

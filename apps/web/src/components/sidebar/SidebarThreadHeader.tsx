@@ -83,7 +83,7 @@ export function SidebarThreadHeader({
     <div className="flex items-center gap-1.5">
       <div
         ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-sidebar-control-surface ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground"
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground"
       >
         <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
@@ -124,7 +124,7 @@ export function SidebarThreadHeader({
         {hasProjects ? projectScope : null}
       </div>
       {/* Its own filled square beside the field, like a compose button. */}
-      <span className="flex shrink-0 rounded-lg bg-sidebar-control-surface">
+      <span className="flex shrink-0 rounded-lg bg-chip">
         <SidebarHeaderIconButton
           label="New thread"
           tooltip={
