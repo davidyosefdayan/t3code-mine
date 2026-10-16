@@ -69,11 +69,13 @@ vi.mock(import("../../state/usage"), async (original) => {
       isPartial: false,
       refresh: async () => undefined,
     })) as never,
+    useUsageBreakdown: (() => ({ answers: [], isPending: false })) as never,
   };
 });
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { UsagePage } from "./UsagePage";
+import type { UsageMetric } from "./usageShortcuts";
 
 const PREFERENCES_KEY = "t3code:usage-page-preferences:v1";
 // Limits refreshes are throttled per environment for the whole session, so each test
@@ -124,15 +126,22 @@ const setNow = (iso: string) => vi.mocked(Date.now).mockReturnValue(Date.parse(i
 const resetsIn = (countdown: string) =>
   page.getByRole("button", { name: `codex: 60% left, resets in ${countdown}`, exact: false });
 const refreshButton = () => page.getByRole("button", { name: "Refresh limits" });
-const selectMetric = (label: string) => userEvent.click(page.getByRole("button", { name: label }));
 
-async function renderPage({ strict = false } = {}) {
+// Personal build: the Usage sidebar picks the metric, so tests pass it in.
+function ui({ strict = false, metric }: { strict?: boolean; metric?: UsageMetric } = {}) {
   const content = (
     <RegistryContext.Provider value={appAtomRegistry}>
-      <UsagePage />
+      <UsagePage {...(metric ? { metric } : {})} />
     </RegistryContext.Provider>
   );
-  return render(strict ? <StrictMode>{content}</StrictMode> : content);
+  return strict ? <StrictMode>{content}</StrictMode> : content;
+}
+
+async function renderPage(options: Parameters<typeof ui>[0] = {}) {
+  const screen = await render(ui(options));
+  return Object.assign(screen, {
+    selectMetric: (metric: UsageMetric) => screen.rerender(ui({ ...options, metric })),
+  });
 }
 
 async function setup() {
@@ -177,10 +186,10 @@ it.each([
 
 it("uses the current time when returning to limits from tokens", async () => {
   using _state = await setup();
-  await using _screen = await renderPage();
-  await selectMetric("Tokens");
+  await using screen = await renderPage({ metric: "limits" });
+  await screen.selectMetric("tokens");
   setNow("2026-09-11T13:00:00Z");
-  await selectMetric("Limits");
+  await screen.selectMetric("limits");
 
   await expect.element(resetsIn("1h 0m")).toBeVisible();
   expect(state.refreshProviders).toHaveBeenCalledTimes(2);
@@ -188,21 +197,20 @@ it("uses the current time when returning to limits from tokens", async () => {
 
 it("refreshes once on opening Limits and suppresses rapid returns and remounts", async () => {
   using _state = await setup();
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ metric: "tokens", windowDays: 30 }));
-  await using screen = await renderPage({ strict: true });
+  await using screen = await renderPage({ strict: true, metric: "tokens" });
   expect(state.refreshProviders).not.toHaveBeenCalled();
 
-  await selectMetric("Limits");
+  await screen.selectMetric("limits");
   await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(1));
-  await selectMetric("Tokens");
-  await selectMetric("Limits");
+  await screen.selectMetric("tokens");
+  await screen.selectMetric("limits");
   await screen.unmount();
-  await using _remounted = await renderPage({ strict: true });
+  await using remounted = await renderPage({ strict: true, metric: "limits" });
   expect(state.refreshProviders).toHaveBeenCalledTimes(1);
 
-  await selectMetric("Tokens");
+  await remounted.selectMetric("tokens");
   setNow("2026-09-11T12:05:00Z");
-  await selectMetric("Limits");
+  await remounted.selectMetric("limits");
   await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(2));
 });
 

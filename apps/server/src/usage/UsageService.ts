@@ -5,6 +5,7 @@ import {
   ProviderInstanceId,
   USAGE_CONTRACT_VERSION,
   type ServerSettings as ServerSettingsValue,
+  type UsageBreakdownInput,
   type UsageProviderKind,
   type UsageSource,
   type UsagePricing,
@@ -42,6 +43,13 @@ import type {
 } from "@t3tools/provider-core/server/usage";
 import { resolveModelAliases, UsageAggregator } from "./usageAggregation.ts";
 import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
+import {
+  parseCodexSessionIndex,
+  parseSessionHead,
+  readFileHead,
+  type ScannedSession,
+  UsageSessionAggregator,
+} from "./usageSessions.ts";
 import {
   listTranscriptFiles,
   readDirectoryVolumeId,
@@ -151,11 +159,33 @@ const decodeCachedSources = Schema.decodeUnknownOption(
   Schema.Struct({ sources: Schema.Record(Schema.String, CachedSource) }),
 );
 
+/** Personal build: a monthly quota window plus slack, the longest `readSessions` reads. */
+const MAX_SESSION_WINDOW_MS = 32 * 24 * 60 * 60 * 1000;
+
+/** One provider session in a window, with what its transcript says about where it ran. */
+export interface UsageSessionScanEntry extends ScannedSession {
+  readonly cwd?: string;
+  readonly title?: string;
+  readonly origin?: string;
+}
+
+export interface UsageSessionScan {
+  readonly readAt: string;
+  readonly sessions: readonly UsageSessionScanEntry[];
+}
+
 export class UsageService extends Context.Service<
   UsageService,
   {
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
     readonly refreshRates: Effect.Effect<UsagePricing>;
+    /**
+     * Personal build: per-session usage for one transcript provider and
+     * window, most expensive first, for Usage → Limits.
+     */
+    readonly readSessions: (
+      input: UsageBreakdownInput,
+    ) => Effect.Effect<UsageSessionScan, UsageReadError>;
   }
 >()("t3/usage/UsageService") {}
 
@@ -182,6 +212,7 @@ const layerTest = Layer.succeed(
         scanDurationMs: 0,
       }),
     refreshRates: Effect.succeed(EMPTY_PRICING),
+    readSessions: () => Effect.succeed({ readAt: "1970-01-01T00:00:00.000Z", sessions: [] }),
   }),
 );
 
@@ -956,7 +987,142 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates, awaitPersisted } as const;
+  /** Transcript heads by path, re-read when the file grew: Claude may have added its title. */
+  const headCache = new Map<
+    string,
+    { readonly size: number | undefined; readonly head: ReturnType<typeof parseSessionHead> }
+  >();
+
+  // Personal build: the Limits view's "where did my weekly limit go". Reads
+  // only the one provider's transcript directories, through the same file
+  // cache, retention, and cross-file de-duplication as `scanSummary`.
+  const readSessions = Effect.fn("UsageService.readSessions")(function* (
+    input: UsageBreakdownInput,
+  ) {
+    const since = DateTime.make(input.sinceTime);
+    const until = DateTime.make(input.untilTime);
+    if (Option.isNone(since) || Option.isNone(until)) {
+      return yield* new UsageReadError({
+        reason: "invalidWindow",
+        detail: "Session usage requires valid sinceTime and untilTime instants",
+      });
+    }
+    const sinceTimeMs = DateTime.toEpochMillis(since.value);
+    const untilTimeMs = DateTime.toEpochMillis(until.value);
+    if (untilTimeMs <= sinceTimeMs || untilTimeMs - sinceTimeMs > MAX_SESSION_WINDOW_MS) {
+      return yield* new UsageReadError({
+        reason: "invalidWindow",
+        detail: "Session usage window must be greater than zero and at most 32 days",
+      });
+    }
+
+    const settings = yield* readSettings;
+    yield* ensureScanCacheLoaded;
+    const startedAtMs = yield* Clock.currentTimeMillis;
+    const retentionCutoffMs = startedAtMs - CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const windowStartMs = sinceTimeMs - MTIME_SLACK_MS;
+    const sources = (yield* resolveTranscriptDirs(settings, retentionCutoffMs).pipe(
+      Effect.provideContext(readerContext),
+    )).filter((source) => source.provider === input.provider);
+    const [, scannedDirs] = yield* Effect.all(
+      [
+        ensureRates(false),
+        Effect.forEach(sources, (source) => scanTranscriptDir(source, windowStartMs)),
+      ],
+      { concurrency: 2 },
+    );
+
+    // Saved records of transcripts cleanup removed still count, as in `scanSummary`.
+    const retainedSinceMs = Math.max(windowStartMs, retentionCutoffMs);
+    const files = scannedDirs.flatMap(({ dir, files: dirFiles }) => {
+      const retained = [...(dirFiles ?? [])];
+      const livePaths = new Set(retained.map((file) => file.path));
+      for (const [filePath, entry] of fileCache) {
+        if (
+          entry.provider !== input.provider ||
+          entry.mtimeMs < retainedSinceMs ||
+          livePaths.has(filePath) ||
+          !isWithinDirectory(filePath, dir)
+        )
+          continue;
+        retained.push({
+          path: filePath,
+          records: [...entry.records, ...entry.tailRecords],
+          malformedRecords: entry.malformedRecords,
+        });
+      }
+      return retained;
+    });
+    const crossFileSessions = sharedSessions(files);
+
+    const aggregator = new UsageSessionAggregator({
+      provider: input.provider,
+      sinceTimeMs,
+      untilTimeMs,
+      rates,
+      priceOverrides: createOverrideRateTable(settings.usagePriceOverrides),
+      modelAliases: resolveModelAliases(settings.usageModelAliases),
+    });
+    for (const file of files) {
+      const eventOccurrences = new Map<string, number>();
+      for (const rawRecord of file.records) {
+        const record = correctedRecord(rawRecord);
+        if (
+          !sharedSessionProviders.has(record.provider) ||
+          !crossFileSessions.has(record.sessionId)
+        ) {
+          aggregator.add(record, file.path);
+          continue;
+        }
+        // Keyed like `scanSummary`, so moved copies count once.
+        const key = encodeUsageRecordKey([
+          record.provider,
+          record.sessionId,
+          record.timestampMs,
+          record.model,
+          record.totals,
+        ]);
+        const occurrence = (eventOccurrences.get(key) ?? 0) + 1;
+        eventOccurrences.set(key, occurrence);
+        aggregator.add({ ...record, dedupeKey: key + ":" + occurrence }, file.path);
+      }
+    }
+    // Codex keeps thread names beside its sessions directory.
+    const codexNames = new Map<string, string>();
+    if (input.provider === "codex") {
+      for (const { dir } of scannedDirs) {
+        const index = yield* fileSystem
+          .readFileString(path.join(dir, "..", "session_index.jsonl"))
+          .pipe(Effect.orElseSucceed(() => ""));
+        for (const [id, name] of parseCodexSessionIndex(index)) codexNames.set(id, name);
+      }
+    }
+    if (cacheDirty) yield* schedulePersist;
+
+    const sessions: UsageSessionScanEntry[] = [];
+    for (const session of aggregator.finish()) {
+      const size = fileCache.get(session.filePath)?.size;
+      const cached = headCache.get(session.filePath);
+      let head = cached?.size === size ? cached?.head : undefined;
+      if (head === undefined) {
+        const text = yield* Effect.promise(() => readFileHead(session.filePath));
+        head = text === null ? {} : parseSessionHead(text);
+        headCache.set(session.filePath, { size, head });
+      }
+      const title = codexNames.get(session.sessionId) ?? head.title;
+      sessions.push({
+        ...session,
+        ...(head.cwd ? { cwd: head.cwd } : {}),
+        ...(head.origin ? { origin: head.origin } : {}),
+        ...(title ? { title } : {}),
+      });
+    }
+    return { readAt: DateTime.formatIso(yield* DateTime.now), sessions } satisfies UsageSessionScan;
+  });
+
+  // `awaitPersisted` is outside the service interface: tests use it to restart
+  // against what a previous instance wrote.
+  return { readSummary, refreshRates, readSessions, awaitPersisted } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

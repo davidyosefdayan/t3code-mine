@@ -34,6 +34,8 @@ const pendingRpcAckRequests = new Map<string, PendingRpcAckRequest>();
 // about a request the user never made does not say what is wrong.
 const untrackedRpcAckMethods = new Set<string>([
   WS_METHODS.serverGetUsageSummary,
+  // Personal build: a cold breakdown scan can take seconds, like the summary.
+  WS_METHODS.serverGetUsageBreakdown,
   WS_METHODS.serverReportClientActivity,
 ]);
 const longRunningRpcAckMethods = new Set<string>([
