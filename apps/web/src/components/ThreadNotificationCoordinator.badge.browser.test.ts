@@ -221,12 +221,13 @@ function setup() {
 }
 
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
     await using app = setup();
     app.start();
     state.shells.set("one", shell({ [flag]: true }));
-    expect(state.badge).toHaveBeenLastCalledWith(1);
+    // Personal build: the Dock badge counts chats that need you (NeedsYouDockBadge), not alerts.
+    expect(TestNotification.sent).toHaveLength(1);
     const notification = TestNotification.sent[0]!;
     notification.dispatchEvent(new Event("click"));
     expect(state.navigate).toHaveBeenCalledWith({
@@ -235,7 +236,6 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.mode = "sound";
     app.changeSettings();
-    expect(state.badge).toHaveBeenLastCalledWith(0);
     expect(notification.close).toHaveBeenCalled();
   },
 );
@@ -250,7 +250,8 @@ it("presents completion notifications and sound as soon as the shell completes",
       latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
     }),
   );
-  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Thread completed"]);
+  // Personal build: a notification leads with the chat's title.
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Test thread"]);
   expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
 });
 
