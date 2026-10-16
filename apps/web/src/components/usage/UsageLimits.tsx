@@ -18,7 +18,7 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { environmentPresentations } from "../../state/presentation";
@@ -37,7 +37,6 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
@@ -340,53 +339,48 @@ export function ResetCredits({
 }
 
 /**
- * Subscription quota across every connected environment's providers and hubs,
- * pooled per provider. The page advances `now` on explicit refresh rather than
- * ticking: a live clock would repaint the page for no decision-changing gain.
+ * The selected environments' presentations with hidden providers taken out,
+ * which the Limits view pools per provider. Personal build: the pools render
+ * in `UsageLimitsDashboard`, so this is a hook rather than upstream's section.
  */
-export function UsageLimitsSection({
-  selectedEnvironmentIds,
-  hiddenProviders,
-  now,
-  cursorPrompt,
-}: {
-  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-  readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
-  readonly now: number;
-  readonly cursorPrompt?: ReactNode;
-}) {
+export function useLimitPresentations(
+  selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null,
+  hiddenProviders: ReadonlySet<UsageProviderKind>,
+) {
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
-  const hiddenDrivers = new Set<ServerProvider["driver"]>(
-    [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
-  );
-  const isVisible = (driver: ServerProvider["driver"]) => !hiddenDrivers.has(driver);
-  // Hidden drivers leave both native accounts and hub accounts, so their
-  // bars, notices, and external links all drop out together.
-  const selected = new Map(
-    [...presentations].flatMap(([id, presentation]) => {
-      if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(id)) return [];
-      const config = presentation.serverConfig;
-      if (hiddenDrivers.size === 0 || config === null) return [[id, presentation] as const];
-      return [
-        [
-          id,
-          {
-            ...presentation,
-            serverConfig: {
-              ...config,
-              providers: config.providers.filter((provider) => isVisible(provider.driver)),
-              // A hub left with no visible accounts is dropped, not reported as empty.
-              usageLimitSources: config.usageLimitSources?.flatMap((source) => {
-                const accounts = source.accounts.filter((account) => isVisible(account.driver));
-                return accounts.length === 0 && source.accounts.length > 0
-                  ? []
-                  : [{ ...source, accounts }];
-              }),
+  return useMemo(() => {
+    const hiddenDrivers = new Set<ServerProvider["driver"]>(
+      [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
+    );
+    const isVisible = (driver: ServerProvider["driver"]) => !hiddenDrivers.has(driver);
+    // Hidden drivers leave both native accounts and hub accounts, so their
+    // bars, notices, and external links all drop out together.
+    const selected = new Map(
+      [...presentations].flatMap(([id, presentation]) => {
+        if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(id)) return [];
+        const config = presentation.serverConfig;
+        if (hiddenDrivers.size === 0 || config === null) return [[id, presentation] as const];
+        return [
+          [
+            id,
+            {
+              ...presentation,
+              serverConfig: {
+                ...config,
+                providers: config.providers.filter((provider) => isVisible(provider.driver)),
+                // A hub left with no visible accounts is dropped, not reported as empty.
+                usageLimitSources: config.usageLimitSources?.flatMap((source) => {
+                  const accounts = source.accounts.filter((account) => isVisible(account.driver));
+                  return accounts.length === 0 && source.accounts.length > 0
+                    ? []
+                    : [{ ...source, accounts }];
+                }),
+              },
             },
-          },
-        ] as const,
-      ];
-    }),
-  );
-  return <UsageLimitsPooled presentations={selected} now={now} cursorPrompt={cursorPrompt} />;
+          ] as const,
+        ];
+      }),
+    );
+    return selected;
+  }, [presentations, selectedEnvironmentIds, hiddenProviders]);
 }

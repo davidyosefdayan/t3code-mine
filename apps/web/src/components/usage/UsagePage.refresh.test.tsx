@@ -29,6 +29,7 @@ vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.ref
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../hooks/useSettings", () => ({ usePrimarySettings: () => "24h" }));
 vi.mock("../../state/usage", () => ({
+  useUsageBreakdown: () => ({ answers: [], isPending: false }),
   useUsage: () => ({
     merged: mergeUsage([], USAGE_CONTRACT_VERSION),
     environments: [
@@ -187,11 +188,9 @@ it("uses the current time when returning to limits from tokens", async () => {
   await act(() => {
     renderer = create(<UsagePage />);
   });
-  const selectMetric = (metric: string) => {
-    renderer.root
-      .findAll((node) => node.type === "div" && node.props["aria-label"] === "Usage metric")[0]!
-      .props.onValueChange([metric]);
-  };
+  // The Usage sidebar switches views through the route's `metric`.
+  const selectMetric = (metric: "tokens" | "limits") =>
+    renderer.update(<UsagePage metric={metric} />);
   await act(() => selectMetric("tokens"));
   vi.mocked(Date.now).mockReturnValue(Date.parse("2026-09-11T13:00:00Z"));
   await act(() => selectMetric("limits"));
@@ -211,10 +210,12 @@ it("refreshes once on opening Limits and suppresses rapid returns and remounts",
     );
   });
   expect(state.refreshProviders).not.toHaveBeenCalled();
-  const selectMetric = (metric: string) =>
-    renderer.root
-      .findAll((node) => node.type === "div" && node.props["aria-label"] === "Usage metric")[0]!
-      .props.onValueChange([metric]);
+  const selectMetric = (metric: "tokens" | "limits") =>
+    renderer.update(
+      <StrictMode>
+        <UsagePage metric={metric} />
+      </StrictMode>,
+    );
   await act(() => selectMetric("limits"));
   expect(state.refreshProviders).toHaveBeenCalledTimes(1);
   await act(() => selectMetric("tokens"));

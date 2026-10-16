@@ -75,7 +75,7 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { UsageLimitsSection } from "./UsageLimits";
+import { UsageLimitsDashboard } from "./UsageLimitsDashboard";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
@@ -101,9 +101,8 @@ import {
   type UsagePagePreferences,
 } from "./usagePagePreferences";
 
-function isUsageMetric(value: string | null | undefined): value is UsageMetric {
-  return METRIC_OPTIONS.some((option) => option.value === value);
-}
+/** Personal build: Spend's units. Limits and Spend are switched from the Usage sidebar. */
+const SPEND_OPTIONS = METRIC_OPTIONS.filter((option) => option.value !== "limits");
 
 function isUsageWindowDays(value: number): value is UsagePagePreferences["windowDays"] {
   return WINDOW_OPTIONS.some((option) => option.days === value);
@@ -111,7 +110,19 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
 
-export function UsagePage() {
+export interface UsagePageProps {
+  /** Personal build: the view from the URL, so the Usage sidebar and the page agree. */
+  readonly metric?: UsageMetric;
+  /** Provider tab under Limits, by driver kind; absent opens the tightest provider. */
+  readonly provider?: string;
+  readonly onViewChange?: (metric: UsageMetric, provider?: string) => void;
+}
+
+export function UsagePage({
+  metric: controlledMetric,
+  provider: controlledProvider,
+  onViewChange,
+}: UsagePageProps = {}) {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
   useEscapeToGoBack();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -131,8 +142,9 @@ export function UsagePage() {
       preferences.windowDays === 1 ? "hour" : "day",
     ),
   }));
-  const metric = preferences.metric;
+  const metric = controlledMetric ?? preferences.metric;
   const showingLimits = metric === "limits";
+  const limitsProvider = controlledMetric ? controlledProvider : preferences.provider;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
@@ -282,10 +294,20 @@ export function UsagePage() {
       window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
     });
   };
-  const selectMetric = (nextMetric: UsageMetric) => {
-    if (nextMetric === "limits") setLimitsNow(Date.now());
-    updatePreferences({ metric: nextMetric });
+  const selectView = (nextMetric: UsageMetric, nextProvider?: string) => {
+    if (nextMetric === "limits" && metric !== "limits") setLimitsNow(Date.now());
+    const { provider: _provider, ...rest } = preferences;
+    const nextPreferences: UsagePagePreferences = {
+      ...rest,
+      metric: nextMetric,
+      ...(nextMetric === "limits" && nextProvider ? { provider: nextProvider } : {}),
+      ...(nextMetric !== "limits" ? { spendMetric: nextMetric } : {}),
+    };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
+    onViewChange?.(nextMetric, nextMetric === "limits" ? nextProvider : undefined);
   };
+  const selectMetric = (nextMetric: UsageMetric) => selectView(nextMetric);
   const refreshLimits = async (automatic = false, afterPending = false) => {
     try {
       await Promise.all(
@@ -416,39 +438,25 @@ export function UsagePage() {
         </span>
       ) : null}
       <div className="ms-auto hidden min-w-0 items-center justify-end gap-2 xl:flex">
-        <ToggleGroup
-          aria-label="Usage metric"
-          variant="segmented"
-          value={[metric]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (isUsageMetric(value)) selectMetric(value);
-          }}
-        >
-          {METRIC_OPTIONS.map((option) => (
-            <Toggle key={option.value} value={option.value} title={shortcutTitle(option)}>
-              {option.label}
-            </Toggle>
-          ))}
-        </ToggleGroup>
-        {/* The period does not apply to Limits, so it stays in place but
-            disabled; unmounting it shifted the metric toggle ~300px. */}
-        <ToggleGroup
-          aria-label="Usage period"
-          variant="segmented"
-          value={[String(windowDays)]}
-          disabled={showingLimits}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value) selectWindow(Number(value));
-          }}
-        >
-          {WINDOW_OPTIONS.map((option) => (
-            <Toggle key={option.days} value={String(option.days)} title={shortcutTitle(option)}>
-              {option.label}
-            </Toggle>
-          ))}
-        </ToggleGroup>
+        {/* Personal build: the Usage sidebar switches Limits and Spend, and the
+            period only applies to Spend. */}
+        {showingLimits ? null : (
+          <ToggleGroup
+            aria-label="Usage period"
+            variant="segmented"
+            value={[String(windowDays)]}
+            onValueChange={(next) => {
+              const value = next[0];
+              if (value) selectWindow(Number(value));
+            }}
+          >
+            {WINDOW_OPTIONS.map((option) => (
+              <Toggle key={option.days} value={String(option.days)} title={shortcutTitle(option)}>
+                {option.label}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+        )}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? "Refresh limits" : "Refresh usage"}
@@ -461,57 +469,31 @@ export function UsagePage() {
         </Button>
       </div>
       <div className="ms-auto flex min-w-0 items-center justify-end gap-1 xl:hidden">
-        <Select
-          value={metric}
-          onValueChange={(value) => {
-            if (isUsageMetric(value)) selectMetric(value);
-          }}
-        >
-          <SelectTrigger
-            aria-label="Usage metric"
-            size="compact"
-            variant="ghost"
-            className="w-auto min-w-0"
-          >
-            <SelectValue>
-              {METRIC_OPTIONS.find((option) => option.value === metric)?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            {METRIC_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value} title={shortcutTitle(option)}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <Select
-          value={String(windowDays)}
-          disabled={showingLimits}
-          onValueChange={(value) => selectWindow(Number(value))}
-        >
-          <SelectTrigger
-            aria-label="Usage period"
-            size="compact"
-            variant="ghost"
-            className="w-auto min-w-0"
-          >
-            <SelectValue>
-              {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            {WINDOW_OPTIONS.map((option) => (
-              <SelectItem
-                key={option.days}
-                value={String(option.days)}
-                title={shortcutTitle(option)}
-              >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        {showingLimits ? null : (
+          <Select value={String(windowDays)} onValueChange={(value) => selectWindow(Number(value))}>
+            <SelectTrigger
+              aria-label="Usage period"
+              size="compact"
+              variant="ghost"
+              className="w-auto min-w-0"
+            >
+              <SelectValue>
+                {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {WINDOW_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option.days}
+                  value={String(option.days)}
+                  title={shortcutTitle(option)}
+                >
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? "Refresh limits" : "Refresh usage"}
@@ -540,7 +522,9 @@ export function UsagePage() {
                   : `Select an environment to see ${showingLimits ? "limits" : "usage"}.`}
               </p>
             ) : showingLimits ? (
-              <UsageLimitsSection
+              <UsageLimitsDashboard
+                provider={limitsProvider ?? null}
+                onSelectProvider={(driver) => selectView("limits", driver)}
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
@@ -707,10 +691,32 @@ export function UsagePage() {
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
-                    <h2 className="text-sm font-medium text-foreground">
-                      {shownHourly ? "Hourly" : "Daily"}{" "}
-                      {metric === "tokens" ? "processed tokens" : "cost"}
-                    </h2>
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-sm font-medium text-foreground">
+                        {shownHourly ? "Hourly" : "Daily"}{" "}
+                        {metric === "tokens" ? "processed tokens" : "cost"}
+                      </h2>
+                      {/* Personal build: Spend's unit, which the shares below follow. */}
+                      <ToggleGroup
+                        aria-label="Spend unit"
+                        variant="segmented"
+                        value={[metric]}
+                        onValueChange={(next) => {
+                          const value = next[0];
+                          if (value === "cost" || value === "tokens") selectMetric(value);
+                        }}
+                      >
+                        {SPEND_OPTIONS.map((option) => (
+                          <Toggle
+                            key={option.value}
+                            value={option.value}
+                            title={shortcutTitle(option)}
+                          >
+                            {option.label}
+                          </Toggle>
+                        ))}
+                      </ToggleGroup>
+                    </div>
                     <UsageProviderChart
                       providers={activeProviders}
                       loadingProviders={chartLoadingProviders}

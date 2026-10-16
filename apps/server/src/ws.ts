@@ -226,7 +226,8 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageService from "./usage/UsageService.ts";
-// Personal build: the Skills page.
+// Personal build: Usage → Limits and the Skills page.
+import { readUsageBreakdown } from "./usage/usageBreakdown.ts";
 import * as SkillLibrary from "./skills/SkillLibrary.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -2445,6 +2446,11 @@ const layerWsRpc = (
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
         [WS_METHODS.serverGetUsageSummary]: (input) => usage.readSummary(input),
+        [WS_METHODS.serverGetUsageBreakdown]: (input) =>
+          readUsageBreakdown(input).pipe(
+            Effect.provideService(UsageService.UsageService, usage),
+            Effect.provideService(SqlClient.SqlClient, sql),
+          ),
         [WS_METHODS.serverRefreshUsageRates]: (_input) => usage.refreshRates,
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),

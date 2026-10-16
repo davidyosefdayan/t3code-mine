@@ -3,7 +3,6 @@ import {
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitNotices,
-  collectLimitPools,
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
@@ -14,7 +13,7 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ensureLocalApi } from "../../localApi";
 import { usePrimarySettings } from "../../hooks/useSettings";
@@ -533,22 +532,33 @@ function PoolWindowCard({
   );
 }
 
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
+/** Every window of one provider's pool as cards, under its name. */
+export function PoolSection({
+  pool,
+  now,
+  showHeading = true,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly showHeading?: boolean;
+}) {
   const color = barColor(pool.driver);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          displayName={label}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {label}
-      </h2>
+      {showHeading ? (
+        <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <ProviderInstanceIcon
+            driverKind={pool.driver}
+            displayName={label}
+            indicatorBackground="var(--background)"
+            className="size-5"
+            iconClassName="size-4 text-foreground/80"
+          />
+          {label}
+        </h2>
+      ) : null}
       {windows.map((window) => {
         const details = pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
         return (
@@ -567,41 +577,23 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
 }
 
 /**
- * Accounts pooled per provider: what is open across all of them, who resets
- * next, and how much of the pool that hands back. Answers "can I keep going"
- * before "on which account".
+ * Personal build: what the Limits view cannot draw as a bar, under it: the
+ * Cursor prompt, links to provider-owned usage pages, and sources that failed
+ * to read. The pools themselves render in `UsageLimitsDashboard`.
  */
-export function UsageLimitsPooled({
+export function UsageLimitsExtras({
   presentations,
-  now,
   cursorPrompt,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
-  readonly now: number;
   readonly cursorPrompt?: ReactNode;
 }) {
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
-  const cursorPromptAt =
-    Math.max(
-      pools.findIndex((pool) => pool.driver === "codex"),
-      pools.findIndex((pool) => pool.driver === "claudeAgent"),
-    ) + 1;
+  if (!cursorPrompt && notices.length === 0 && externalLinks.length === 0) return null;
   return (
-    <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && !cursorPrompt && externalLinks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No provider on the selected environments reports subscription limits.
-        </p>
-      ) : null}
-      {pools.map((pool, index) => (
-        <Fragment key={pool.driver}>
-          {index === cursorPromptAt ? cursorPrompt : null}
-          <PoolSection pool={pool} now={now} />
-        </Fragment>
-      ))}
-      {cursorPromptAt === pools.length ? cursorPrompt : null}
+    <div className="flex flex-col gap-4">
+      {cursorPrompt}
       {externalLinks.map((link) => (
         <section
           key={link.url}

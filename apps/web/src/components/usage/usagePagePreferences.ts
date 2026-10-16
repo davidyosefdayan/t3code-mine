@@ -9,6 +9,10 @@ const UsagePagePreferencesSchema = Schema.Struct({
   windowDays: Schema.Literals([1, 7, 30, 90]),
   /** Providers filtered out of the page. Stored as hidden so new providers show by default. */
   hiddenProviders: Schema.optional(Schema.Array(UsageProviderKind)),
+  /** Personal build: provider tab under Limits (a driver kind); absent opens the tightest. */
+  provider: Schema.optional(Schema.String),
+  /** Personal build: the unit Spend last showed, so returning to it from Limits keeps it. */
+  spendMetric: Schema.optional(Schema.Literals(["cost", "tokens"])),
 });
 export type UsagePagePreferences = typeof UsagePagePreferencesSchema.Type;
 

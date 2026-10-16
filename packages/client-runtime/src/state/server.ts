@@ -1141,6 +1141,13 @@ export function createServerEnvironmentAtoms<R, E>(
           ),
         ),
     }),
+    // Personal build: where a weekly limit went, for Usage → Limits.
+    usageBreakdown: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-breakdown",
+      tag: WS_METHODS.serverGetUsageBreakdown,
+      staleTimeMs: 60_000,
+      refreshTrigger: ({ environmentId }) => usageScanSettingsAtom(environmentId),
+    }),
     resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry",
       tag: WS_METHODS.subscribeResourceTelemetry,

@@ -28,7 +28,11 @@ interface PendingRpcAckRequest {
 }
 
 const pendingRpcAckRequests = new Map<string, PendingRpcAckRequest>();
-const untrackedRpcAckMethods = new Set<string>([WS_METHODS.serverGetUsageSummary]);
+const untrackedRpcAckMethods = new Set<string>([
+  WS_METHODS.serverGetUsageSummary,
+  // Personal build: a cold breakdown scan can take seconds, like the summary.
+  WS_METHODS.serverGetUsageBreakdown,
+]);
 const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,
   WS_METHODS.serverRefreshProviders,
