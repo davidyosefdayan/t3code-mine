@@ -2219,3 +2219,119 @@ it.live.each(["thread.settled", "stopped", "ready"] as const)(
       }),
     ),
 );
+
+describe("worktree backups", () => {
+  const backupsDir = (config: ServerConfig.ServerConfig["Service"]) =>
+    `${config.worktreesDir}/../worktree-backups`;
+  /** Every backed-up file of the fixture's worktree, by path inside the backup. */
+  const readBackups = Effect.fn(function* (directory: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const backups = (yield* fs.exists(directory))
+      ? (yield* fs.readDirectory(directory)).filter((name) => name.startsWith("feature-"))
+      : [];
+    const files: Record<string, string> = {};
+    for (const backup of backups)
+      for (const file of yield* fs.readDirectory(`${directory}/${backup}`, { recursive: true }))
+        if ((yield* fs.stat(`${directory}/${backup}/${file}`)).type === "File")
+          files[file] = yield* fs.readFileString(`${directory}/${backup}/${file}`);
+    return { backups, files };
+  });
+
+  it.live("backs up only ignored files that exist nowhere else before removal", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, repo, config } = yield* cleanupFixture();
+        yield* fs.writeFileString(`${worktree}/.env`, "secret\n");
+        // Copied in at setup, identical to the main checkout.
+        for (const root of [repo, worktree]) {
+          yield* fs.makeDirectory(`${root}/app`, { recursive: true });
+          yield* fs.writeFileString(`${root}/app/.env`, "same\n");
+        }
+        yield* fs.makeDirectory(`${worktree}/dist`);
+        yield* fs.writeFileString(`${worktree}/dist/out.js`, "built\n");
+        yield* fs.makeDirectory(`${repo}/node_modules/pkg`, { recursive: true });
+        yield* fs.writeFileString(`${repo}/node_modules/pkg/index.js`, "dependency\n");
+        // Ignored without a trailing slash, so the link itself is listed.
+        yield* fs.writeFileString(`${repo}/.git/info/exclude`, "node_modules\n");
+        yield* fs.symlink(`${repo}/node_modules`, `${worktree}/node_modules`);
+
+        const report = yield* service.runNow;
+        expect(report.entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: expect.stringMatching(/, 1 local file backed up$/),
+        });
+        expect(yield* fs.exists(worktree)).toBe(false);
+        const { backups, files } = yield* readBackups(backupsDir(config));
+        expect(backups).toHaveLength(1);
+        expect(files).toEqual({ ".env": "secret\n" });
+        expect(yield* fs.readFileString(`${repo}/node_modules/pkg/index.js`)).toBe("dependency\n");
+        expect(yield* fs.readFileString(`${repo}/app/.env`)).toBe("same\n");
+      }),
+    ),
+  );
+
+  it.live("backs up untracked files in tracked-only mode", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config, setPolicy } = yield* cleanupFixture();
+        setPolicy("tracked-changes");
+        yield* fs.writeFileString(`${worktree}/notes.txt`, "untracked\n");
+        yield* fs.makeDirectory(`${worktree}/notes`);
+        yield* fs.writeFileString(`${worktree}/notes/new.md`, "new\n");
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({ outcome: "removed" });
+        expect((yield* readBackups(backupsDir(config))).files).toEqual({
+          "notes.txt": "untracked\n",
+          "notes/new.md": "new\n",
+        });
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree with more than 100 MB to back up", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config } = yield* cleanupFixture();
+        // Sparse, so the test does not write 101 MB.
+        yield* fs.writeFileString(`${worktree}/.env`, "");
+        yield* fs.truncate(`${worktree}/.env`, 101 * 1024 * 1024);
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Too many local files to back up",
+        });
+        expect(yield* fs.exists(worktree)).toBe(true);
+        expect((yield* readBackups(backupsDir(config))).backups).toEqual([]);
+      }),
+    ),
+  );
+
+  it.live("reuses an earlier backup of the same worktree and expires old backups", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config } = yield* cleanupFixture();
+        const backups = backupsDir(config);
+        // Left by a sweep whose removal failed, as when Windows locks the worktree.
+        const earlier = `${backups}/feature-2026-01-01-00-00`;
+        yield* fs.makeDirectory(earlier, { recursive: true });
+        yield* fs.writeFileString(`${earlier}/notes.local`, "from before\n");
+        const expired = `${backups}/Project/expired`;
+        const recent = `${backups}/Project/recent`;
+        for (const backup of [expired, recent]) {
+          yield* fs.makeDirectory(backup, { recursive: true });
+          yield* fs.writeFileString(`${backup}/.env`, "backup\n");
+        }
+        yield* fs.utimes(expired, 1, 1);
+        yield* fs.writeFileString(`${worktree}/.env`, "secret\n");
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({ outcome: "removed" });
+        expect(yield* readBackups(backups)).toEqual({
+          backups: ["feature-2026-01-01-00-00"],
+          files: { "notes.local": "from before\n", ".env": "secret\n" },
+        });
+        expect(yield* fs.exists(expired)).toBe(false);
+        expect(yield* fs.exists(recent)).toBe(true);
+      }),
+    ),
+  );
+});

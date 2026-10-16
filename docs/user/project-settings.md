@@ -194,6 +194,11 @@ to **Uncommitted changes**, which protects tracked edits and untracked files but
 files such as `.env` and build output. **Any local files** also protects ignored files other than
 `node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
 ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+
+Before deleting untracked or ignored files, T3 Code copies the ones that exist nowhere else to
+`~/.t3/worktree-backups/` and keeps each backup for 30 days. Files identical to the project's main
+checkout and rebuildable folders such as `node_modules` and `dist` are skipped. A worktree with
+more than 100 MB to back up is kept instead.
 Merge cleanup requires a merged pull request whose commits are included in the remote default
 branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
 branch and the worktree is still at the pull request's last commit.
