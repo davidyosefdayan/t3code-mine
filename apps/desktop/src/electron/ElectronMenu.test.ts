@@ -148,6 +148,40 @@ describe("ElectronMenu", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  // Personal build: icon keywords survive normalization and become SF Symbols.
+  it.effect("shows an SF Symbol for items that name an icon on macOS", () =>
+    Effect.gen(function* () {
+      const symbol = {
+        resize: () => symbol,
+        setTemplateImage: () => undefined,
+        isEmpty: () => false,
+      };
+      createFromNamedImageMock.mockReturnValue(symbol);
+      buildFromTemplateMock.mockImplementation(() => ({
+        popup: (options: Electron.PopupOptions) => options.callback?.(),
+      }));
+
+      const electronMenu = yield* ElectronMenu.ElectronMenu;
+      yield* electronMenu.showContextMenu({
+        window: makeWindow(),
+        items: [
+          { id: "pin", label: "Pin thread", icon: "pin" },
+          { id: "plain", label: "No icon" },
+        ],
+        position: Option.none(),
+      });
+
+      const [pin, plain] = buildFromTemplateMock.mock.calls[0]?.[0] ?? [];
+      assert.strictEqual(pin?.icon, symbol);
+      assert.isUndefined(plain?.icon);
+      assert.deepEqual(createFromNamedImageMock.mock.calls, [["pin"]]);
+    }).pipe(
+      Effect.provide(
+        ElectronMenu.layer.pipe(Layer.provide(Layer.succeed(HostProcess.Platform, "darwin"))),
+      ),
+    ),
+  );
+
   it.effect("defers popupTemplate side effects until the returned Effect runs", () =>
     Effect.gen(function* () {
       const popupMock = vi.fn();

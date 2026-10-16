@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as Electron from "electron";
+import { SF_SYMBOL_BY_MENU_ICON } from "./menuSymbols.ts";
 
 export interface ElectronMenuPosition {
   readonly x: number;
@@ -81,6 +82,8 @@ function normalizeContextMenuItems(source: readonly ContextMenuItem[]): ContextM
       disabled: sourceItem.disabled === true,
       ...(sourceItem.separatorBefore === true ? { separatorBefore: true } : {}),
       ...(typeof sourceItem.checked === "boolean" ? { checked: sourceItem.checked } : {}),
+      // Personal build: keep the icon keyword for the native menu's SF Symbol.
+      ...(typeof sourceItem.icon === "string" ? { icon: sourceItem.icon } : {}),
     };
 
     if (sourceItem.children) {
@@ -139,6 +142,28 @@ export const make = Effect.gen(function* () {
     return destructiveMenuIconCache;
   };
 
+  // Personal build: SF Symbols for menu items that name an icon (menuSymbols.ts).
+  const symbolIconCache = new Map<string, Option.Option<Electron.NativeImage>>();
+  const getSymbolMenuIcon = (keyword: string | undefined): Option.Option<Electron.NativeImage> => {
+    const symbol = keyword === undefined ? undefined : SF_SYMBOL_BY_MENU_ICON[keyword];
+    if (platform !== "darwin" || symbol === undefined) return Option.none();
+    const cached = symbolIconCache.get(symbol);
+    if (cached !== undefined) return cached;
+    let icon: Option.Option<Electron.NativeImage> = Option.none();
+    try {
+      const image = Electron.nativeImage.createFromNamedImage(symbol).resize({
+        width: 14,
+        height: 14,
+      });
+      image.setTemplateImage(true);
+      if (!image.isEmpty()) icon = Option.some(image);
+    } catch {
+      // Unknown symbol on this macOS version: no icon.
+    }
+    symbolIconCache.set(symbol, icon);
+    return icon;
+  };
+
   const buildTemplate = (
     entries: readonly ContextMenuItem[],
     complete: (selectedItemId: Option.Option<string>) => void,
@@ -181,6 +206,9 @@ export const make = Effect.gen(function* () {
         if (Option.isSome(destructiveIcon)) {
           itemOption.icon = destructiveIcon.value;
         }
+      } else {
+        const symbolIcon = getSymbolMenuIcon(item.icon);
+        if (Option.isSome(symbolIcon)) itemOption.icon = symbolIcon.value;
       }
 
       template.push(itemOption);
