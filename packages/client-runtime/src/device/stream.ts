@@ -274,6 +274,8 @@ export interface DeviceStreamClient {
   /** Normalized 0..1 coordinates in the displayed frame. */
   readonly sendTouch: (phase: "begin" | "move" | "end", x: number, y: number) => void;
   readonly sendKey: (event: KeyboardEvent, phase: "down" | "up") => void;
+  /** Type text into the focused field, such as a paste. iOS types US-keyboard ASCII only. */
+  readonly sendText: (text: string) => void;
   readonly pressButton: (button: DeviceHardwareButton) => void;
   readonly rotate: () => void;
   readonly setOrientation: (orientation: DeviceScreenSize["orientation"]) => void;
@@ -321,6 +323,62 @@ function hidUsageForCode(code: string): number | null {
   if (/^Digit[1-9]$/.test(code)) return 0x1e + (code.charCodeAt(5) - 49);
   if (code === "Digit0") return 0x27;
   return HID_USAGE_BY_CODE[code] ?? null;
+}
+
+// Personal build: paste support for the Device panel.
+const US_SHIFTED_CHARS = '~!@#$%^&*()_+{}|:"<>?';
+const US_UNSHIFTED_CHARS = "`1234567890-=[]\\;',./";
+
+/**
+ * HID key strokes that type `text` on a US keyboard layout. Characters with
+ * no US key (emoji, accents) are skipped; the simulator has no text channel.
+ */
+export function hidStrokesForText(
+  text: string,
+): ReadonlyArray<{ readonly usage: number; readonly shift: boolean }> {
+  const strokes: Array<{ usage: number; shift: boolean }> = [];
+  for (const char of text.replace(/\r\n?/g, "\n")) {
+    let usage: number | null = null;
+    let shift = false;
+    if (/^[a-z]$/.test(char)) usage = 0x04 + (char.charCodeAt(0) - 97);
+    else if (/^[A-Z]$/.test(char)) {
+      usage = 0x04 + (char.charCodeAt(0) - 65);
+      shift = true;
+    } else if (char === "\n") usage = 0x28;
+    else if (char === "\t") usage = 0x2b;
+    else if (char === " ") usage = 0x2c;
+    else {
+      const shiftedIndex = US_SHIFTED_CHARS.indexOf(char);
+      const index = shiftedIndex >= 0 ? shiftedIndex : US_UNSHIFTED_CHARS.indexOf(char);
+      if (index >= 0) {
+        usage = usageForUnshiftedChar(US_UNSHIFTED_CHARS[index]!);
+        shift = shiftedIndex >= 0;
+      }
+    }
+    if (usage !== null) strokes.push({ usage, shift });
+  }
+  return strokes;
+}
+
+function usageForUnshiftedChar(char: string): number | null {
+  if (char >= "1" && char <= "9") return 0x1e + (char.charCodeAt(0) - 49);
+  if (char === "0") return 0x27;
+  const code: string | undefined = (
+    {
+      "-": "Minus",
+      "=": "Equal",
+      "[": "BracketLeft",
+      "]": "BracketRight",
+      "\\": "Backslash",
+      ";": "Semicolon",
+      "'": "Quote",
+      "`": "Backquote",
+      ",": "Comma",
+      ".": "Period",
+      "/": "Slash",
+    } as Readonly<Record<string, string>>
+  )[char];
+  return code ? (HID_USAGE_BY_CODE[code] ?? null) : null;
 }
 
 const ANDROID_KEYCODE_BY_KEY: Readonly<Record<string, number>> = {
@@ -1092,6 +1150,19 @@ export function createDeviceStreamClient(
       if (keycode !== undefined) return send(JSON.stringify({ type: "key", keycode }));
       if (event.key.length === 1 && !event.metaKey && !event.ctrlKey) {
         send(JSON.stringify({ type: "text", text: event.key }));
+      }
+    },
+    sendText: (text) => {
+      if (platform !== "ios") {
+        if (text.length > 0) send(JSON.stringify({ type: "text", text }));
+        return;
+      }
+      const shift = HID_USAGE_BY_CODE.ShiftLeft!;
+      for (const stroke of hidStrokesForText(text)) {
+        if (stroke.shift) send(taggedJson(IOS_MSG_KEY, { type: "down", usage: shift }));
+        send(taggedJson(IOS_MSG_KEY, { type: "down", usage: stroke.usage }));
+        send(taggedJson(IOS_MSG_KEY, { type: "up", usage: stroke.usage }));
+        if (stroke.shift) send(taggedJson(IOS_MSG_KEY, { type: "up", usage: shift }));
       }
     },
     pressButton: (button) => {

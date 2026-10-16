@@ -406,6 +406,14 @@ export function DeviceStreamView(props: {
           if (event.target !== event.currentTarget) return;
           clientRef.current?.sendKey(event.nativeEvent, "up");
         }}
+        // Personal build: paste types the clipboard text into the device.
+        onPaste={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const text = event.clipboardData.getData("text/plain");
+          if (!text) return;
+          event.preventDefault();
+          clientRef.current?.sendText(text);
+        }}
       >
         <div
           className={cn("relative select-none", showPhone && "invisible pointer-events-none")}
