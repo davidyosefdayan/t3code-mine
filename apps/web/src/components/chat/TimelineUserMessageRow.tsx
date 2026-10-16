@@ -2,6 +2,7 @@ import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { remarkEnableOrderedListNumbers } from "@t3tools/shared/markdownPipeline";
 import { findRevealRef } from "./markdownFindContext";
+import { USER_BUBBLE_CLASS_NAME } from "./ChatStyleRows";
 import {
   type EnvironmentId,
   type MessageId,
@@ -863,15 +864,32 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ) : null}
       <div
         className={cn(
-          "relative min-w-0 max-w-[80%] rounded-2xl text-message-foreground",
-          (mediaAboveText || row.groupedWithPrevious) && "rounded-tr-md",
-          row.groupedWithNext && "rounded-br-md",
-          BUBBLE_CHIP_CLASS_NAME,
-          userMessage.attribution === "guest"
-            ? guestBubbleClassName(false)
-            : !mediaOnly && !fileCardsOnly && !audioOnly && "bg-message",
-          !folded && !mediaOnly && !fileCardsOnly && !audioOnly && "p-3",
-          folded && expanded && "w-full",
+          "relative min-w-0 max-w-[80%]",
+          // Personal build: your own messages are a theme-color bubble in the chat layout;
+          // guests keep upstream's guest bubble, and messages from agents its folded row.
+          // Media, file cards and voice notes sent alone keep upstream's bare shapes.
+          userMessage.attribution !== "guest" &&
+            ctx.chatStyle &&
+            !folded &&
+            !mediaOnly &&
+            !fileCardsOnly &&
+            !audioOnly
+            ? cn(
+                USER_BUBBLE_CLASS_NAME,
+                BUBBLE_CHIP_CLASS_NAME,
+                (mediaAboveText || row.groupedWithPrevious) && "rounded-tr-md",
+              )
+            : cn(
+                "rounded-2xl text-message-foreground",
+                (mediaAboveText || row.groupedWithPrevious) && "rounded-tr-md",
+                row.groupedWithNext && "rounded-br-md",
+                BUBBLE_CHIP_CLASS_NAME,
+                userMessage.attribution === "guest"
+                  ? guestBubbleClassName(false)
+                  : !mediaOnly && !fileCardsOnly && !audioOnly && "bg-message",
+                !folded && !mediaOnly && !fileCardsOnly && !audioOnly && "p-3",
+                folded && expanded && "w-full",
+              ),
         )}
       >
         {/* Outside the fold so a collapsed message still has a heading to navigate to. */}
@@ -1040,7 +1058,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           className={cn(
             "flex w-full max-w-[80%] justify-end pe-1",
             floatActions && "@min-[37rem]:hidden",
-            ACTIONS_REVEAL_CLASS_NAME,
+            // Personal build: always visible under your chat bubble, so it doesn't end in a gap.
+            ctx.chatStyle && !folded && !floatActions
+              ? "items-center text-xs tabular-nums"
+              : ACTIONS_REVEAL_CLASS_NAME,
           )}
         >
           {messageActions}
