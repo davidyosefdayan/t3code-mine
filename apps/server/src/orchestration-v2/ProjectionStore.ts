@@ -4,6 +4,7 @@ import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { makeThreadFind, findProjectedThreadItems } from "./ThreadFind.ts";
+import { latestAssistantMessagePreview, liveActivityForShell } from "./ShellLiveSummary.ts";
 import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -1678,9 +1679,16 @@ export function threadShellFromProjection(
     ),
     pendingRuntimeRequest,
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
-    // Thread detail owns message bodies. Keeping them out of shell rows makes
-    // initial hydration and streaming updates independent of transcript size.
-    latestVisibleMessage: null,
+    // Thread detail owns message bodies. Shell rows carry only a short preview
+    // of the latest finished reply, so hydration stays independent of
+    // transcript size and streaming deltas leave the shell unchanged.
+    // Personal build: sidebar previews and turn-finished notifications need
+    // the latest reply and the step the agent is on.
+    latestVisibleMessage: latestAssistantMessagePreview(projection),
+    liveActivity: liveActivityForShell(
+      projection.turnItems,
+      projection.runs.filter(isActivityRunForShell),
+    ),
     latestUserMessageAt: latestUserMessage?.updatedAt ?? null,
     latestUserAuthoredMessageAt:
       userMessages.find((message) => message.createdBy === "user")?.updatedAt ?? null,
