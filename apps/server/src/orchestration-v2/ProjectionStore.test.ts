@@ -5229,6 +5229,170 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  // Personal build: the SQL shell path carries the reply preview and live step.
+  it.effect("shell rows carry the latest finished reply and the running step", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const projectId = ProjectId.make("project:projection-shell-preview");
+      const threadId = ThreadId.make("thread:projection-shell-preview");
+      const settledThreadId = ThreadId.make("thread:projection-shell-preview:settled");
+      const runId = RunId.make("run:projection-shell-preview");
+      const rootNodeId = NodeId.make("node:projection-shell-preview");
+
+      const createThread = (id: ThreadId, settled: boolean) =>
+        projectionStore.apply({
+          id: EventId.make(`event:projection-shell-preview:${id}`),
+          type: "thread.created",
+          threadId: id,
+          occurredAt: now,
+          payload: {
+            createdBy: "system",
+            creationSource: "server",
+            id,
+            projectId,
+            title: "Imported",
+            providerInstanceId,
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            activeProviderThreadId: null,
+            historyOrigin: "v1_import",
+            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            settledOverride: settled ? "settled" : null,
+            settledAt: settled ? now : null,
+            lastVisitedAt: null,
+            deletedAt: null,
+          },
+        });
+      const applyReply = (
+        thread: ThreadId,
+        suffix: string,
+        ordinal: number,
+        text: string,
+        streaming: boolean,
+      ) =>
+        projectionStore.apply({
+          id: EventId.make(`event:projection-shell-preview:${thread}:${suffix}`),
+          type: "turn-item.updated",
+          threadId: thread,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`turn-item:projection-shell-preview:${thread}:${suffix}`),
+            threadId: thread,
+            runId: null,
+            nodeId: null,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal,
+            status: streaming ? "running" : "completed",
+            title: null,
+            startedAt: now,
+            completedAt: streaming ? null : now,
+            updatedAt: now,
+            type: "assistant_message",
+            messageId: MessageId.make(`message:projection-shell-preview:${thread}:${suffix}`),
+            text,
+            streaming,
+          },
+        });
+
+      yield* createThread(threadId, false);
+      yield* createThread(settledThreadId, true);
+      yield* applyReply(threadId, "old", 1, "Older reply", false);
+      yield* applyReply(
+        threadId,
+        "final",
+        2,
+        `Fixed  the\n**zoom** bar. ${"x".repeat(400)}`,
+        false,
+      );
+      yield* applyReply(threadId, "streaming", 3, "Half a sente", true);
+      yield* applyReply(settledThreadId, "final", 1, "Settled reply", false);
+
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-preview:run"),
+        type: "run.created",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        driver,
+        occurredAt: now,
+        payload: {
+          id: runId,
+          threadId,
+          ordinal: 1,
+          providerInstanceId,
+          modelSelection,
+          providerThreadId: null,
+          userMessageId: MessageId.make("message:projection-shell-preview:run"),
+          rootNodeId,
+          activeAttemptId: null,
+          status: "running",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          checkpointId: null,
+          contextHandoffId: null,
+        },
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-preview:step"),
+        type: "turn-item.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make("turn-item:projection-shell-preview:step"),
+          threadId,
+          runId,
+          nodeId: rootNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 4,
+          status: "running",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "command_execution",
+          input: "git status",
+          output: "lots of output",
+        },
+      });
+
+      const snapshot = yield* projectionStore.getShellSnapshot();
+      const shell = snapshot.threads.find((thread) => thread.id === threadId);
+      assert.isDefined(shell);
+      assert.equal(shell.latestVisibleMessage?.role, "assistant");
+      assert.isTrue(shell.latestVisibleMessage?.text.startsWith("Fixed the **zoom** bar."));
+      assert.equal(shell.latestVisibleMessage?.text.length, 240);
+      assert.equal(shell.liveActivity?.type, "command_execution");
+      assert.equal(
+        shell.liveActivity?.type === "command_execution" ? shell.liveActivity.output : "",
+        undefined,
+      );
+
+      const single = yield* projectionStore.getThreadShell(threadId);
+      assert.deepEqual(single?.latestVisibleMessage, shell.latestVisibleMessage);
+      assert.equal(single?.liveActivity?.id, shell.liveActivity?.id);
+
+      const settled = snapshot.threads.find((thread) => thread.id === settledThreadId);
+      assert.isNull(settled?.latestVisibleMessage);
+      assert.isNull(settled?.liveActivity);
+    }),
+  );
+
   it.effect("removes rolled back runs from the active visible projection", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
