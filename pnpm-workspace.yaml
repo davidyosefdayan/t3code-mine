@@ -20,6 +20,7 @@ allowBuilds:
   node-pty: true
   # Ships N-API prebuilds; its install script only rebuilds from source.
   objc-js: false
+  protobufjs: false
   "react-native-enriched-markdown@file:apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.12.tgz": true
   sharp: true
   tsc-rs: true
@@ -200,6 +201,10 @@ overrides:
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
+  # Personal build: read aloud runs transformers.js in the browser only, so its
+  # Node backends (native ONNX Runtime and sharp) are never loaded.
+  "@huggingface/transformers>onnxruntime-node": "-"
+  "@huggingface/transformers>sharp": "-"
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64": "-"

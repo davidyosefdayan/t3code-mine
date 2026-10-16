@@ -20,6 +20,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/snap-shot"
+  | "/settings/read-aloud"
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
@@ -99,6 +100,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
+  "/settings/read-aloud": "Read aloud",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
@@ -646,6 +648,25 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/snap-shot",
     targetId: "snap-shot-enabled",
   },
+  // Personal build: read aloud.
+  {
+    id: "read-aloud-voice",
+    title: "Read aloud voice",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts speak listen kokoro male female british american"],
+  },
+  {
+    id: "read-aloud-speed",
+    title: "Read aloud speed",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts playback rate faster slower"],
+  },
+  {
+    id: "read-aloud-model",
+    title: "Voice model",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts kokoro download delete storage"],
+  },
   {
     id: "providers",
     title: "Providers",
@@ -1013,6 +1034,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/general": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,
+  "/settings/read-aloud": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
