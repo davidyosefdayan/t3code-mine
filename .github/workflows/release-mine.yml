@@ -1,0 +1,210 @@
+name: Release T3 Code (Mine)
+
+# Personal build: builds the fork's desktop app on GitHub's own runners and
+# publishes it as a GitHub Release of this repository. Run it by hand
+# (Actions > Release T3 Code (Mine) > Run workflow) on the commit to ship.
+#
+# Versions: the app's packages keep upstream's version (what servers and
+# clients compare), while the desktop app, its installers, and the update feed
+# use the fork's own number: upstream's major and minor, then upstream's patch
+# times 100 plus the fork's release on it. 0.0.4502 is the fork's second
+# release on upstream 0.0.45, and 1.2.4501 its first on 1.2.45. It always goes
+# up, so the updater offers fixes between upstream releases. The release is
+# tagged v<version>. Windows builds point their built-in updater at this
+# repository's releases, so installed copies offer
+# each new release. Mac builds are unsigned until a Developer ID certificate
+# is set up, and macOS only auto-updates signed apps, so they ship without an
+# update feed and are installed by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Fork version: upstream's, with the patch times 100 plus the fork release (0.0.4501 is the first on 0.0.45)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-mine
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: apps/server/package.json
+          sparse-checkout-cone-mode: false
+
+      # The version must encode the upstream release the code is on.
+      - name: Check the version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          upstream="$(node -p 'require("./apps/server/package.json").version')"
+          IFS=. read -r major minor patch <<< "$upstream"
+          if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+            [[ "${BASH_REMATCH[1]}" != "$major" || "${BASH_REMATCH[2]}" != "$minor" ]] ||
+            (( BASH_REMATCH[3] / 100 != patch || BASH_REMATCH[3] % 100 == 0 )); then
+            echo "::error::This code is on upstream $upstream, so the version must be $major.$minor.$((patch * 100 + 1)) for the first release on it, then $major.$minor.$((patch * 100 + 2)), and so on."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # The updater only offers a higher version, so republishing one would
+      # reach nobody. Refuse early instead of after the builds.
+      - name: Check the version is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release v$VERSION already exists. Move the fork to a newer version first."
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-latest
+            platform: mac
+            target: dmg
+            arch: arm64
+            rust_target: aarch64-apple-darwin
+          - label: Windows x64
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
+            rust_target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: ${{ matrix.platform != 'win' }}
+          run-install: false
+
+      - name: Install dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      # The resource monitor links against these on Windows (see upstream's
+      # release-desktop.yml).
+      - name: Install Spectre-mitigated MSVC libs
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+            $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
+            Write-Error "Visual Studio Installer failed with exit code $code"
+            exit $code
+          }
+
+      # The build script falls back to GITHUB_REPOSITORY for the update feed,
+      # so the Mac build drops it to ship without one.
+      - name: Build desktop app
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "$VERSION"
+            --verbose
+          )
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            T3CODE_DESKTOP_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" vp run dist:desktop:artifact "${args[@]}"
+          else
+            env -u GITHUB_REPOSITORY vp run dist:desktop:artifact "${args[@]}"
+          fi
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+          for file in release/*.dmg release/*.zip release/*.exe release/*.blockmap release/*.yml; do
+            [[ "$file" == */builder-debug.yml ]] && continue
+            cp "$file" release-publish/
+          done
+          ls -la release-publish
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v8
+        with:
+          path: release-files
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          cat > notes.md <<'EOF'
+          **Windows:** run the `.exe` installer. Windows SmartScreen may warn on first install because the app isn't signed yet; choose "More info" > "Run anyway". Installed copies update themselves from here.
+
+          **macOS (Apple silicon):** this build isn't signed by Apple yet, so macOS may call it damaged. Open the `.dmg`, drag the app to Applications, then run this once in Terminal:
+
+          ```sh
+          xattr -cr "/Applications/T3 Code (Mine).app" && codesign --force --deep --sign - "/Applications/T3 Code (Mine).app"
+          ```
+
+          Mac copies don't update themselves yet; download each new release by hand.
+          EOF
+          gh release create "v$VERSION" release-files/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "T3 Code (Mine) v$VERSION" \
+            --notes-file notes.md
