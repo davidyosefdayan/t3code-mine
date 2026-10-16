@@ -11,7 +11,7 @@ import {
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 import { CircleAlertIcon, ChevronDownIcon, InfoIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
@@ -81,7 +81,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
-import { UsageLimitsSection } from "./UsageLimits";
+import { UsageLimitsDashboard } from "./UsageLimitsDashboard";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
@@ -106,9 +106,8 @@ import {
   type UsagePagePreferences,
 } from "./usagePagePreferences";
 
-function isUsageMetric(value: string | null | undefined): value is UsageMetric {
-  return METRIC_OPTIONS.some((option) => option.value === value);
-}
+/** Personal build: Spend's units. Limits and Spend are switched from the Usage sidebar. */
+const SPEND_OPTIONS = METRIC_OPTIONS.filter((option) => option.value !== "limits");
 
 function isUsageWindowDays(value: number): value is UsagePagePreferences["windowDays"] {
   return WINDOW_OPTIONS.some((option) => option.days === value);
@@ -172,7 +171,19 @@ function UsageModelDialogHost({
   );
 }
 
-export function UsagePage() {
+export interface UsagePageProps {
+  /** Personal build: the view from the URL, so the Usage sidebar and the page agree. */
+  readonly metric?: UsageMetric;
+  /** Provider tab under Limits, by driver kind; absent opens the tightest provider. */
+  readonly provider?: string;
+  readonly onViewChange?: (metric: UsageMetric, provider?: string) => void;
+}
+
+export function UsagePage({
+  metric: controlledMetric,
+  provider: controlledProvider,
+  onViewChange,
+}: UsagePageProps = {}) {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hour12 = usePrimarySettings((settings) => resolveHour12(settings.timestampFormat));
@@ -192,8 +203,9 @@ export function UsagePage() {
       preferences.windowDays === 1 ? "hour" : "day",
     ),
   }));
-  const metric = preferences.metric;
+  const metric = controlledMetric ?? preferences.metric;
   const showingLimits = metric === "limits";
+  const limitsProvider = controlledMetric ? controlledProvider : preferences.provider;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
@@ -244,10 +256,20 @@ export function UsagePage() {
       window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
     });
   };
-  const selectMetric = (nextMetric: UsageMetric) => {
-    if (nextMetric === "limits") setLimitsNow(Date.now());
-    updatePreferences({ metric: nextMetric });
+  const selectView = (nextMetric: UsageMetric, nextProvider?: string) => {
+    if (nextMetric === "limits" && metric !== "limits") setLimitsNow(Date.now());
+    const { provider: _provider, ...rest } = preferences;
+    const nextPreferences: UsagePagePreferences = {
+      ...rest,
+      metric: nextMetric,
+      ...(nextMetric === "limits" && nextProvider ? { provider: nextProvider } : {}),
+      ...(nextMetric !== "limits" ? { spendMetric: nextMetric } : {}),
+    };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
+    onViewChange?.(nextMetric, nextMetric === "limits" ? nextProvider : undefined);
   };
+  const selectMetric = (nextMetric: UsageMetric) => selectView(nextMetric);
   const refreshLimits = (automatic = false, afterPending = false) =>
     // Settled so the timestamp still advances when a refresh throws.
     settlePromise(() =>
@@ -391,40 +413,25 @@ export function UsagePage() {
         </span>
       ) : null}
       <div className="ms-auto hidden shrink-0 items-center justify-end gap-2 @4xl/usage-header:flex">
-        <ToggleGroup
-          aria-label="Usage period"
-          variant="segmented"
-          value={[String(windowDays)]}
-          disabled={showingLimits}
-          // Limits are always current; the New design hides the period instead of greying it.
-          // It sits before the metric tabs so hiding it never moves them.
-          className={showingLimits ? "redesign:hidden" : undefined}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value) selectWindow(Number(value));
-          }}
-        >
-          {WINDOW_OPTIONS.map((option) => (
-            <Toggle key={option.days} value={String(option.days)} title={shortcutTitle(option)}>
-              {option.label}
-            </Toggle>
-          ))}
-        </ToggleGroup>
-        <ToggleGroup
-          aria-label="Usage metric"
-          variant="segmented"
-          value={[metric]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (isUsageMetric(value)) selectMetric(value);
-          }}
-        >
-          {METRIC_OPTIONS.map((option) => (
-            <Toggle key={option.value} value={option.value} title={shortcutTitle(option)}>
-              {option.label}
-            </Toggle>
-          ))}
-        </ToggleGroup>
+        {/* Personal build: the Usage sidebar switches Limits and Spend, and the
+            period only applies to Spend. */}
+        {showingLimits ? null : (
+          <ToggleGroup
+            aria-label="Usage period"
+            variant="segmented"
+            value={[String(windowDays)]}
+            onValueChange={(next) => {
+              const value = next[0];
+              if (value) selectWindow(Number(value));
+            }}
+          >
+            {WINDOW_OPTIONS.map((option) => (
+              <Toggle key={option.days} value={String(option.days)} title={shortcutTitle(option)}>
+                {option.label}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+        )}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? "Refresh limits" : "Refresh usage"}
@@ -437,57 +444,31 @@ export function UsagePage() {
         </Button>
       </div>
       <div className="ms-auto flex shrink-0 items-center justify-end gap-1 @4xl/usage-header:hidden">
-        <Select
-          value={String(windowDays)}
-          disabled={showingLimits}
-          onValueChange={(value) => selectWindow(Number(value))}
-        >
-          <SelectTrigger
-            aria-label="Usage period"
-            size="compact"
-            variant="ghost"
-            className={cn("w-auto min-w-0", showingLimits && "redesign:hidden")}
-          >
-            <SelectValue>
-              {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            {WINDOW_OPTIONS.map((option) => (
-              <SelectItem
-                key={option.days}
-                value={String(option.days)}
-                title={shortcutTitle(option)}
-              >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <Select
-          value={metric}
-          onValueChange={(value) => {
-            if (isUsageMetric(value)) selectMetric(value);
-          }}
-        >
-          <SelectTrigger
-            aria-label="Usage metric"
-            size="compact"
-            variant="ghost"
-            className="w-auto min-w-0"
-          >
-            <SelectValue>
-              {METRIC_OPTIONS.find((option) => option.value === metric)?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            {METRIC_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value} title={shortcutTitle(option)}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        {showingLimits ? null : (
+          <Select value={String(windowDays)} onValueChange={(value) => selectWindow(Number(value))}>
+            <SelectTrigger
+              aria-label="Usage period"
+              size="compact"
+              variant="ghost"
+              className="w-auto min-w-0"
+            >
+              <SelectValue>
+                {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {WINDOW_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option.days}
+                  value={String(option.days)}
+                  title={shortcutTitle(option)}
+                >
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? "Refresh limits" : "Refresh usage"}
@@ -519,7 +500,9 @@ export function UsagePage() {
                   : `Select an environment to see ${showingLimits ? "limits" : "usage"}.`}
               </p>
             ) : showingLimits ? (
-              <UsageLimitsSection
+              <UsageLimitsDashboard
+                provider={limitsProvider ?? null}
+                onSelectProvider={(driver) => selectView("limits", driver)}
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
@@ -565,6 +548,24 @@ export function UsagePage() {
                   void refreshLimits(false, true);
                 }}
                 onSelectModel={selectUsageModel}
+                spendUnitToggle={
+                  // Personal build: Spend's unit, which the shares below follow.
+                  <ToggleGroup
+                    aria-label="Spend unit"
+                    variant="segmented"
+                    value={[metric]}
+                    onValueChange={(next) => {
+                      const value = next[0];
+                      if (value === "cost" || value === "tokens") selectMetric(value);
+                    }}
+                  >
+                    {SPEND_OPTIONS.map((option) => (
+                      <Toggle key={option.value} value={option.value} title={shortcutTitle(option)}>
+                        {option.label}
+                      </Toggle>
+                    ))}
+                  </ToggleGroup>
+                }
               />
             )}
           </WorkspacePageContainer>
@@ -615,6 +616,7 @@ function UsageOverview({
   showChatGptSharing,
   onCursorEnabled,
   onSelectModel,
+  spendUnitToggle,
 }: {
   readonly merged: MergedUsage;
   readonly shownWindow: UsageSummaryInput;
@@ -630,6 +632,7 @@ function UsageOverview({
   readonly showChatGptSharing: boolean;
   readonly onCursorEnabled: () => void;
   readonly onSelectModel: (key: string) => void;
+  readonly spendUnitToggle: ReactNode;
 }) {
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const shownHourly = shownWindow.resolution === "hour";
@@ -818,9 +821,12 @@ function UsageOverview({
         </div>
 
         <div className="flex min-w-0 flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground">
-            {shownHourly ? "Hourly" : "Daily"} {metric === "tokens" ? "processed tokens" : "cost"}
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-foreground">
+              {shownHourly ? "Hourly" : "Daily"} {metric === "tokens" ? "processed tokens" : "cost"}
+            </h2>
+            {spendUnitToggle}
+          </div>
           <UsageProviderChart
             providers={activeProviders}
             loadingProviders={chartLoadingProviders}

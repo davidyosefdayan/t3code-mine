@@ -2680,3 +2680,81 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+// Personal build: Usage → Limits' per-session read.
+describe("UsageService.readSessions", () => {
+  it.live("totals one provider's sessions once, named from Codex's index", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const codexHome = NodePath.join(home, "codex");
+      const rollout = [
+        {
+          type: "session_meta",
+          payload: { id: "thread-a", cwd: "/work/acme", originator: "codex_exec" },
+        },
+        { type: "turn_context", payload: { model: "gpt-5.6-sol" } },
+        {
+          type: "event_msg",
+          timestamp: "2026-08-01T10:00:00Z",
+          payload: {
+            type: "token_count",
+            info: { last_token_usage: { input_tokens: 10, output_tokens: 7 } },
+          },
+        },
+      ]
+        .map((line) => encodeUnknownJsonString(line))
+        .join("\n");
+      yield* Effect.promise(async () => {
+        // A rollout and its moved copy hold the same events.
+        for (const folder of ["2026/08/01", "archived"]) {
+          await NodeFSP.mkdir(NodePath.join(codexHome, "sessions", folder), { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(codexHome, "sessions", folder, "rollout-thread-a.jsonl"),
+            `${rollout}\n`,
+          );
+        }
+        await NodeFSP.writeFile(
+          NodePath.join(codexHome, "session_index.jsonl"),
+          '{"id":"thread-a","thread_name":"Fix invoices"}\n',
+        );
+      });
+      const scan = yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        return yield* service.readSessions({
+          provider: "codex",
+          sinceTime: "2026-07-31T00:00:00.000Z",
+          untilTime: "2026-08-02T00:00:00.000Z",
+        });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(layerService({ prefix: "usage-sessions", home, settings })),
+      );
+      assert.strictEqual(scan.sessions.length, 1);
+      const [session] = scan.sessions;
+      assert.strictEqual(session?.sessionId, "thread-a");
+      assert.strictEqual(session?.totals.outputTokens, 7);
+      assert.strictEqual(session?.title, "Fix invoices");
+      assert.strictEqual(session?.cwd, "/work/acme");
+      assert.strictEqual(session?.origin, "codex_exec");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("rejects a window longer than a month", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const error = yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        return yield* service.readSessions({
+          provider: "claude",
+          sinceTime: "2026-06-01T00:00:00.000Z",
+          untilTime: "2026-08-01T00:00:00.000Z",
+        });
+      }).pipe(
+        Effect.flip,
+        Effect.scoped,
+        Effect.provide(layerService({ prefix: "usage-sessions-window", home, settings })),
+      );
+      assert.strictEqual(error.reason, "invalidWindow");
+    }).pipe(Effect.scoped),
+  );
+});

@@ -570,22 +570,33 @@ function PoolWindowCard({
   );
 }
 
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
+/** Every window of one provider's pool as cards, under its name. */
+export function PoolSection({
+  pool,
+  now,
+  showHeading = true,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly showHeading?: boolean;
+}) {
   const color = barColor(pool.driver);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          displayName={label}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {label}
-      </h2>
+      {showHeading ? (
+        <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <ProviderInstanceIcon
+            driverKind={pool.driver}
+            displayName={label}
+            indicatorBackground="var(--background)"
+            className="size-5"
+            iconClassName="size-4 text-foreground/80"
+          />
+          {label}
+        </h2>
+      ) : null}
       {windows.map((window) => {
         const details = pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
         return (
@@ -603,6 +614,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
   );
 }
 
+/** Every provider's pool with its segment popover, then what no bar can show. */
 export function UsageLimitsPooled({
   presentations,
   now,
@@ -612,8 +624,6 @@ export function UsageLimitsPooled({
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
 }) {
-  const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
-  const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
@@ -629,14 +639,40 @@ export function UsageLimitsPooled({
           No provider on the selected environments reports subscription limits.
         </p>
       ) : null}
-      <SegmentPopoverContext value={segmentPopover}>
+      <SegmentPopoverScope pools={pools} now={now}>
         {pools.map((pool, index) => (
           <Fragment key={pool.driver}>
             {index === cursorPromptAt ? cursorPrompt : null}
             <PoolSection pool={pool} now={now} />
           </Fragment>
         ))}
-      </SegmentPopoverContext>
+      </SegmentPopoverScope>
+      <UsageLimitsExtras
+        presentations={presentations}
+        cursorPrompt={cursorPromptAt === pools.length ? cursorPrompt : null}
+      />
+    </div>
+  );
+}
+
+/**
+ * Personal build: the pools render in `UsageLimitsDashboard`, so the one
+ * segment popover the page shares wraps them there instead of here.
+ */
+export function SegmentPopoverScope({
+  pools,
+  now,
+  children,
+}: {
+  readonly pools: readonly LimitPool[];
+  readonly now: number;
+  readonly children: ReactNode;
+}) {
+  const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
+  const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
+  return (
+    <>
+      <SegmentPopoverContext value={segmentPopover}>{children}</SegmentPopoverContext>
       <Popover handle={segmentPopover} actionsRef={segmentPopoverActions}>
         {({ payload }) =>
           payload ? (
@@ -650,7 +686,28 @@ export function UsageLimitsPooled({
           ) : null
         }
       </Popover>
-      {cursorPromptAt === pools.length ? cursorPrompt : null}
+    </>
+  );
+}
+
+/**
+ * Personal build: what the Limits view cannot draw as a bar, under it: the
+ * Cursor prompt, links to provider-owned usage pages, and sources that failed
+ * to read. The pools themselves render in `UsageLimitsDashboard`.
+ */
+export function UsageLimitsExtras({
+  presentations,
+  cursorPrompt,
+}: {
+  readonly presentations: Parameters<typeof collectLimitAccounts>[0];
+  readonly cursorPrompt?: ReactNode;
+}) {
+  const notices = collectLimitNotices(presentations);
+  const externalLinks = collectExternalUsageLinks(presentations);
+  if (!cursorPrompt && notices.length === 0 && externalLinks.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-4">
+      {cursorPrompt}
       {externalLinks.map((link) => (
         <section
           key={link.url}
