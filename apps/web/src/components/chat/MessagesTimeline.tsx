@@ -1,5 +1,10 @@
 import { AudioPreviewUnmountContext } from "../files/AudioPreview";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
+import {
+  BackgroundWorktreeSetupChip,
+  CompactingLabel,
+  WorkingTimer,
+} from "./TimelineWorkGroupRows";
 import { MarkdownFindContext } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock } from "./WorkLog";
@@ -69,10 +74,19 @@ import {
   resolveTimelineMinimapHitStripWidth,
   timelineTurnFoldRunIdsByEntryId,
   worktreeSetupAgentStarted,
+  deriveMessagesTimelineRows,
   type MessagesTimelineRow,
   type TimelineLatestRun,
 } from "./MessagesTimeline.logic";
 import { type ThreadFindMatch } from "./threadFind";
+import { chatWorkLineIdsByEntryId, deriveChatTimelineRows } from "./chatTimelineRows";
+import {
+  CHAT_RAIL_CLASS_NAME,
+  ChatReplyTimelineRow,
+  ChatTypingTimelineRow,
+  ChatWorkLineContent,
+  chatRowOnRail,
+} from "./ChatStyleRows";
 import { useThreadFindNavigation } from "./useThreadFindNavigation";
 import { TooltipScrollDismissArea } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -219,6 +233,8 @@ interface MessagesTimelineProps {
   /** Which request is waiting, so a second one of the same kind is announced too. */
   awaitingRequestId?: string | null;
   footer?: ReactNode;
+  /** Personal build: the chat-style layout (see chatTimelineRows.ts). */
+  chatStyle?: boolean;
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -316,6 +332,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   activeTurnStartedAt = null,
   worktreeSetup = null,
   footer = null,
+  chatStyle = false,
   onCancelWorktreeSetup,
   retryableWorkspacePreparationRunIds = EMPTY_RUN_IDS,
   onRetryWorkspacePreparation,
@@ -656,22 +673,58 @@ const ConversationTimeline = memo(function ConversationTimeline({
       ? new Set(paintedExpandedAttemptIds).add(activeFindAttemptId)
       : paintedExpandedAttemptIds;
 
-  const rawRows = useIncrementalTimelineRows(`${listIdentityKey}\0${workspaceRoot ?? ""}`, {
-    timelineEntries,
-    latestRun,
-    runningRunId,
-    expandedRunIds: visibleExpandedRunIds,
-    expandedAttemptIds: visibleExpandedAttemptIds,
-    expandedWorkGroupIds,
-    isWorking,
-    runlessWorkActive,
-    activeTurnStartedAt,
-    turnDiffSummaries,
-    supportsConversationRollback,
-    threadStartCheckpointReady,
-    availableRevertTurnCounts,
-    worktreeSetup,
-  });
+  // Personal build: find opens the chat work line that hides its match.
+  const activeFindChatLineId =
+    chatStyle && findActive && activeFindMatch
+      ? chatWorkLineIdsByEntryId({
+          timelineEntries,
+          latestRun,
+          runningRunId,
+          isWorking,
+          runlessWorkActive,
+          turnDiffSummaries: [],
+          supportsConversationRollback: false,
+        }).get(activeFindMatch.entryId)
+      : undefined;
+  const [expandedFindChatLineId, setExpandedFindChatLineId] = useState<string | undefined>();
+  if (expandedFindChatLineId !== activeFindChatLineId) {
+    setExpandedFindChatLineId(activeFindChatLineId);
+    if (activeFindChatLineId) {
+      setExpandedWorkGroupIds((previous) =>
+        previous.has(activeFindChatLineId) ? previous : new Set(previous).add(activeFindChatLineId),
+      );
+    }
+  }
+  const visibleExpandedWorkGroupIds =
+    chatStyle && activeFindChatLineId && !paintedExpandedWorkGroupIds.has(activeFindChatLineId)
+      ? new Set(paintedExpandedWorkGroupIds).add(activeFindChatLineId)
+      : chatStyle
+        ? paintedExpandedWorkGroupIds
+        : expandedWorkGroupIds;
+
+  const rawRows = useIncrementalTimelineRows(
+    // Personal build: the chat-style layout derives its own rows (chatTimelineRows.ts).
+    `${listIdentityKey}\0${workspaceRoot ?? ""}\0${chatStyle ? "chat" : "classic"}`,
+    {
+      timelineEntries,
+      latestRun,
+      runningRunId,
+      expandedRunIds: visibleExpandedRunIds,
+      expandedAttemptIds: visibleExpandedAttemptIds,
+      expandedWorkGroupIds: visibleExpandedWorkGroupIds,
+      isWorking,
+      runlessWorkActive,
+      activeTurnStartedAt,
+      turnDiffSummaries,
+      supportsConversationRollback,
+      threadStartCheckpointReady,
+      availableRevertTurnCounts,
+      worktreeSetup,
+      // Personal build: the chat layout names relative paths in its live line.
+      ...(chatStyle ? { workspaceRoot } : {}),
+    },
+    chatStyle ? deriveChatTimelineRows : deriveMessagesTimelineRows,
+  );
   const rows = useStableRows(rawRows, listIdentityKey);
   // Run status/timestamps change per stream event; keep them out of shared row context.
   const runs = useStableHandoffRuns(runsProp);
@@ -1008,6 +1061,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   };
 
   const sharedState: TimelineRowSharedState = {
+    chatStyle,
     citationRequest: readyCitationRequest,
     listRef,
     timestampFormat,
@@ -1416,7 +1470,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
             ? "pb-1.5"
             : (row.kind === "message" &&
                   row.message.role === "assistant" &&
-                  !row.showAssistantMeta) ||
+                  !row.showAssistantMeta &&
+                  // Personal build: a chat bubble always ends in its meta row and full spacing.
+                  row.chat !== "answer" &&
+                  row.chat !== "to-user") ||
                 row.kind === "worktree-setup" ||
                 row.kind === "event" ||
                 row.kind === "attempt-fold" ||
@@ -1428,6 +1485,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           row.kind === "assistant-meta"
           ? "group/assistant"
           : null,
+        // Personal build: chat-style rows (chatTimelineRows.ts).
+        row.kind === "chat-work" ? "pb-1" : null,
+        row.kind === "chat-typing" || row.kind === "chat-reply" ? "pb-4" : null,
+        chatRowOnRail(row) && CHAT_RAIL_CLASS_NAME,
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
@@ -1447,7 +1508,17 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                 : "standalone"
           }
         >
-          {row.kind === "work" ? (
+          {row.kind === "work" && row.chat === "event" ? (
+            // Personal build: something that happened, centered in the chat.
+            <div className="mx-auto w-fit max-w-[80%]">
+              <WorkGroupSection
+                anchorKey={row.id}
+                groupedEntries={row.groupedEntries}
+                isExpandedToolGroup={false}
+              />
+            </div>
+          ) : null}
+          {row.kind === "work" && row.chat !== "event" ? (
             <WorkGroupSection
               anchorKey={row.id}
               groupedEntries={row.groupedEntries}
@@ -1474,9 +1545,62 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      {row.kind === "chat-work" ? <ChatWorkTimelineRow row={row} /> : null}
+      {row.kind === "chat-typing" ? <ChatTypingRow row={row} /> : null}
+      {row.kind === "chat-reply" ? <ChatReplyTimelineRow entry={row.entry} /> : null}
     </div>
   );
 });
+
+// Personal build: a turn's work line in the chat-style layout.
+function ChatWorkTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "chat-work" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const { isCompacting, awaitingUser, isPreparingWorktree, backgroundWorktreeSetup } =
+    use(TimelineRowActivityCtx);
+  // Compacting writes no answer, so it reads as a centered event, not the agent's work.
+  if (row.live && (row.compacting || isCompacting) && !isPreparingWorktree) {
+    return (
+      <div className="flex justify-center py-0.5 text-muted-foreground text-xs">
+        <CompactingLabel label="Compacting…" />
+      </div>
+    );
+  }
+  const label = !row.live
+    ? row.label
+    : isPreparingWorktree
+      ? "Setting up worktree…"
+      : awaitingUser
+        ? "Waiting for you"
+        : row.label;
+  return (
+    <ChatWorkLineContent
+      label={label}
+      expanded={row.expanded}
+      canExpand={row.stepCount > 0}
+      timer={
+        row.live && !awaitingUser && !isPreparingWorktree && row.createdAt ? (
+          <WorkingTimer createdAt={row.createdAt} />
+        ) : null
+      }
+      trailing={
+        row.live && backgroundWorktreeSetup ? (
+          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+        ) : null
+      }
+      onToggle={() => ctx.onToggleWorkGroup(row.id, row.id)}
+    />
+  );
+}
+
+// Personal build: an agent that is compacting or waiting on you is not typing.
+function ChatTypingRow({ row }: { row: Extract<TimelineRow, { kind: "chat-typing" }> }) {
+  const { isCompacting, awaitingUser, isPreparingWorktree } = use(TimelineRowActivityCtx);
+  return (
+    <ChatTypingTimelineRow
+      hidden={row.compacting || isCompacting || awaitingUser || isPreparingWorktree}
+    />
+  );
+}
 
 function WorktreeSetupTimelineRow({
   row,

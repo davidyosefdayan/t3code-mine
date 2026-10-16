@@ -37,6 +37,8 @@ export interface TurnItemSource {
 }
 
 export interface TimelineRowSharedState {
+  /** Personal build: rows render in the chat-style layout (chatTimelineRows.ts). */
+  chatStyle: boolean;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;

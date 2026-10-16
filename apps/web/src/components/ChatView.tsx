@@ -3307,6 +3307,8 @@ export default function ChatView(props: ChatViewProps) {
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 footer={paintOnlyDisplayedTimeline ? null : timelineFooter}
                 listRef={legendListRef}
+                // Personal build: the chat-style conversation (chat/chatTimelineRows.ts).
+                chatStyle
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
                 latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
                 announcedRun={
