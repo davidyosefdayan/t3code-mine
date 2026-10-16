@@ -10,6 +10,7 @@ import {
 } from "./ThreadRowParts";
 import { isYourTurnUnseen, yourTurnSince } from "../needsYouCount";
 import { resolveThreadRowLine } from "./threadGroups";
+import { ReadAloudThreadIndicator } from "./ReadAloudThreadIndicator";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -903,6 +904,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
               <div className="flex h-5 min-w-0 items-center gap-2">
                 {title}
+                {/* Personal build: shows while this chat is being read aloud. */}
+                <ReadAloudThreadIndicator threadKey={threadKey} />
                 {/* The visible state owns this slot's width: the time at rest,
                     actions on hover/keyboard focus or while the popover is
                     open. Keeping the hidden state out of flow lets the title
