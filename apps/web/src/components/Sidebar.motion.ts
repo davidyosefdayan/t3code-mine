@@ -33,6 +33,33 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
   // commit can glide every row from where dnd-kit left it into its slot.
   let released: Map<HTMLElement, number> | null = null;
 
+  const measure = () =>
+    new Map<HTMLElement, RowPosition>(
+      Array.from(parent.children)
+        .filter((node): node is HTMLElement => node instanceof HTMLElement && !exiting.has(node))
+        .map((node) => [
+          node,
+          {
+            top: node.offsetTop,
+            left: node.offsetLeft,
+            width: node.offsetWidth,
+            height: node.offsetHeight,
+          },
+        ]),
+    );
+  // Rows settle their real height after the list mounts (content-visibility
+  // placeholders, late badges, a hidden route becoming visible) without
+  // changing the order, so no update runs. Refresh the baseline whenever the
+  // list resizes, or the next order change replays that drift as motion.
+  const ResizeObserverImpl = parent.ownerDocument.defaultView?.ResizeObserver;
+  const resizeObserver =
+    ResizeObserverImpl === undefined
+      ? null
+      : new ResizeObserverImpl(() => {
+          if (positions !== null) positions = measure();
+        });
+  resizeObserver?.observe(parent);
+
   const remainingOffset = (node: HTMLElement) => {
     const current = running.get(node);
     const run = current ? current.offset * (1 - progress(current.animation)) : 0;
@@ -132,19 +159,7 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
   return {
     update(animate: boolean) {
       if (disposed) return;
-      const next = new Map(
-        Array.from(parent.children)
-          .filter((node): node is HTMLElement => node instanceof HTMLElement && !exiting.has(node))
-          .map((node) => [
-            node,
-            {
-              top: node.offsetTop,
-              left: node.offsetLeft,
-              width: node.offsetWidth,
-              height: node.offsetHeight,
-            },
-          ]),
-      );
+      const next = measure();
       let fadeCount = 0;
       if (positions !== null) {
         for (const [node, position] of positions) {
@@ -260,6 +275,7 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
     suspend,
     dispose() {
       suspend();
+      resizeObserver?.disconnect();
       disposed = true;
     },
   };

@@ -127,6 +127,7 @@ export function createSidebarSortingStrategy(input: {
     const target = resolveSidebarDropTarget(items, active.key, sidebarListItemId(over));
     if (!target) return [];
     const groups: Record<SidebarSection, ThreadItem[]> = {
+      unread: [],
       pinned: [],
       active: [],
       working: [],
@@ -144,7 +145,7 @@ export function createSidebarSortingStrategy(input: {
         }
         continue;
       }
-      if (item.section === "pinned" || item.section === "active" || item.section === "working")
+      if (item.section !== "snoozed" && item.section !== "settled")
         cardHeight ??= rects[index]?.height;
       else slimHeight ??= rects[index]?.height;
       if (item.key !== active.key) groups[item.section].push(item);
@@ -185,6 +186,11 @@ export function createSidebarSortingStrategy(input: {
       if (groups[name].length > 0) projected.push(...groups[name]);
       else marker(`${name}-placeholder`);
     };
+    // Personal build: "Unread" sits above the pins and never takes a drop.
+    if (items.some((item) => item.kind === "marker" && item.marker === "unread-header")) {
+      marker("unread-header");
+      projected.push(...groups.unread);
+    }
     marker("pinned-header");
     projected.push(...groups.pinned);
     marker("pinned-divider");
@@ -207,14 +213,15 @@ export function createSidebarSortingStrategy(input: {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       const fallback =
-        item.kind === "thread" &&
-        (item.section === "pinned" || item.section === "active" || item.section === "working")
+        item.kind === "thread" && item.section !== "snoozed" && item.section !== "settled"
           ? cardHeight
           : slimHeight;
       const moved = item.kind === "thread" && item.key === active.key;
+      // Personal build: a boundary showing its group title keeps that height;
+      // an empty one opens just the drag label.
       return item.kind === "marker" &&
         (item.marker === "pinned-header" || item.marker === "pinned-divider")
-        ? labelHeight
+        ? rect?.height || labelHeight
         : item.kind === "marker" && item.marker.endsWith("placeholder")
           ? slimHeight
           : moved

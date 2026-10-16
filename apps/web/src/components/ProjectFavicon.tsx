@@ -4,23 +4,15 @@ import {
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
 import { FolderCodeIcon } from "lucide-react";
-import type { IconName } from "lucide-react/dynamic";
 import type { ComponentType } from "react";
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { projectFaviconUrlAtom } from "../state/assets";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { projectIconColorClassName } from "../projectIconColors";
 import { ProjectMonogram } from "./ProjectMonogram";
+import { CachedDynamicIcon } from "./CachedDynamicIcon";
 import { cn } from "~/lib/utils";
-
-const DynamicIcon = lazy(() =>
-  import("lucide-react/dynamic").then((module) => ({ default: module.DynamicIcon })),
-);
-
-function DynamicProjectIconFallback() {
-  return <FolderCodeIcon className="size-full text-inherit" />;
-}
 
 // The slice of a project that decides its icon. Every surface must pass the
 // project record itself (or a snapshot spread from it) so the saved title, favicon
@@ -68,15 +60,13 @@ export function ProjectFavicon(input: {
       colorClassName,
       input.className,
     );
+    // Personal build: cached, so a known icon never swaps in after a stand-in.
     return (
       <span aria-hidden="true" className={iconClassName}>
-        <Suspense fallback={<DynamicProjectIconFallback />}>
-          <DynamicIcon
-            name={project.projectIcon.name as IconName}
-            className={cn("size-full", colorClassName)}
-            fallback={DynamicProjectIconFallback}
-          />
-        </Suspense>
+        <CachedDynamicIcon
+          name={project.projectIcon.name}
+          className={cn("size-full", colorClassName)}
+        />
       </span>
     );
   }

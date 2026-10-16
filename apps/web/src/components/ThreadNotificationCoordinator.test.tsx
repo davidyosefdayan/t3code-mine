@@ -22,6 +22,7 @@ const state = vi.hoisted(() => ({
   subagent: false,
   background: [] as Array<{ taskId: string; kind: "command" | "monitor" }>,
   delegatedChild: null as "running" | "approval" | null,
+  reply: null as string | null,
   add: vi.fn(
     (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
       "toast-1",
@@ -69,7 +70,10 @@ function mockThreadShell() {
       : state.approval
         ? { id: "request-1", kind: "command", createdAt: SHELL_NOW }
         : null,
-    latestVisibleMessage: null,
+    latestVisibleMessage:
+      state.reply === null
+        ? null
+        : { id: "message-1", role: "assistant", text: state.reply, updatedAt: SHELL_NOW },
     latestUserMessageAt: null,
     hasActionableProposedPlan: false,
     pendingBackgroundTasks: state.background,
@@ -129,6 +133,7 @@ vi.mock("../hooks/useSettings", () => ({
   ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp }),
   getClientSettings: () => ({ notificationMode: state.mode }),
 }));
+vi.mock("./needsYouCount", () => ({ useNeedsYouCount: () => 0 }));
 vi.mock("../state/environments", () => ({
   useEnvironmentIds: () => ["env-1"],
 }));
@@ -179,6 +184,7 @@ beforeEach(() => {
     subagent: false,
     background: [],
     delegatedChild: null,
+    reply: null,
   });
   stableParent = null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -283,8 +289,9 @@ describe("thread notifications", () => {
     await render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledTimes(1);
-    expect(state.notification).toHaveBeenCalledWith(title, {
-      body: "Fix the login form",
+    // Personal build: the chat's title leads; the body says what happened.
+    expect(state.notification).toHaveBeenCalledWith("Fix the login form", {
+      body: title,
       tag: "env-1:thread-1",
       silent: true,
     });
@@ -350,14 +357,28 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
+  // Personal build: a finished turn's alert shows what the agent said.
+  it("shows the agent's latest reply in a completion alert", async () => {
+    state.mode = "notifications";
+    state.focused = false;
+    state.reply = "**Done.** The login form now validates emails.";
+    await render();
+    await complete();
+    expect(state.notification).toHaveBeenCalledWith("Fix the login form", {
+      body: "Done. The login form now validates emails.",
+      tag: "env-1:thread-1",
+      silent: true,
+    });
+  });
+
   it("keeps system alerts when the app is in the background", async () => {
     state.mode = "notifications";
     state.focused = false;
     await render();
     await complete();
     expect(state.add).not.toHaveBeenCalled();
-    expect(state.notification).toHaveBeenCalledWith("Thread completed", {
-      body: "Fix the login form",
+    expect(state.notification).toHaveBeenCalledWith("Fix the login form", {
+      body: "Thread completed",
       tag: "env-1:thread-1",
       silent: true,
     });

@@ -120,6 +120,7 @@ import {
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
+import { yourTurnSince } from "./needsYouCount";
 import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
 import {
   parseScopedThreadKey,
@@ -3057,9 +3058,11 @@ export default function ChatView(props: ChatViewProps) {
       // — several per second while a turn streams — ride a trailing throttle,
       // each rerun swapping the timer so the trailing dispatch carries the
       // newest watermark.
-      const latestRunCompletedAtMs = serverThread.latestRun?.completedAt
-        ? Date.parse(serverThread.latestRun.completedAt)
-        : NaN;
+      // Personal build: an approval, question, or failure in the open chat is
+      // seen at once too, like a finished turn, so the sidebar's Unread group
+      // lets it go.
+      const yourTurnAt = yourTurnSince(serverThread);
+      const latestRunCompletedAtMs = yourTurnAt ? Date.parse(yourTurnAt) : NaN;
       const hasUnseenCompletion =
         !Number.isNaN(latestRunCompletedAtMs) &&
         (Number.isNaN(lastVisitedAt) || latestRunCompletedAtMs > lastVisitedAt);

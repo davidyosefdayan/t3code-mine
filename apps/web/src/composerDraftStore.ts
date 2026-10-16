@@ -4513,6 +4513,11 @@ export function useThreadHasUnsentDraft(threadRef: ScopedThreadRef): boolean {
   );
 }
 
+/** Personal build: a thread's unsent prompt text, for the sidebar's preview line. */
+export function useThreadDraftPrompt(threadRef: ScopedThreadRef): string {
+  return useComposerDraftStore((state) => getComposerDraftState(state, threadRef)?.prompt ?? "");
+}
+
 function useComposerDraftModelState(threadRef: ComposerThreadTarget): ComposerDraftModelState {
   return useComposerDraftStore(
     useShallow((state) => {
