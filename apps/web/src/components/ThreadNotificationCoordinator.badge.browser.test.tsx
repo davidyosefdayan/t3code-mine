@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   sound: vi.fn(),
   badge: vi.fn(),
+  needsYou: 0,
   environmentIds: ["one", "two"],
 }));
 vi.mock(import("@tanstack/react-router"), async (original) => ({
@@ -46,6 +47,10 @@ vi.mock(import("../hooks/useSettings"), async (original) => ({
     select: (settings: { notificationMode: string; inAppNotificationsEnabled: boolean }) => unknown,
   ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp })) as never,
   getClientSettings: (() => ({ notificationMode: state.mode })) as never,
+}));
+vi.mock(import("./needsYouCount"), async (original) => ({
+  ...(await original()),
+  useNeedsYouCount: () => state.needsYou,
 }));
 vi.mock(import("../threadNotifications"), async (original) => ({
   ...(await original()),
@@ -164,6 +169,7 @@ function setup() {
   stack.defer(() => testRegistry.dispose());
   state.mode = "notifications";
   state.inApp = false;
+  state.needsYou = 0;
   state.environmentIds = ["one", "two"];
   state.shells.set("one", shell());
   state.shells.set("two", shell());
@@ -195,14 +201,28 @@ function setup() {
   };
 }
 
+// Personal build: the badge counts the threads that need you, and reading
+// notifications elsewhere doesn't hide that.
+it("badges the needs-you count and keeps it while the app has focus", async () => {
+  await using app = setup();
+  state.needsYou = 2;
+  await app.render();
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  focused = true;
+  window.dispatchEvent(new Event("focus"));
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  state.needsYou = 0;
+  await app.render();
+  expect(state.badge).toHaveBeenLastCalledWith(0);
+});
+
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
     await using app = setup();
     await app.render();
     state.shells.set("one", shell({ [flag]: true }));
     await app.render();
-    expect(state.badge).toHaveBeenLastCalledWith(1);
     const notification = TestNotification.sent[0]!;
     notification.dispatchEvent(new Event("click"));
     expect(state.navigate).toHaveBeenCalledWith({
@@ -211,7 +231,6 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.mode = "sound";
     await app.render();
-    expect(state.badge).toHaveBeenLastCalledWith(0);
     expect(notification.close).toHaveBeenCalled();
   },
 );

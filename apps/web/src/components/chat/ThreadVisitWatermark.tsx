@@ -6,6 +6,7 @@ import { useUiStateStore } from "../../uiStateStore";
 import { threadEnvironment } from "../../state/threads";
 import { useThreadShell } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { yourTurnSince } from "../needsYouCount";
 
 // During an active turn the thread's updatedAt advances several times per
 // second, and every server-side visit is a full command dispatch plus a
@@ -25,6 +26,10 @@ export function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRe
   const visitThreadMutation = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
   const lastVisitDispatchAtRef = useRef(0);
+  // Personal build: an approval, question, or failure in the open chat is
+  // seen at once too, like a finished turn, so the sidebar's Unread group
+  // lets it go.
+  const yourTurnAt = serverThread ? yourTurnSince(serverThread) : null;
 
   useEffect(() => {
     if (!serverThread?.id) return;
@@ -52,9 +57,7 @@ export function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRe
           input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt },
         });
       };
-      const latestRunCompletedAtMs = serverThread.latestRun?.completedAt
-        ? Date.parse(serverThread.latestRun.completedAt)
-        : NaN;
+      const latestRunCompletedAtMs = yourTurnAt ? Date.parse(yourTurnAt) : NaN;
       const hasUnseenCompletion =
         !Number.isNaN(latestRunCompletedAtMs) &&
         (Number.isNaN(lastVisitedAt) || latestRunCompletedAtMs > lastVisitedAt);
@@ -78,7 +81,7 @@ export function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRe
     serverThread?.environmentId,
     serverThread?.id,
     serverThread?.lastVisitedAt,
-    serverThread?.latestRun?.completedAt,
+    yourTurnAt,
     serverThread?.updatedAt,
     visitThreadMutation,
   ]);

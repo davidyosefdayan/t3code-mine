@@ -115,9 +115,9 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
 // Snoozed rows can leave the shelf, but dropping into it is not supported
 // because snoozing requires a wake time. The Working shelf (beta) follows live
 // status, so its rows only drag out as chat context, never between sidebar
-// sections.
+// sections. Personal build: neither is "Unread", which sits above the pins.
 
-export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";
+export type SidebarSection = "unread" | "pinned" | "active" | "working" | "snoozed" | "settled";
 
 export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
@@ -133,6 +133,8 @@ export function resolveSidebarThreadSection(input: {
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
 
 export type SidebarListMarker =
+  /** Personal build: heads the "Unread" rows above the pins. */
+  | "unread-header"
   | "pinned-header"
   | "active-placeholder"
   | "settled-placeholder"
@@ -153,12 +155,17 @@ export function sidebarListItemId(item: SidebarListItem): string {
   return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
 }
 
+/** The section a slot belongs to, read off the markers around it: from
+    the top down, everything before the pinned header is unread, then pins
+    until the pinned divider, then the inbox until the first shelf header,
+    each shelf until the next header, then settled. */
 function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number): SidebarSection {
-  let section: SidebarSection = "pinned";
+  let section: SidebarSection = "unread";
   for (let i = 0; i < index && i < items.length; i += 1) {
     const item = items[i]!;
     if (item.kind !== "marker") continue;
-    if (item.marker === "pinned-divider") section = "active";
+    if (item.marker === "pinned-header") section = "pinned";
+    else if (item.marker === "pinned-divider") section = "active";
     else if (item.marker === "working-header") section = "working";
     else if (item.marker === "snoozed-header") section = "snoozed";
     else if (item.marker === "settled-header") section = "settled";
@@ -182,14 +189,24 @@ export function resolveSidebarDropTarget(
   if (activeIndex === -1 || overIndex === -1 || items[activeIndex]?.kind !== "thread") return null;
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
-  const section = sectionAtSidebarSlot(moved, overIndex);
-  if (section === "working" || section === "snoozed") return null;
+  // Personal build: the Pinned title has Unread above it, so a row
+  // dropped on the title goes first in Pinned, below the title.
+  let slot = overIndex;
+  const next = moved[slot + 1];
+  if (next?.kind === "marker" && next.marker === "pinned-header") {
+    moved[slot + 1] = moved[slot]!;
+    moved[slot] = next;
+    slot += 1;
+  }
+  const section = sectionAtSidebarSlot(moved, slot);
+  if (section === "unread" || section === "working" || section === "snoozed") return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
-  let currentSection: SidebarSection = "pinned";
+  let currentSection: SidebarSection = "unread";
   for (const item of moved) {
     if (item.kind === "marker") {
-      if (item.marker === "pinned-divider") currentSection = "active";
+      if (item.marker === "pinned-header") currentSection = "pinned";
+      else if (item.marker === "pinned-divider") currentSection = "active";
       else if (
         item.marker === "working-header" ||
         item.marker === "snoozed-header" ||
@@ -197,7 +214,7 @@ export function resolveSidebarDropTarget(
       )
         break;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
-    else activeOrder.push(item.key);
+    else if (currentSection === "active") activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
 }
@@ -231,7 +248,8 @@ export function resolveSidebarDropVerb(
   from: SidebarSection,
   to: SidebarSection | null,
 ): SidebarDropVerb | null {
-  if (to === null || to === from || to === "working" || to === "snoozed") return null;
+  if (to === null || to === from || to === "unread" || to === "working" || to === "snoozed")
+    return null;
   if (to === "pinned") return "pin";
   if (to === "settled") return "settle";
   if (from === "pinned") return "unpin";
@@ -290,7 +308,9 @@ export function planSidebarThreadDrop(input: {
     activeKeysById,
     activeReorderableKeys,
   } = input;
-  if (activeSection === "working") return { kind: "none" };
+  // Personal build: Unread follows live status like Working, so its rows also
+  // drag out only as chat context.
+  if (activeSection === "working" || activeSection === "unread") return { kind: "none" };
   if (input.supportsSettlement === false && (target.section === "settled" || activeSettled)) {
     return { kind: "none" };
   }
@@ -1050,6 +1070,41 @@ export function reduceSidebarProjectScopeMenuState(
     case "project-settings-opened":
       return { open: false, query: "" };
   }
+}
+
+/** Personal build: order for a group you arrange by hand (Pinned or Open).
+    Rows you placed follow their saved keys; rows that arrived without a drag
+    (a new chat, a fresh pin, a restored chat) follow in arrival order, newest
+    at the bottom, so nothing already in the group moves. */
+export function sortArrangedThreads<
+  T extends { readonly id: string; readonly environmentId: string },
+>(
+  threads: readonly T[],
+  orderKey: (thread: T) => string | null | undefined,
+  arrivedAt: (thread: T) => string | null | undefined,
+): T[] {
+  const arrivals = new Map(
+    threads.map((thread) => [thread, firstValidTimestampMs(arrivedAt(thread))]),
+  );
+  return [...threads].sort((left, right) => {
+    const leftKey = orderKey(left) ?? null;
+    const rightKey = orderKey(right) ?? null;
+    if (leftKey !== null && rightKey === null) return -1;
+    if (leftKey === null && rightKey !== null) return 1;
+    const order =
+      leftKey !== null && rightKey !== null
+        ? leftKey < rightKey
+          ? -1
+          : leftKey > rightKey
+            ? 1
+            : 0
+        : arrivals.get(left)! - arrivals.get(right)!;
+    return (
+      order ||
+      left.id.localeCompare(right.id) ||
+      left.environmentId.localeCompare(right.environmentId)
+    );
+  });
 }
 
 export function resolveWorkingStartedAt(
