@@ -29,12 +29,12 @@ describe("ExpandedImageDialogHost", () => {
     opener.focus();
 
     await act(() => openExpandedImagePreview("env:a", preview));
-    expect(dialog()?.textContent).toContain("one.png (1/2)");
+    expect(dialog()?.textContent).toContain("1 / 2one.png");
 
     await act(() => {
       dialog()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     });
-    expect(dialog()?.textContent).toContain("two.png (2/2)");
+    expect(dialog()?.textContent).toContain("2 / 2two.png");
 
     await act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
