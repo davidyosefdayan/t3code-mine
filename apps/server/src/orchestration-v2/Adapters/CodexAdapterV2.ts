@@ -1325,6 +1325,8 @@ function codexThreadRuntimeParams(input: {
               http_headers: {
                 Authorization: mcpSession.authorizationHeader,
               },
+              // Personal build: messaging the user changes nothing, so it never asks.
+              tools: { message_user: { approval_mode: "approve" } },
             },
           }),
     },
