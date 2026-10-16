@@ -639,8 +639,8 @@ export function StorageSettingsPanel() {
                   settings.worktreeKeepWhen === "any-local-files"
                     ? "Includes ignored files, except node_modules."
                     : settings.worktreeKeepWhen === "tracked-changes"
-                      ? "Deletes untracked and ignored files, including .env."
-                      : "Keeps edits and untracked files. Deletes ignored files, including .env."
+                      ? "Backs up untracked and ignored files, such as .env, then deletes them."
+                      : "Keeps edits and untracked files. Backs up ignored files, such as .env, then deletes them."
                 }
                 serverScoped={!isProjectScope}
                 control={
