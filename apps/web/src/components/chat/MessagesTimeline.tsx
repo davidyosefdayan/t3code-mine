@@ -231,6 +231,17 @@ import {
   type WorkGroupScrollAnchor,
 } from "./MessagesTimeline.logic";
 import { type ThreadFindMatch } from "./threadFind";
+import { chatWorkLineIdsByEntryId, deriveChatTimelineRows } from "./chatTimelineRows";
+import {
+  AGENT_BUBBLE_CLASS_NAME,
+  CHAT_RAIL_CLASS_NAME,
+  ChatReplyTimelineRow,
+  ChatTypingTimelineRow,
+  ChatWorkLineContent,
+  chatRowOnRail,
+  USER_BUBBLE_CLASS_NAME,
+} from "./ChatStyleRows";
+import { ReadAloudButton } from "./ReadAloudButton";
 import { useThreadFindNavigation } from "./useThreadFindNavigation";
 import { readThreadFindPosition } from "./threadFindPosition";
 import type { ThreadFindPositionReader } from "./threadFind";
@@ -313,6 +324,8 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  /** Personal build: rows render in the chat-style layout (chatTimelineRows.ts). */
+  chatStyle: boolean;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
@@ -474,6 +487,8 @@ interface MessagesTimelineProps {
   awaitingUser?: boolean;
   /** Thread state shown after the last message, such as a settled or snoozed line. */
   footer?: ReactNode;
+  /** Personal build: the chat-style layout (see chatTimelineRows.ts). */
+  chatStyle?: boolean;
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -578,6 +593,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   activeTurnStartedAt = null,
   worktreeSetup = null,
   footer = null,
+  chatStyle = false,
   onCancelWorktreeSetup,
   retryableWorkspacePreparationRunIds = EMPTY_RUN_IDS,
   onRetryWorkspacePreparation,
@@ -903,6 +919,44 @@ const ConversationTimeline = memo(function ConversationTimeline({
     [activeFindAttemptId, paintedExpandedAttemptIds],
   );
 
+  // Personal build: find opens the chat work line that hides its match.
+  const activeFindChatLineId = useMemo(
+    () =>
+      chatStyle && activeFindMatch
+        ? chatWorkLineIdsByEntryId({
+            timelineEntries,
+            latestRun,
+            runningRunId,
+            isWorking,
+            runlessWorkActive,
+            turnDiffSummaries: [],
+            supportsConversationRollback: false,
+          }).get(activeFindMatch.entryId)
+        : undefined,
+    [
+      activeFindMatch,
+      chatStyle,
+      isWorking,
+      latestRun,
+      runlessWorkActive,
+      runningRunId,
+      timelineEntries,
+    ],
+  );
+  useEffect(() => {
+    if (!activeFindChatLineId) return;
+    setExpandedWorkGroupIds((previous) =>
+      previous.has(activeFindChatLineId) ? previous : new Set(previous).add(activeFindChatLineId),
+    );
+  }, [activeFindChatLineId]);
+  const visibleExpandedWorkGroupIds = useMemo(
+    () =>
+      activeFindChatLineId && !paintedExpandedWorkGroupIds.has(activeFindChatLineId)
+        ? new Set(paintedExpandedWorkGroupIds).add(activeFindChatLineId)
+        : paintedExpandedWorkGroupIds,
+    [activeFindChatLineId, paintedExpandedWorkGroupIds],
+  );
+
   const rowsProjectionRef = useRef<{
     readonly threadKey: string;
     readonly workspaceRoot: string | undefined;
@@ -917,21 +971,25 @@ const ConversationTimeline = memo(function ConversationTimeline({
         runningRunId,
         expandedRunIds: visibleExpandedRunIds,
         expandedAttemptIds: visibleExpandedAttemptIds,
-        expandedWorkGroupIds,
+        expandedWorkGroupIds: visibleExpandedWorkGroupIds,
         isWorking,
         runlessWorkActive,
         activeTurnStartedAt,
         turnDiffSummaries,
         supportsConversationRollback,
         worktreeSetup,
+        // Personal build: the chat layout names relative paths in its live line.
+        ...(chatStyle ? { workspaceRoot } : {}),
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
         : null,
+      chatStyle ? deriveChatTimelineRows : undefined,
     );
     rowsProjectionRef.current = { threadKey: listIdentityKey, workspaceRoot, projection };
     return projection.rows;
   }, [
+    chatStyle,
     rowsProjectionRef,
     listIdentityKey,
     workspaceRoot,
@@ -940,7 +998,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     runningRunId,
     visibleExpandedRunIds,
     visibleExpandedAttemptIds,
-    expandedWorkGroupIds,
+    visibleExpandedWorkGroupIds,
     isWorking,
     runlessWorkActive,
     activeTurnStartedAt,
@@ -1349,6 +1407,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      chatStyle,
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
@@ -1388,6 +1447,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       workGroupViewState,
     }),
     [
+      chatStyle,
       readyCitationRequest,
       listRef,
       timestampFormat,
@@ -2139,7 +2199,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
             ? "pb-1.5"
             : (row.kind === "message" &&
                   row.message.role === "assistant" &&
-                  !row.showAssistantMeta) ||
+                  !row.showAssistantMeta &&
+                  // Personal build: a chat bubble always ends in its meta row and full spacing.
+                  row.chat !== "answer" &&
+                  row.chat !== "to-user") ||
                 row.kind === "worktree-setup" ||
                 row.kind === "event" ||
                 row.kind === "attempt-fold" ||
@@ -2151,6 +2214,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           row.kind === "assistant-meta"
           ? "group/assistant"
           : null,
+        // Personal build: chat-style rows (chatTimelineRows.ts).
+        row.kind === "chat-work" ? "pb-1" : null,
+        row.kind === "chat-typing" || row.kind === "chat-reply" ? "pb-4" : null,
+        chatRowOnRail(row) && CHAT_RAIL_CLASS_NAME,
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
@@ -2170,7 +2237,17 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                 : "standalone"
           }
         >
-          {row.kind === "work" ? (
+          {row.kind === "work" && row.chat === "event" ? (
+            // Personal build: something that happened, centered in the chat.
+            <div className="mx-auto w-fit max-w-[80%]">
+              <WorkGroupSection
+                anchorKey={row.id}
+                groupedEntries={row.groupedEntries}
+                isExpandedToolGroup={false}
+              />
+            </div>
+          ) : null}
+          {row.kind === "work" && row.chat !== "event" ? (
             <WorkGroupSection
               anchorKey={row.id}
               groupedEntries={row.groupedEntries}
@@ -2197,9 +2274,62 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      {row.kind === "chat-work" ? <ChatWorkTimelineRow row={row} /> : null}
+      {row.kind === "chat-typing" ? <ChatTypingRow row={row} /> : null}
+      {row.kind === "chat-reply" ? <ChatReplyTimelineRow entry={row.entry} /> : null}
     </div>
   );
 });
+
+// Personal build: a turn's work line in the chat-style layout.
+function ChatWorkTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "chat-work" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const { isCompacting, awaitingUser, isPreparingWorktree, backgroundWorktreeSetup } =
+    use(TimelineRowActivityCtx);
+  // Compacting writes no answer, so it reads as a centered event, not the agent's work.
+  if (row.live && (row.compacting || isCompacting) && !isPreparingWorktree) {
+    return (
+      <div className="flex justify-center py-0.5 text-muted-foreground text-xs">
+        <CompactingLabel />
+      </div>
+    );
+  }
+  const label = !row.live
+    ? row.label
+    : isPreparingWorktree
+      ? "Setting up worktree…"
+      : awaitingUser
+        ? "Waiting for you"
+        : row.label;
+  return (
+    <ChatWorkLineContent
+      label={label}
+      expanded={row.expanded}
+      canExpand={row.stepCount > 0}
+      timer={
+        row.live && !awaitingUser && !isPreparingWorktree && row.createdAt ? (
+          <WorkingTimer createdAt={row.createdAt} />
+        ) : null
+      }
+      trailing={
+        row.live && backgroundWorktreeSetup ? (
+          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+        ) : null
+      }
+      onToggle={() => ctx.onToggleWorkGroup(row.id, row.id)}
+    />
+  );
+}
+
+// Personal build: an agent that is compacting or waiting on you is not typing.
+function ChatTypingRow({ row }: { row: Extract<TimelineRow, { kind: "chat-typing" }> }) {
+  const { isCompacting, awaitingUser, isPreparingWorktree } = use(TimelineRowActivityCtx);
+  return (
+    <ChatTypingTimelineRow
+      hidden={row.compacting || isCompacting || awaitingUser || isPreparingWorktree}
+    />
+  );
+}
 
 function WorktreeSetupTimelineRow({
   row,
@@ -2526,7 +2656,15 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+      <div
+        className={cn(
+          "relative max-w-[80%]",
+          // Personal build: your messages are a theme-color bubble in the chat layout.
+          ctx.chatStyle
+            ? USER_BUBBLE_CLASS_NAME
+            : "rounded-2xl bg-message p-3 text-message-foreground",
+        )}
+      >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
@@ -2649,7 +2787,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </span>
         </div>
       ) : null}
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+      <div
+        className={cn(
+          "flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums",
+          // Personal build: always visible in the chat layout, so your message doesn't end in a gap.
+          !ctx.chatStyle &&
+            "opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
+        )}
+      >
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -2877,10 +3022,23 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  // Personal build: in the chat layout the answer (and what the agent tells you
+  // along the way) is a gray bubble; notes written along the way sit quietly in
+  // the turn's work, and the bubble's time and copy button are always shown.
+  const chatBubble = row.chat === "answer" || row.chat === "to-user";
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div
+        className={cn(
+          "relative min-w-0",
+          chatBubble
+            ? AGENT_BUBBLE_CLASS_NAME
+            : row.chat === "note"
+              ? "px-1 py-0.5 opacity-75"
+              : "px-1 py-0.5",
+        )}
+      >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <div data-thread-find-text="true">
           <AssistantCitationSource
@@ -2910,7 +3068,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
-        {row.showAssistantMeta ? (
+        {row.showAssistantMeta && !chatBubble ? (
           <AssistantMessageMeta
             className="mt-1.5"
             projectedItem={row.projectedItem}
@@ -2920,6 +3078,17 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           />
         ) : null}
       </div>
+      {chatBubble ? (
+        // Every bubble gets its copy button, speaker, and time, even mid-turn.
+        <AssistantMessageMeta
+          className="mt-1 px-1"
+          projectedItem={row.projectedItem}
+          message={row.message}
+          showCopyButton
+          copyStreaming={row.assistantCopyStreaming}
+          alwaysVisible
+        />
+      ) : null}
     </>
   );
 }
@@ -3058,11 +3227,22 @@ function AssistantCopyButton({
     streaming,
   });
 
+  const { routeThreadKey } = use(TimelineRowCtx);
   if (!assistantCopyState.visible) {
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  // Personal build: read aloud sits next to copy, on the same finished answers.
+  return (
+    <div className="flex items-center gap-0.5">
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReadAloudButton
+        messageId={message.id}
+        threadKey={routeThreadKey}
+        text={assistantCopyState.text ?? ""}
+      />
+    </div>
+  );
 }
 
 function ProposedPlanTimelineRow({

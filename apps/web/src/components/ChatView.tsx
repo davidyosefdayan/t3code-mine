@@ -11350,6 +11350,8 @@ export default function ChatView(props: ChatViewProps) {
                   )
                 }
                 listRef={legendListRef}
+                // Personal build: the chat-style conversation (chat/chatTimelineRows.ts).
+                chatStyle
                 timelineEntries={displayedTimeline.entries}
                 providerStatuses={
                   environmentById.get(
