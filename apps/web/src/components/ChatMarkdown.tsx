@@ -1517,6 +1517,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
             originalUrl={originalUrl}
             style={authoredSizeStyle}
             actionsSource={actionsSource}
+            onImageExpand={imageExpand}
           />
         );
       }
