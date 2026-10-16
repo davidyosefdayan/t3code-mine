@@ -1,5 +1,6 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
 import * as NodeFSP from "node:fs/promises";
+import * as NodeModule from "node:module";
 import * as NodeZlib from "node:zlib";
 
 import react from "@vitejs/plugin-react";
@@ -22,6 +23,14 @@ import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
+
+// Personal build: read aloud serves ONNX Runtime's engine from the app. It ships
+// in transformers.js's dist, matching the runtime it bundles, but isn't exported.
+const kokoroOrtDist = NodeModule.createRequire(
+  NodeModule.createRequire(import.meta.url).resolve("kokoro-js"),
+)
+  .resolve("@huggingface/transformers")
+  .replace(/[\\/][^\\/]+$/, "");
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -322,6 +331,7 @@ export default defineConfig(() => {
     resolve: {
       tsconfigPaths: true,
       alias: {
+        "kokoro-ort-dist": kokoroOrtDist,
         "@betteroffice/fonts-cjk": new URL(
           "./src/components/files/office/fonts-cjk.ts",
           import.meta.url,

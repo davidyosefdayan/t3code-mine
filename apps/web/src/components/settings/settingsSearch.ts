@@ -24,6 +24,7 @@ export type SettingsPath =
   | "/settings/diffs"
   | "/settings/keybindings"
   | "/settings/snap-shot"
+  | "/settings/read-aloud"
   | "/settings/providers"
   | "/settings/threads"
   | "/settings/browser"
@@ -90,6 +91,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diffs": "Diffs & pull requests",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
+  "/settings/read-aloud": "Read aloud",
   "/settings/providers": "Providers",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
@@ -119,6 +121,8 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/diffs",
       "/settings/keybindings",
       "/settings/snap-shot",
+      // Personal build: Read aloud.
+      "/settings/read-aloud",
     ],
   },
   {
@@ -736,6 +740,25 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/snap-shot",
     targetId: "snap-shot-enabled",
   },
+  // Personal build: read aloud.
+  {
+    id: "read-aloud-voice",
+    title: "Read aloud voice",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts speak listen kokoro male female british american"],
+  },
+  {
+    id: "read-aloud-speed",
+    title: "Read aloud speed",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts playback rate faster slower"],
+  },
+  {
+    id: "read-aloud-model",
+    title: "Voice model",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts kokoro download delete storage"],
+  },
   {
     id: "providers",
     title: "Providers",
@@ -1107,6 +1130,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/chat": null,
   "/settings/diffs": null,
   "/settings/snap-shot": null,
+  "/settings/read-aloud": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
   "/settings/threads": null,
