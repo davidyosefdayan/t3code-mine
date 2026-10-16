@@ -4,6 +4,7 @@ import {
   createDeviceStreamClient,
   AvccDemuxer,
   avcCodecString,
+  hidStrokesForText,
   parseSemuPacket,
   scanAccessUnit,
 } from "./stream.ts";
@@ -432,5 +433,24 @@ describe("shared device stream readiness and recovery", () => {
     expect(events.onStatus).not.toHaveBeenCalled();
     client.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("hidStrokesForText", () => {
+  it("types a pasted email with shifted symbols", () => {
+    expect(hidStrokesForText("Ab@1.")).toEqual([
+      { usage: 0x04, shift: true },
+      { usage: 0x05, shift: false },
+      { usage: 0x1f, shift: true },
+      { usage: 0x1e, shift: false },
+      { usage: 0x37, shift: false },
+    ]);
+  });
+
+  it("maps line breaks to Return and skips characters without a US key", () => {
+    expect(hidStrokesForText("a\r\n😀é")).toEqual([
+      { usage: 0x04, shift: false },
+      { usage: 0x28, shift: false },
+    ]);
   });
 });
