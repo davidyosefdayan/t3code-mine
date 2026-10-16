@@ -8303,6 +8303,8 @@ export default function ChatView(props: ChatViewProps) {
                   )
                 }
                 listRef={legendListRef}
+                // Personal build: the chat-style conversation (chat/chatTimelineRows.ts).
+                chatStyle
                 timelineEntries={displayedTimeline.entries}
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
                 latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
