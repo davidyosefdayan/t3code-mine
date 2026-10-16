@@ -28,6 +28,8 @@ import {
 } from "../threadNotifications";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
+import { sidebarMessagePreview } from "./messagePreview";
+import { useNeedsYouCount } from "./needsYouCount";
 
 export function ThreadNotificationCoordinator() {
   const environmentIds = useEnvironmentIds();
@@ -41,25 +43,25 @@ export function ThreadNotificationCoordinator() {
   const onNotification = (environmentId: EnvironmentId, notification: Notification) => {
     pending.current.get(notification.tag)?.notification.close();
     pending.current.set(notification.tag, { environmentId, notification });
-    setNotificationBadge(pending.current.size);
   };
+  // Personal build: the badge shows how many threads need you and stays
+  // while the app is focused, instead of counting missed notifications.
+  const needsYouCount = useNeedsYouCount();
+  useEffect(() => setNotificationBadge(needsYouCount), [needsYouCount]);
 
   useEffect(() => {
     const activeIds = new Set(environmentIds);
-    const count = pending.current.size;
     for (const [tag, entry] of pending.current) {
       if (activeIds.has(entry.environmentId)) continue;
       entry.notification.close();
       pending.current.delete(tag);
     }
-    if (count !== pending.current.size) setNotificationBadge(pending.current.size);
   }, [environmentIds]);
 
   useEffect(() => {
     const clear = () => {
       for (const { notification } of pending.current.values()) notification.close();
       pending.current.clear();
-      setNotificationBadge(0);
     };
     clear();
     if (!hasDesktopNotifications(mode)) return;
@@ -217,8 +219,14 @@ function EnvironmentNotifications({
       )
         continue;
       try {
-        const notification = new Notification(title, {
-          body: thread.title,
+        // Personal build: lead with the chat, like the sidebar card: its title,
+        // then what the agent said. Attention states keep their label as the
+        // body, since the latest finished reply predates the question or failure.
+        const notification = new Notification(thread.title, {
+          body:
+            (kind === "completion"
+              ? sidebarMessagePreview(thread.latestVisibleMessage?.text)
+              : null) ?? title,
           tag: threadNotificationTag(environmentId, thread.id),
           silent: true,
         });

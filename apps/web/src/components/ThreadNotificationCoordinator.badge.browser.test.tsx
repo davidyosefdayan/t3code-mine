@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   sound: vi.fn(),
   badge: vi.fn(),
+  needsYou: 0,
   environmentIds: ["one", "two"],
 }));
 vi.mock(import("@tanstack/react-router"), async (original) => ({
@@ -46,6 +47,10 @@ vi.mock(import("../hooks/useSettings"), async (original) => ({
     select: (settings: { notificationMode: string; inAppNotificationsEnabled: boolean }) => unknown,
   ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp })) as never,
   getClientSettings: (() => ({ notificationMode: state.mode })) as never,
+}));
+vi.mock(import("./needsYouCount"), async (original) => ({
+  ...(await original()),
+  useNeedsYouCount: () => state.needsYou,
 }));
 vi.mock(import("../threadNotifications"), async (original) => ({
   ...(await original()),
@@ -170,6 +175,7 @@ function setup() {
   stack.defer(() => testRegistry.dispose());
   state.mode = "notifications";
   state.inApp = false;
+  state.needsYou = 0;
   state.environmentIds = ["one", "two"];
   state.shells.set("one", shell());
   state.shells.set("two", shell());
@@ -201,7 +207,7 @@ function setup() {
   };
 }
 
-it("uses bounded tags across threads and environments, replaces repeat alerts, and clears on focus", async () => {
+it("uses bounded tags across threads and environments, replaces repeat alerts, and closes them on focus", async () => {
   await using app = setup();
   const environmentId = "fd6fff30-f90b-4ee7-9812-4cf497791b90";
   const otherEnvironmentId = "25b62992-b996-4ee3-8d82-d988840e45c1";
@@ -217,17 +223,14 @@ it("uses bounded tags across threads and environments, replaces repeat alerts, a
   await app.render();
   state.shells.set(environmentId, shell(completed(threadId), { id: otherThreadId }));
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(1);
   state.shells.set(environmentId, shell(completed(threadId), completed(otherThreadId)));
   state.shells.set(otherEnvironmentId, shell(completed(threadId)));
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(3);
   state.shells.set(
     environmentId,
     shell(completed(threadId, "2026-09-13T08:01:00Z"), completed(otherThreadId)),
   );
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(3);
   expect(TestNotification.sent).toHaveLength(4);
   const [first, otherThread, otherEnvironment, replacement] = TestNotification.sent;
   for (const notification of TestNotification.sent) {
@@ -241,14 +244,28 @@ it("uses bounded tags across threads and environments, replaces repeat alerts, a
   expect(replacement!.close).not.toHaveBeenCalled();
   focused = true;
   window.dispatchEvent(new Event("focus"));
-  expect(state.badge).toHaveBeenLastCalledWith(0);
   expect(
     TestNotification.sent.every((notification) => notification.close.mock.calls.length > 0),
   ).toBe(true);
   focused = false;
   state.shells.set(otherEnvironmentId, shell(completed(threadId, "2026-09-13T08:02:00Z")));
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(1);
+  expect(TestNotification.sent).toHaveLength(5);
+});
+
+// Personal build: the badge counts the threads that need you, and reading
+// notifications elsewhere doesn't hide that.
+it("badges the needs-you count and keeps it while the app has focus", async () => {
+  await using app = setup();
+  state.needsYou = 2;
+  await app.render();
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  focused = true;
+  window.dispatchEvent(new Event("focus"));
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  state.needsYou = 0;
+  await app.render();
+  expect(state.badge).toHaveBeenLastCalledWith(0);
 });
 
 it("does not badge old completions on first load or reconnect", async () => {
@@ -269,23 +286,21 @@ it("removes alerts only from environments that leave the client", async () => {
   complete("one");
   complete("two");
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(2);
   const [removed, retained] = TestNotification.sent;
   state.environmentIds = ["two"];
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(1);
   expect(removed!.close).toHaveBeenCalledOnce();
   expect(retained!.close).not.toHaveBeenCalled();
   await app.render();
   expect(removed!.close).toHaveBeenCalledOnce();
   state.environmentIds = [];
   await app.render();
-  expect(state.badge).toHaveBeenLastCalledWith(0);
   expect(retained!.close).toHaveBeenCalledOnce();
 });
 
-it("starts a fresh count after another native app window gains focus", async () => {
+it("closes alerts but keeps the badge when another native app window gains focus", async () => {
   await using app = setup();
+  state.needsYou = 1;
   let clear: (() => void) | undefined;
   const unsubscribe = vi.fn();
   using _bridge = stubGlobal("desktopBridge", {
@@ -298,13 +313,10 @@ it("starts a fresh count after another native app window gains focus", async () 
   complete();
   await app.render();
   clear!();
-  expect(state.badge).toHaveBeenLastCalledWith(0);
-  complete("two");
-  await app.render();
+  expect(TestNotification.sent[0]!.close).toHaveBeenCalled();
   expect(state.badge).toHaveBeenLastCalledWith(1);
   await app.unmount();
   expect(unsubscribe).toHaveBeenCalledOnce();
-  expect(state.badge).toHaveBeenLastCalledWith(0);
 });
 
 it.each(["off", "sound", "focused", "denied", "archived"])(
@@ -331,13 +343,12 @@ it.each(["off", "sound", "focused", "denied", "archived"])(
 );
 
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
     await using app = setup();
     await app.render();
     state.shells.set("one", shell({ [flag]: true }));
     await app.render();
-    expect(state.badge).toHaveBeenLastCalledWith(1);
     const notification = TestNotification.sent[0]!;
     notification.dispatchEvent(new Event("click"));
     expect(state.navigate).toHaveBeenCalledWith({
@@ -346,7 +357,6 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.mode = "sound";
     await app.render();
-    expect(state.badge).toHaveBeenLastCalledWith(0);
     expect(notification.close).toHaveBeenCalled();
   },
 );
@@ -363,13 +373,13 @@ it("shows in-app alerts without adding a badge while focused", async () => {
   expect(state.badge.mock.calls.every(([count]) => count === 0)).toBe(true);
 });
 
-it("badges background failures with in-app notifications enabled", async () => {
+it("alerts on background failures with in-app notifications enabled", async () => {
   await using app = setup();
   state.inApp = true;
   await app.render();
   state.shells.set("one", shell({ latestTurn: { ...thread.latestTurn, state: "error" } }));
   await app.render();
-  expect(TestNotification.sent[0]?.title).toBe("Thread failed");
-  expect(state.badge).toHaveBeenLastCalledWith(1);
+  expect(TestNotification.sent[0]?.title).toBe("Test thread");
+  expect(TestNotification.sent[0]?.options.body).toBe("Thread failed");
   expect(state.toast).not.toHaveBeenCalled();
 });

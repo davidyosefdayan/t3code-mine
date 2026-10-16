@@ -7,6 +7,7 @@ export type ThreadActionMenuId =
   | "project-settings"
   | "pin"
   | "unpin"
+  | "change-icon"
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -84,6 +85,8 @@ export interface ThreadActionMenuState {
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
+    /** Personal build: this surface can open the icon picker (the sidebar). */
+    readonly changeIcon?: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
 }
@@ -121,6 +124,13 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
         ]
       : []),
+    // Personal build: any chat can take its own icon, pinned or not.
+    ...(state.supports.changeIcon === true
+      ? [{ id: "change-icon" as const, label: "Change icon…", icon: "smile" }]
+      : []),
+    // Both lifecycle actions stay available on pinned threads: settling
+    // clears the pin ("done" beats "keep on top"), and snoozing hides the
+    // card until wake with the pin intact.
     ...(state.supports.settlement
       ? [
           state.isSettled

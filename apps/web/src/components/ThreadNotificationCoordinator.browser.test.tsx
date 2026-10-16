@@ -135,6 +135,10 @@ vi.mock(import("../state/environments"), async (original) => ({
   ...(await original()),
   useEnvironmentIds: (() => ["env-1"]) as never,
 }));
+vi.mock(import("./needsYouCount"), async (original) => ({
+  ...(await original()),
+  useNeedsYouCount: () => 0,
+}));
 vi.mock(import("../threadNotifications"), async (original) => ({
   ...(await original()),
   playNotificationSound: state.sound,
@@ -286,8 +290,8 @@ describe("thread notifications", () => {
     await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledTimes(1);
-    expect(state.notification).toHaveBeenCalledWith(title, {
-      body: "Fix the login form",
+    expect(state.notification).toHaveBeenCalledWith("Fix the login form", {
+      body: title,
       tag: expect.any(String),
       silent: true,
     });
@@ -366,8 +370,9 @@ describe("thread notifications", () => {
     await app.render();
     await app.complete();
     expect(state.add).not.toHaveBeenCalled();
-    expect(state.notification).toHaveBeenCalledWith("Thread completed", {
-      body: "Fix the login form",
+    // Personal build: the chat's title leads; with no reply to preview, the status follows.
+    expect(state.notification).toHaveBeenCalledWith("Fix the login form", {
+      body: "Thread completed",
       tag: expect.any(String),
       silent: true,
     });

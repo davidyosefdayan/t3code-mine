@@ -1,4 +1,5 @@
 import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
+import { yourTurnSince } from "./needsYouCount";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
@@ -8967,6 +8968,10 @@ function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRef }) {
   const visitThreadMutation = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
   const lastVisitDispatchAtRef = useRef(0);
+  // Personal build: an approval, question, or failure in the open chat is
+  // seen at once too, like a finished turn, so the sidebar's Unread group
+  // lets it go.
+  const yourTurnAt = serverThread ? yourTurnSince(serverThread) : null;
 
   useEffect(() => {
     if (!serverThread?.id) return;
@@ -8994,9 +8999,7 @@ function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRef }) {
           input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt },
         });
       };
-      const latestRunCompletedAtMs = serverThread.latestRun?.completedAt
-        ? Date.parse(serverThread.latestRun.completedAt)
-        : NaN;
+      const latestRunCompletedAtMs = yourTurnAt ? Date.parse(yourTurnAt) : NaN;
       const hasUnseenCompletion =
         !Number.isNaN(latestRunCompletedAtMs) &&
         (Number.isNaN(lastVisitedAt) || latestRunCompletedAtMs > lastVisitedAt);
@@ -9020,9 +9023,9 @@ function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRef }) {
     serverThread?.environmentId,
     serverThread?.id,
     serverThread?.lastVisitedAt,
-    serverThread?.latestRun?.completedAt,
     serverThread?.updatedAt,
     visitThreadMutation,
+    yourTurnAt,
   ]);
   return null;
 }
