@@ -1,5 +1,6 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
+import { AppearanceModePicker, ColorThemePicker } from "./PaletteThemePicker";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
@@ -31,7 +32,6 @@ import {
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
-  MAX_GLASS_OPACITY,
   MAX_INTERFACE_FONT_SIZE,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MAX_PROMPT_FONT_SIZE,
@@ -39,7 +39,6 @@ import {
   MAX_TERMINAL_FONT_SIZE,
   MIN_CODE_FONT_SIZE,
   MIN_APPEARANCE_CONTRAST,
-  MIN_GLASS_OPACITY,
   MIN_INTERFACE_FONT_SIZE,
   MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_PROMPT_FONT_SIZE,
@@ -73,7 +72,6 @@ import {
 } from "../SidebarStageBackdrop";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
-import { useCustomThemes } from "../../hooks/useCustomThemes";
 import {
   readAppearanceModePreference,
   readThemeHalves,
@@ -81,6 +79,7 @@ import {
   useTheme,
 } from "../../hooks/useTheme";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useDelayedStatus } from "../../hooks/useDelayedStatus";
 import {
   useScopedSettings,
   useScopedSettingsMixed,
@@ -144,7 +143,6 @@ import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ThemeLibrary } from "./ThemeSettings";
 import {
   backgroundActivityOverrideSettings,
   backgroundActivitySharedPolicySettings,
@@ -538,7 +536,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
       ? ["Contrast"]
       : []),
-    ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
     ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
       ? ["Diff colors"]
       : []),
@@ -1072,29 +1069,11 @@ function BackgroundActivityAdvancedDialog({
 }
 
 export function AppearanceSettingsPanel() {
-  const {
-    appearanceMode,
-    refreshTheme,
-    resolvedTheme,
-    setAppearanceMode,
-    setTheme,
-    setThemeHalf,
-    theme,
-    themeHalves,
-  } = useTheme();
-  const customThemes = useCustomThemes();
-  const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const environmentStageLabel = useEnvironmentStageLabel();
   const showEnvironmentIdentification =
     resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
-  const glassOpacityRatio =
-    (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
-  const glassOpacitySliderStyle = {
-    "--settings-slider-progress": `${glassOpacityRatio * 100}%`,
-    "--settings-slider-fill-offset": `${0.5 - glassOpacityRatio}rem`,
-  } as CSSProperties;
   const appearanceContrastRatio =
     (settings.appearanceContrast - MIN_APPEARANCE_CONTRAST) /
     (MAX_APPEARANCE_CONTRAST - MIN_APPEARANCE_CONTRAST);
@@ -1112,22 +1091,15 @@ export function AppearanceSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
+      {/* Personal build: the fork's own themes (palette.ts) replace the theme library. */}
+      <SettingsSection id="appearance" title="Appearance" variant="plain">
         <div id={searchableSetting("theme").id}>
-          <ThemeLibrary
-            appearanceMode={appearanceMode}
-            customThemes={customThemes}
-            initialAppearance={resolvedTheme}
-            refreshTheme={refreshTheme}
-            isImportOpen={isImportThemeOpen}
-            setAppearanceMode={setAppearanceMode}
-            setTheme={setTheme}
-            setThemeHalf={setThemeHalf}
-            theme={theme}
-            themeHalves={themeHalves}
-            onImportOpenChange={setIsImportThemeOpen}
-          />
+          <AppearanceModePicker />
         </div>
+      </SettingsSection>
+
+      <SettingsSection id="appearance-theme" title="Theme" variant="plain">
+        <ColorThemePicker />
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">
@@ -1179,52 +1151,7 @@ export function AppearanceSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("setting-glass-opacity")}
-          description="Higher values make menus, dialogs, and the composer more solid."
-          resetAction={
-            settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
-              <SettingResetButton
-                label="glass opacity"
-                onClick={() =>
-                  updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex w-full items-center gap-3 sm:w-52">
-              <output
-                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                htmlFor="glass-opacity"
-              >
-                {settings.glassOpacity}%
-              </output>
-              <input
-                aria-label="Glass opacity"
-                className="settings-slider min-w-0 flex-1"
-                id="glass-opacity"
-                max={MAX_GLASS_OPACITY}
-                min={MIN_GLASS_OPACITY}
-                onChange={(event) => {
-                  const glassOpacity = Number(event.currentTarget.value);
-                  if (
-                    Number.isInteger(glassOpacity) &&
-                    glassOpacity >= MIN_GLASS_OPACITY &&
-                    glassOpacity <= MAX_GLASS_OPACITY
-                  ) {
-                    updateSettings({ glassOpacity });
-                  }
-                }}
-                step={5}
-                style={glassOpacitySliderStyle}
-                type="range"
-                value={settings.glassOpacity}
-              />
-            </div>
-          }
-        />
-
+        {/* Personal build: no glass, so no glass opacity setting. */}
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
@@ -3361,6 +3288,9 @@ export function ArchivedThreadsPanel() {
     isLoading: isLoadingArchive,
     refresh: refreshArchivedThreads,
   } = useArchivedThreadSnapshots(scope.environmentIds);
+  // Personal build: a fast load (the common local case) would flash the loading
+  // row for a frame before the list replaces it; only show it once loading lingers.
+  const showArchiveLoading = useDelayedStatus("archive", isLoadingArchive ? true : null) === true;
 
   const { groups: archivedGroups, hasMultipleEnvironments } = (() => {
     const selectedProjectKeys =
@@ -3504,7 +3434,9 @@ export function ArchivedThreadsPanel() {
 
   return (
     <SettingsPageContainer>
-      {archivedGroups.length === 0 ? (
+      {archivedGroups.length === 0 &&
+      isLoadingArchive &&
+      !showArchiveLoading ? null : archivedGroups.length === 0 ? (
         <SettingsSection
           id={isLoadingArchive ? undefined : searchableSetting("archive").id}
           title={searchableSetting("archive").title}

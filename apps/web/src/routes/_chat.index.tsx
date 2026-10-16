@@ -79,10 +79,18 @@ function IndexDraftLanding() {
           }));
         }}
       />
-    ) : null;
+    ) : (
+      <EmptyPanel />
+    );
   }
   // A pending environment cannot prove the workspace is empty.
-  return bootstrapped ? <NoProjectsHero /> : null;
+  return bootstrapped ? <NoProjectsHero /> : <EmptyPanel />;
+}
+
+// Personal build: holds the content panel in place while the index decides where
+// to go (it redirects into a draft), so the app frame never shows through for a frame.
+function EmptyPanel() {
+  return <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none" />;
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {

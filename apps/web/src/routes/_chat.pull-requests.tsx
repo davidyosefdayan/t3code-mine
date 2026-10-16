@@ -1292,7 +1292,9 @@ function PullRequestsRouteView() {
   );
   const openPanelControls = (
     <div
-      className="absolute top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
+      // Personal build: the same fixed viewport anchor as the thread view's controls, so the
+      // toggle sits in the same spot on every page.
+      className="fixed top-[calc(var(--workspace-controls-top)+0.5rem)] right-[calc(var(--workspace-controls-right)+0.5rem)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
       {rightPanelState.isOpen ? (

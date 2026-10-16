@@ -37,7 +37,6 @@ import {
   useSidebar,
   SidebarInput,
 } from "../ui/sidebar";
-import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
@@ -359,9 +358,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <T3ConnectSidebarSignIn />
         </Suspense>
         <div className="flex items-center gap-1">
-          <div className="min-w-0 flex-1">
-            <SidebarUtilityMenu />
-          </div>
+          {/* Personal build: pages and updates live in the app rail. */}
+          <div className="min-w-0 flex-1" />
           <Suspense fallback={null}>
             <T3ConnectSidebarAvatar />
           </Suspense>

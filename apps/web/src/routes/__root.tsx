@@ -72,13 +72,24 @@ import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useAtomValue } from "@effect/atom-react";
-import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
+import {
+  useEnvironments,
+  usePrimaryEnvironment,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
+import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import {
   primaryServerConfigAtom,
   primaryServerConfigEventAtom,
   primaryServerWelcomeAtom,
 } from "../state/server";
-import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import {
+  readProject,
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+  useAllEnvironmentShellsBootstrapped,
+} from "../state/entities";
+import { releaseBootSplash } from "../bootSplash";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -154,6 +165,14 @@ function RootRouteView() {
     authGateState.status === "hosted-static",
   );
 
+  // Personal build: pages outside the workspace have no startup data to wait for.
+  const workspaceRoute =
+    primaryEnvironmentAuthenticated &&
+    pathname !== "/pair" &&
+    pathname !== "/connect" &&
+    pathname !== "/connect-agent";
+  useReleaseBootSplash(!workspaceRoute);
+
   if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
     return (
       <>
@@ -184,7 +203,6 @@ function RootRouteView() {
           <BrowserChromeThemeSync key={pathname} />
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
-          <GlassAppearanceSync />
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
@@ -223,7 +241,6 @@ function RootRouteView() {
         <BrowserChromeThemeSync key={pathname} />
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
-        <GlassAppearanceSync />
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
@@ -266,6 +283,30 @@ function RootRouteView() {
   );
 }
 
+/** Personal build: uncovers the startup splash once this machine's first data
+ * has landed: the primary environment's shell snapshot and server config,
+ * which together decide what the sidebar and thread view show. Other
+ * environments fill in afterwards, so a slow remote never holds the splash. */
+function useReleaseBootSplash(skip: boolean) {
+  const primaryShellReady = useEnvironmentShellHasSnapshot(usePrimaryEnvironmentId());
+  // Every environment settled (including the primary failing to connect) also
+  // releases it, so the splash never outlives an unreachable primary.
+  const allSettled = useAllEnvironmentShellsBootstrapped();
+  const bootstrapped = primaryShellReady || allSettled;
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const serverWelcome = useAtomValue(primaryServerWelcomeAtom);
+  const pathname = useLocation({ select: (location) => location.pathname });
+  // EventRouter moves a fresh "/" into the welcome's bootstrap thread; wait for
+  // the welcome and that hop so the empty start page never flashes first.
+  const bootstrapHopPending =
+    pathname === "/" && (serverWelcome === null || Boolean(serverWelcome.bootstrapThreadId));
+  const ready = skip || (bootstrapped && serverConfig !== null && !bootstrapHopPending);
+  useEffect(() => {
+    if (ready) releaseBootSplash();
+  }, [ready]);
+}
+
+/** Follows the palette the primary environment's machine publishes, if any. */
 function EnvironmentThemeSync() {
   useEnvironmentThemeSync();
   // Ordered after the palette sync so a first-run client adopting the
@@ -290,22 +331,6 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);
-
-  return null;
-}
-
-function GlassAppearanceSync() {
-  const glassOpacity = useClientSettings((settings) => settings.glassOpacity);
-
-  useEffect(() => {
-    const style = document.documentElement.style;
-    style.setProperty("--glass-opacity", `${glassOpacity}%`);
-    if (glassOpacity === 100) {
-      style.setProperty("--glass-blur", "0px");
-    } else {
-      style.removeProperty("--glass-blur");
-    }
-  }, [glassOpacity]);
 
   return null;
 }
