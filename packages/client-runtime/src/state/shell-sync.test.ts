@@ -218,6 +218,82 @@ describe("environment shell synchronization", () => {
     }),
   );
 
+  it.effect("subscribes again from a fresh snapshot after a defect ends the shell stream", () =>
+    Effect.gen(function* () {
+      const subscriptions = yield* Ref.make(0);
+      const client = {
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () =>
+          Stream.unwrap(
+            Ref.getAndUpdate(subscriptions, (count) => count + 1).pipe(
+              Effect.map((count) =>
+                count === 0
+                  ? Stream.concat(
+                      Stream.make({ kind: "snapshot" as const, snapshot: LIVE_SHELL_SNAPSHOT }),
+                      Stream.die(new Error("Expected JSON value")),
+                    )
+                  : Stream.concat(
+                      Stream.make({
+                        kind: "snapshot" as const,
+                        snapshot: { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 2 },
+                      }),
+                      Stream.never,
+                    ),
+              ),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+        session: yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
+          Option.some(session(client)),
+        ),
+        prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+      const cache = Persistence.EnvironmentCacheStore.of({
+        loadShell: () => Effect.succeedNone,
+        saveShell: () => Effect.void,
+        loadThread: () => Effect.succeedNone,
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeedNone,
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeedNone,
+        saveVcsRefs: () => Effect.void,
+        removeVcsRefs: () => Effect.void,
+        clearVcsRefs: () => Effect.void,
+        clear: () => Effect.void,
+      });
+      const shellState = yield* makeEnvironmentShellState().pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+        Effect.provideService(
+          ShellSnapshotLoader.ShellSnapshotLoader,
+          ShellSnapshotLoader.ShellSnapshotLoader.of({ load: () => Effect.succeedNone }),
+        ),
+      );
+      const resubscribed = yield* SubscriptionRef.changes(shellState).pipe(
+        Stream.filter((state) =>
+          Option.exists(state.snapshot, (snapshot) => snapshot.snapshotSequence === 2),
+        ),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      // The failure is recorded before the retry sleeps; let it reach the sleep.
+      yield* SubscriptionRef.changes(shellState).pipe(
+        Stream.filter((state) => Option.isSome(state.error)),
+        Stream.runHead,
+      );
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(resubscribed);
+      expect(yield* Ref.get(subscriptions)).toBe(2);
+    }),
+  );
+
   it.effect("flushes the latest live snapshot without blocking connection state updates", () =>
     Effect.gen(function* () {
       const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
