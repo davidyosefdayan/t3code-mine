@@ -11,6 +11,7 @@ import {
 } from "@t3tools/contracts";
 import {
   resolveT3McpToolDefinition,
+  resolveT3McpToolId,
   type T3McpToolDefinition,
   type T3McpToolSummaryAction,
 } from "@t3tools/shared/t3McpToolPresentation";
@@ -223,6 +224,50 @@ export function resolveWorkEntryToolPresentation(
     definition && t3ToolResultIndicatesFailure(workEntryToolOutput(entry)) ? "failed" : status,
     entry.toolData,
   );
+}
+
+/**
+ * Personal build: the text of an agent's `message_user` call, the agent
+ * speaking to the user mid-turn; null for every other tool or an empty
+ * message. Accepts a V2 `dynamic_tool` item (`{toolName, input}`, where
+ * Claude names it `mcp__t3-code__message_user` and Codex
+ * `t3-code.message_user`) and Codex's raw `{server, tool, arguments}`,
+ * optionally under `item`.
+ */
+export function messageToUserText(toolData: unknown): string | null {
+  const data = asRecord(toolData);
+  const item = asRecord(data?.item) ?? data;
+  const name =
+    typeof item?.server === "string" && typeof item.tool === "string"
+      ? `${item.server}.${item.tool}`
+      : typeof data?.toolName === "string"
+        ? data.toolName
+        : null;
+  if (resolveT3McpToolId(name) !== "message_user") return null;
+  const input =
+    asRecord(item?.arguments) ??
+    asRecord(data?.arguments) ??
+    asRecord(data?.input) ??
+    asRecord(data?.rawInput);
+  return nonEmptyString(input?.message);
+}
+
+/**
+ * Personal build: a work entry's `message_user` text, or null when the entry
+ * is another tool or the call failed, was declined, or was stopped. V2 entries
+ * carry the call as their `dynamic_tool` structured payload; older entries
+ * only as tool data.
+ */
+export function workEntryMessageToUserText(
+  entry: Pick<WorkLogPresentationEntry, "structuredPayload" | "toolData" | "toolLifecycleStatus">,
+): string | null {
+  const status = entry.toolLifecycleStatus;
+  if (status === "failed" || status === "declined" || status === "stopped") return null;
+  const item = entry.structuredPayload;
+  if (item?.type === "dynamic_tool") {
+    return t3ToolResultIndicatesFailure(item.output) ? null : messageToUserText(item);
+  }
+  return messageToUserText(entry.toolData);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
