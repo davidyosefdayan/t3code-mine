@@ -96,6 +96,13 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
       },
     },
   ],
+  // Personal build: used by the thread menu; the native menu shows face.smiling.
+  smile: [
+    { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
+    { tag: "path", attrs: { d: "M8 14s1.5 2 4 2 4-2 4-2" } },
+    { tag: "line", attrs: { x1: "9", x2: "9.01", y1: "9", y2: "9" } },
+    { tag: "line", attrs: { x1: "15", x2: "15.01", y1: "9", y2: "9" } },
+  ],
   "refresh-cw": [
     { tag: "path", attrs: { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" } },
     { tag: "path", attrs: { d: "M21 3v5h-5" } },
