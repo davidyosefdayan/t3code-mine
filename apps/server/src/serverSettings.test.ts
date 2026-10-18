@@ -230,7 +230,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
       const settings = yield* service.getSettings;
-      assert.equal(settings.idleCompaction, "onReturn");
+      assert.equal(settings.idleCompaction, "off");
       assert.strictEqual(settings.compactIdleThreads, false);
     }).pipe(Effect.provide(layerServerSettings())),
   );
