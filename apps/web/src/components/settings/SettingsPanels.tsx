@@ -606,6 +606,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
       ? ["Collapse composer on scroll"]
       : []),
+    ...(settings.compactIdleClaudeChatsBeforeSend !==
+    DEFAULT_UNIFIED_SETTINGS.compactIdleClaudeChatsBeforeSend
+      ? ["Compact long Claude chats when you send"]
+      : []),
     ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
       ? ["Rich text composer"]
       : []),
@@ -726,6 +730,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
+      compactIdleClaudeChatsBeforeSend: DEFAULT_UNIFIED_SETTINGS.compactIdleClaudeChatsBeforeSend,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
@@ -2638,6 +2643,34 @@ export function GeneralSettingsPanel() {
                 updateSettings({ composerCollapseOnScroll: Boolean(checked) })
               }
               aria-label="Collapse composer on scroll"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("compact-idle-claude-chats")}
+          description="When a Claude chat over 200k tokens has been idle past its prompt cache, summarize its history before your next message so the agent doesn't re-read all of it. The send button says Compact & send when this will happen."
+          resetAction={
+            settings.compactIdleClaudeChatsBeforeSend !==
+            DEFAULT_UNIFIED_SETTINGS.compactIdleClaudeChatsBeforeSend ? (
+              <SettingResetButton
+                label="compact long Claude chats when you send"
+                onClick={() =>
+                  updateSettings({
+                    compactIdleClaudeChatsBeforeSend:
+                      DEFAULT_UNIFIED_SETTINGS.compactIdleClaudeChatsBeforeSend,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.compactIdleClaudeChatsBeforeSend}
+              onCheckedChange={(checked) =>
+                updateSettings({ compactIdleClaudeChatsBeforeSend: Boolean(checked) })
+              }
+              aria-label="Compact long Claude chats when you send"
             />
           }
         />

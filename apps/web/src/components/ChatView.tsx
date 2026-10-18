@@ -3101,6 +3101,10 @@ export default function ChatView(props: ChatViewProps) {
       ? (activeRuntime?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null)
       : null,
   });
+  // Personal build: off by default, so Enter only compacts when the user opted in.
+  const compactIdleClaudeChatsBeforeSend = useClientSettings(
+    (settings) => settings.compactIdleClaudeChatsBeforeSend,
+  );
   const [resumeCompactionPermanentlyDismissed, setResumeCompactionPermanentlyDismissed] =
     useLocalStorage(
       `t3code:resume-compaction-dismissed:${environmentId}:${activeProviderInstanceId ?? "claudeAgent"}`,
@@ -5590,6 +5594,7 @@ export default function ChatView(props: ChatViewProps) {
           : "Compacting is unavailable right now"
     : null;
   const resumeCompactionTokens =
+    compactIdleClaudeChatsBeforeSend &&
     activeContextWindow &&
     !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
