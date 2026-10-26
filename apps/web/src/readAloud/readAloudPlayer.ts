@@ -508,10 +508,9 @@ function scrollToWord(current: Session): boolean {
   return true;
 }
 
-/** Whether the word being read is in sight, above the composer. */
-export function isReadAloudWordInView(): boolean {
-  const current = session;
-  const spot = current?.highlighter.locate(current.word);
+/** Whether spoken word `word` of the message being read is in sight, above the composer. */
+export function isReadAloudWordInView(word: number): boolean {
+  const spot = session?.highlighter.locate(word);
   if (!spot?.scroller) return false;
   const box = spot.scroller.getBoundingClientRect();
   const composer = document.querySelector("[data-chat-composer-stack]")?.getBoundingClientRect();
