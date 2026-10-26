@@ -1,5 +1,6 @@
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { ReadAloudButton } from "./ReadAloudButton";
+import { CiteMessageButton } from "./CiteMessageButton";
 import { AGENT_BUBBLE_CLASS_NAME } from "./ChatStyleRows";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -241,10 +242,11 @@ function AssistantCopyButton({
     return null;
   }
 
-  // Personal build: read aloud sits next to copy, on the same finished answers.
+  // Personal build: cite and read aloud sit next to copy, on the same finished answers.
   return (
     <div className="flex items-center gap-0.5">
       <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <CiteMessageButton messageId={message.id} />
       <ReadAloudButton
         messageId={message.id}
         threadKey={routeThreadKey}

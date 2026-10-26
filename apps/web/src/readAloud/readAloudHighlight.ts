@@ -189,6 +189,27 @@ export class MessageHighlighter {
     return spoken === -1 ? null : spoken;
   }
 
+  /**
+   * Where spoken word `word` (or the closest one before it with a place on
+   * screen) is drawn, and the chat list scrolling it. Null when the message
+   * isn't on screen.
+   */
+  locate(word: number): { readonly rect: DOMRect; readonly scroller: Element | null } | null {
+    if (!this.sync()) return null;
+    let lit = Math.min(word, this.matches.length - 1);
+    while (lit > 0 && this.matches[lit] == null) lit -= 1;
+    const match = this.matches[lit] ?? this.firstMatch(0, this.matches.length - 1, 1);
+    if (match === null) return null;
+    const target = this.words[match]!;
+    const range = new Range();
+    range.setStart(target.node, target.start);
+    range.setEnd(target.node, target.end);
+    return {
+      rect: range.getBoundingClientRect(),
+      scroller: this.root!.closest(".messages-timeline-scroll"),
+    };
+  }
+
   clear() {
     if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
     CSS.highlights.delete(WORD_HIGHLIGHT);

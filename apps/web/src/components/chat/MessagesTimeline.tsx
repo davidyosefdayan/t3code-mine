@@ -10,6 +10,7 @@ import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock } from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { deriveTimelineMinimapItems } from "./timelineMinimapItems";
+import { useReadAloudReveal } from "~/readAloud/useReadAloudReveal";
 import {
   type AssistantCitation,
   type EnvironmentId,
@@ -1214,6 +1215,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
       registerTimeline?.(null);
     };
   };
+  // Personal build: the read-aloud bar's "show" scrolls here (readAloud/useReadAloudReveal.ts).
+  useReadAloudReveal({
+    rows,
+    listRef,
+    enabled: !paintOnly,
+    onManualNavigation: navigateTimeline,
+  });
 
   useThreadFindPositionReader({
     threadKey: listIdentityKey,

@@ -99,6 +99,7 @@ import {
   useComposerThreadDraft,
 } from "../../composerDraftStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
+import { ReadAloudPlayerBar } from "./ReadAloudPlayerBar";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerMenuItems } from "./useComposerMenuItems";
@@ -3462,6 +3463,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
+          {/* Personal build: read-aloud controls, in reach wherever the chat is scrolled. */}
+          <ReadAloudPlayerBar routeThreadRef={routeThreadRef} />
         </ComposerBanner.Column>
         <ComposerStashBadge
           count={stashQueue.length}
