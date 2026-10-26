@@ -1,6 +1,7 @@
 // Personal build: plays one message at a time, generating a sentence or two
 // ahead of what you hear and highlighting each word as it's spoken. Pausing
-// keeps your place; clicking a sentence of the message jumps there. The model
+// keeps your place. Clicking or selecting text never moves it: seek from the
+// player bar above the composer, or select text and press Listen. The model
 // stays loaded for a few minutes after the last playback, then the worker is
 // closed to hand its memory back.
 import { useSyncExternalStore } from "react";
@@ -9,6 +10,11 @@ import { toastManager } from "~/components/ui/toast";
 import type { ReadAloudWorkerRequest, ReadAloudWorkerResponse } from "./readAloud.worker";
 import ReadAloudWorker from "./readAloud.worker.ts?worker";
 import { MessageHighlighter } from "./readAloudHighlight";
+import {
+  claimMediaSession,
+  releaseMediaSession,
+  setMediaSessionPlaying,
+} from "./readAloudMediaSession";
 import { readAloudPreferences, type ReadAloudVoice } from "./readAloudSettings";
 import { speakableChunks } from "./readAloudText";
 import type { WordTiming } from "./readAloudTimings";
@@ -24,6 +30,18 @@ export type ReadAloudState =
       /** Set while the voice model downloads, the first time only. */
       readonly downloadPercent: number | null;
     };
+
+/** Where reading is, for the player bar. Kept apart from the state above so a word change
+ * re-renders only the bar, not every answer's speaker button. */
+export type ReadAloudProgress = {
+  readonly chunks: readonly string[];
+  /** Index of each chunk's first word among all spoken words. */
+  readonly chunkWordOffsets: readonly number[];
+  readonly totalWords: number;
+  /** The spoken word at the playhead. */
+  readonly word: number;
+  readonly speed: number;
+};
 
 // Enough buffered audio to ride out a slow sentence, without generating
 // a whole long answer the user may stop after a few seconds.
@@ -48,11 +66,15 @@ type Session = {
   /** Index of each chunk's first word among all spoken words. */
   readonly chunkWordOffsets: readonly number[];
   readonly voice: ReadAloudVoice;
-  readonly speed: number;
+  speed: number;
+  readonly totalWords: number;
+  word: number;
   readonly highlighter: MessageHighlighter;
   nextChunk: number;
   /** The sentence being generated, so a jump can ignore it when it arrives. */
   pendingRequest: { readonly id: number; readonly chunk: number } | null;
+  /** A seek into the middle of a sentence that hasn't been generated yet: where its clip starts. */
+  startAt: { readonly chunk: number; readonly word: number } | null;
   paused: boolean;
   readonly ready: Clip[];
   playing: { readonly clip: Clip; readonly audio: HTMLAudioElement } | null;
@@ -65,9 +87,13 @@ let worker: Worker | null = null;
 let session: Session | null = null;
 let requestCounter = 0;
 let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+let progress: ReadAloudProgress | null = null;
+const progressListeners = new Set<() => void>();
 
 function setState(next: ReadAloudState) {
   state = next;
+  // Loading counts as playing: it's what the reader asked for, and it plays when ready.
+  if (next.status !== "idle") setMediaSessionPlaying(next.status !== "paused");
   for (const listener of listeners) listener();
 }
 
@@ -82,6 +108,32 @@ export function useReadAloudState(): ReadAloudState {
     () => state,
     () => state,
   );
+}
+
+function subscribeProgress(listener: () => void) {
+  progressListeners.add(listener);
+  return () => progressListeners.delete(listener);
+}
+
+export function useReadAloudProgress(): ReadAloudProgress | null {
+  return useSyncExternalStore(
+    subscribeProgress,
+    () => progress,
+    () => progress,
+  );
+}
+
+function publishProgress(current: Session | null) {
+  progress = current
+    ? {
+        chunks: current.chunks,
+        chunkWordOffsets: current.chunkWordOffsets,
+        totalWords: current.totalWords,
+        word: current.word,
+        speed: current.speed,
+      }
+    : null;
+  for (const listener of progressListeners) listener();
 }
 
 function ensureWorker(): Worker {
@@ -145,8 +197,25 @@ function playNext(current: Session) {
     return;
   }
   const { audio } = clip;
+  if (current.startAt?.chunk === clip.chunk) {
+    audio.currentTime = wordStartTime(current, clip, current.startAt.word);
+  }
+  current.startAt = null;
   current.playing = { clip, audio };
   audio.addEventListener("playing", () => highlightWord(current));
+  // Paused by something other than the player (the system can pause media on
+  // its own): go through pause, so the bar and Now Playing say so too. Our own
+  // pauses already moved on from this clip or marked the session paused.
+  audio.addEventListener("pause", () => {
+    if (
+      session === current &&
+      current.playing?.audio === audio &&
+      !current.paused &&
+      !audio.ended
+    ) {
+      pauseReadAloud();
+    }
+  });
   audio.addEventListener("ended", () => {
     URL.revokeObjectURL(clip.url);
     if (session !== current || current.playing?.audio !== audio) return;
@@ -185,6 +254,10 @@ function highlightWord(current: Session) {
   let index = 0;
   while (index + 1 < clip.words.length && clip.words[index + 1]!.start <= time) index += 1;
   const offset = current.chunkWordOffsets[clip.chunk] ?? 0;
+  if (current.word !== offset + index) {
+    current.word = offset + index;
+    publishProgress(current);
+  }
   current.highlighter.show(offset + index, {
     first: offset,
     last: offset + Math.max(clip.words.length - 1, 0),
@@ -194,6 +267,12 @@ function highlightWord(current: Session) {
     const delay = ((next.start - time) / audio.playbackRate) * 1000;
     current.wordTimer = setTimeout(() => highlightWord(current), Math.max(delay, 16));
   }
+}
+
+/** When word `word` starts within `clip`, in seconds of its audio. */
+function wordStartTime(current: Session, clip: Clip, word: number): number {
+  const index = word - (current.chunkWordOffsets[clip.chunk] ?? 0);
+  return clip.words[Math.min(Math.max(index, 0), clip.words.length - 1)]?.start ?? 0;
 }
 
 /** Asks for the next sentence when nothing is generating and the buffer is running low. */
@@ -227,38 +306,56 @@ function chunkOfWord(current: Session, word: number): number {
   return chunk;
 }
 
-/** Drops what's playing and buffered, and reads on from sentence `chunk`. */
-function jumpTo(current: Session, chunk: number) {
+/**
+ * Moves the playhead to spoken word `word`. Audio already generated is reused,
+ * so a seek within it is instant; otherwise the word's sentence is generated
+ * and starts at that word. Pausing is left as it is: the progress bar and skip
+ * buttons move a paused reading without playing it.
+ */
+function seekTo(current: Session, word: number) {
+  const target = Math.min(Math.max(word, 0), current.totalWords - 1);
+  const chunk = chunkOfWord(current, target);
   if (current.wordTimer) clearTimeout(current.wordTimer);
   current.wordTimer = null;
-  if (current.playing) {
-    current.playing.audio.pause();
-    URL.revokeObjectURL(current.playing.clip.url);
-    current.playing = null;
+  const playing = current.playing;
+  if (playing?.clip.chunk === chunk) {
+    playing.audio.currentTime = wordStartTime(current, playing.clip, target);
+  } else {
+    if (playing) {
+      playing.audio.pause();
+      URL.revokeObjectURL(playing.clip.url);
+      current.playing = null;
+    }
+    const buffered = current.ready.findIndex((clip) => clip.chunk === chunk);
+    const busy = current.pendingRequest !== null;
+    if (buffered >= 0) {
+      for (const clip of current.ready.splice(0, buffered)) URL.revokeObjectURL(clip.url);
+    } else {
+      for (const clip of current.ready.splice(0)) URL.revokeObjectURL(clip.url);
+      current.nextChunk = chunk;
+      // A sentence still generating is dropped when it arrives, which then asks for this one.
+      current.pendingRequest = null;
+    }
+    current.startAt = { chunk, word: target };
+    playNext(current);
+    if (!busy) pump(current);
   }
-  for (const clip of current.ready.splice(0)) URL.revokeObjectURL(clip.url);
-  current.nextChunk = chunk;
-  // A sentence still generating is dropped when it arrives, which then asks for this one.
-  const busy = current.pendingRequest !== null;
-  current.pendingRequest = null;
-  current.paused = false;
-  // Show where reading picks up while its first sentence is generated.
-  const first = current.chunkWordOffsets[chunk] ?? 0;
-  const last = (current.chunkWordOffsets[chunk + 1] ?? first + 1) - 1;
-  current.highlighter.show(first, { first, last });
-  setState({
-    status: "loading",
-    key: current.key,
-    threadKey: current.threadKey,
-    downloadPercent: null,
-  });
-  if (!busy) pump(current);
+  current.word = target;
+  publishProgress(current);
+  showCurrentWord(current);
+  if (current.paused) return;
+  if (current.playing) highlightWord(current);
+  else setState({ ...activeState(current), status: "loading" });
+}
+
+function activeState(current: Session) {
+  return { key: current.key, threadKey: current.threadKey, downloadPercent: null };
 }
 
 /**
  * Reads `markdown`, message `key` of thread `threadKey`, aloud. Stops anything
  * already playing. With `from`, a point in the message on screen, starts at
- * the sentence there instead of the top.
+ * the word there instead of the top.
  */
 export function startReadAloud(
   key: string,
@@ -290,30 +387,150 @@ export function startReadAloud(
     threadKey,
     chunks,
     chunkWordOffsets,
+    totalWords: offset,
+    word: 0,
     ...readAloudPreferences(),
     highlighter: new MessageHighlighter(key, chunkWords.flat()),
     nextChunk: 0,
     pendingRequest: null,
+    startAt: null,
     paused: false,
     ready: [],
     playing: null,
     wordTimer: null,
   };
   session = current;
-  document.addEventListener("click", jumpOnClick);
+  claimMediaSession(chunks[0]!, {
+    play: resumeReadAloud,
+    pause: pauseReadAloud,
+    previous: () => skipReadAloud(-1),
+    next: () => skipReadAloud(1),
+    stop: stopReadAloud,
+  });
+  setState({ status: "loading", ...activeState(current) });
   const word = from ? current.highlighter.spokenWordAt(from.node, from.offset) : null;
   if (word !== null) {
-    jumpTo(current, chunkOfWord(current, word));
+    seekTo(current, word);
     return;
   }
-  setState({ status: "loading", key, threadKey, downloadPercent: null });
+  publishProgress(current);
   pump(current);
 }
 
-/** Pauses reading, keeping its place. */
+/**
+ * Plays message `key` from a point in it on screen (where a selection starts),
+ * picking up the reading already under way when it's the same message.
+ */
+export function listenFrom(
+  key: string,
+  threadKey: string,
+  markdown: string,
+  from: { readonly node: Node; readonly offset: number },
+) {
+  const current = session;
+  if (current?.key !== key) {
+    startReadAloud(key, threadKey, markdown, from);
+    return;
+  }
+  const word = current.highlighter.spokenWordAt(from.node, from.offset);
+  if (word !== null) seekTo(current, word);
+  resumeReadAloud();
+}
+
+/** Jumps to spoken word `word` of the message being read. */
+export function seekReadAloud(word: number) {
+  if (session) seekTo(session, word);
+}
+
+/**
+ * Moves a sentence forward or back. Back restarts the sentence being heard,
+ * unless it only just began, like a music player's previous button.
+ */
+export function skipReadAloud(direction: -1 | 1) {
+  const current = session;
+  if (!current) return;
+  const chunk = chunkOfWord(current, current.word);
+  const playing = current.playing;
+  const target =
+    direction === 1
+      ? chunk + 1
+      : playing?.clip.chunk === chunk && playing.audio.currentTime > 2
+        ? chunk
+        : chunk - 1;
+  if (target >= current.chunks.length) return;
+  seekTo(current, current.chunkWordOffsets[Math.max(target, 0)] ?? 0);
+}
+
+/** Changes the speed of the message being read, from the word being heard. */
+export function setReadAloudSpeed(speed: number) {
+  const current = session;
+  if (!current) return;
+  current.speed = speed;
+  const clips = current.playing ? [current.playing.clip, ...current.ready] : current.ready;
+  for (const { audio } of clips) {
+    audio.defaultPlaybackRate = speed;
+    audio.playbackRate = speed;
+  }
+  publishProgress(current);
+  // The next word's timer was set for the old speed.
+  if (!current.paused) highlightWord(current);
+}
+
+type RevealListener = (messageId: string) => Promise<void>;
+let revealListener: RevealListener | null = null;
+
+/** Lets the chat on screen get ready to scroll to a message, rendering it if needed. */
+export function registerReadAloudReveal(listener: RevealListener) {
+  revealListener = listener;
+  return () => {
+    if (revealListener === listener) revealListener = null;
+  };
+}
+
+/** Scrolls the word being read into view, bringing its message into the list if needed. */
+export async function revealReadAloud() {
+  const current = session;
+  if (!current) return;
+  // The chat first lets go of the bottom (it would scroll back there) and renders the message.
+  await revealListener?.(current.key);
+  if (session !== current) return;
+  showCurrentWord(current);
+  scrollToWord(current);
+}
+
+/** Puts the word being read a third of the way down the chat, clear of the composer. */
+function scrollToWord(current: Session): boolean {
+  const spot = current.highlighter.locate(current.word);
+  if (!spot?.scroller) return false;
+  const box = spot.scroller.getBoundingClientRect();
+  // Instant: the chat list cuts a smooth scroll short.
+  spot.scroller.scrollBy({ top: spot.rect.top - (box.top + box.height / 3) });
+  return true;
+}
+
+/** Whether the word being read is in sight, above the composer. */
+export function isReadAloudWordInView(): boolean {
+  const current = session;
+  const spot = current?.highlighter.locate(current.word);
+  if (!spot?.scroller) return false;
+  const box = spot.scroller.getBoundingClientRect();
+  const composer = document.querySelector("[data-chat-composer-stack]")?.getBoundingClientRect();
+  const bottom = Math.min(box.bottom, composer?.top ?? box.bottom);
+  return spot.rect.bottom > box.top && spot.rect.top < bottom;
+}
+
+/** Re-lights the word at the playhead, for when its message was just drawn again. */
+function showCurrentWord(current: Session) {
+  const chunk = chunkOfWord(current, current.word);
+  const first = current.chunkWordOffsets[chunk] ?? 0;
+  const last = (current.chunkWordOffsets[chunk + 1] ?? current.totalWords) - 1;
+  current.highlighter.show(current.word, { first, last });
+}
+
+/** Pauses reading, keeping its place. While a sentence loads, it waits there instead of playing. */
 export function pauseReadAloud() {
   const current = session;
-  if (!current || current.paused || state.status !== "playing") return;
+  if (!current || current.paused || state.status === "idle") return;
   current.paused = true;
   current.playing?.audio.pause();
   if (current.wordTimer) clearTimeout(current.wordTimer);
@@ -326,35 +543,16 @@ export function resumeReadAloud() {
   const current = session;
   if (!current || !current.paused || state.status !== "paused") return;
   current.paused = false;
-  setState({ ...state, status: "playing" });
-  if (current.playing) play(current, current.playing.audio);
-  else playNext(current);
-}
-
-/**
- * A plain click on a sentence of the message being read jumps there. Clicks
- * that select text, follow a link, or press a control keep their usual job.
- */
-function jumpOnClick(event: MouseEvent) {
-  const current = session;
-  if (!current || event.button !== 0 || event.defaultPrevented) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const target = event.target;
-  if (!(target instanceof Element) || target.closest("a, button, input, textarea, summary")) return;
-  if (!current.highlighter.contains(target)) return;
-  if (!(window.getSelection()?.isCollapsed ?? true)) return;
-  const point = caretAt(event.clientX, event.clientY);
-  const word = point ? current.highlighter.spokenWordAt(point.node, point.offset) : null;
-  if (word !== null) jumpTo(current, chunkOfWord(current, word));
-}
-
-function caretAt(x: number, y: number): { node: Node; offset: number } | null {
-  if ("caretPositionFromPoint" in document) {
-    const position = document.caretPositionFromPoint(x, y);
-    return position ? { node: position.offsetNode, offset: position.offset } : null;
+  if (current.playing) {
+    setState({ ...state, status: "playing" });
+    play(current, current.playing.audio);
+  } else if (current.ready.length > 0) {
+    setState({ ...state, status: "playing" });
+    playNext(current);
+  } else {
+    // A seek while paused is still generating; it plays when it arrives.
+    setState({ ...state, status: "loading" });
   }
-  const range = (document as Document).caretRangeFromPoint?.(x, y);
-  return range ? { node: range.startContainer, offset: range.startOffset } : null;
 }
 
 /** Deletes the downloaded voice model. The next playback downloads it again. */
@@ -380,7 +578,8 @@ export function stopReadAloud() {
 }
 
 function finish(current = session) {
-  document.removeEventListener("click", jumpOnClick);
+  publishProgress(null);
+  releaseMediaSession();
   if (current?.wordTimer) clearTimeout(current.wordTimer);
   current?.highlighter.clear();
   session = null;
