@@ -14,6 +14,7 @@ import { WorkLogBlock } from "./WorkLog";
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { deriveTimelineMinimapItems } from "./timelineMinimapItems";
+import { useReadAloudReveal } from "~/readAloud/useReadAloudReveal";
 import {
   type AssistantCitation,
   type EnvironmentId,
@@ -1219,6 +1220,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
       listRef.current = null;
       registerTimeline?.(null);
     };
+  });
+  // Personal build: the read-aloud bar's "show" scrolls here (readAloud/useReadAloudReveal.ts).
+  useReadAloudReveal({
+    rows,
+    listRef,
+    enabled: true,
+    onManualNavigation: navigateTimeline,
   });
 
   useThreadFindPositionReader({

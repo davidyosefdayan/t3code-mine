@@ -1,15 +1,11 @@
 // Personal build: plays an answer aloud with the voice chosen in Settings → Read aloud.
-// Pause keeps your place. With text selected in the answer, reading starts there.
-import { memo } from "react";
-import { PauseIcon, PlayIcon, SquareIcon, Volume2Icon } from "lucide-react";
+// While it reads it becomes a stop button; the player bar above the composer has
+// the rest of the controls; to start mid-answer, select text and press Listen.
+import { memo, useEffect } from "react";
+import { SquareIcon, Volume2Icon } from "lucide-react";
 
-import {
-  pauseReadAloud,
-  resumeReadAloud,
-  startReadAloud,
-  stopReadAloud,
-  useReadAloudState,
-} from "~/readAloud/readAloudPlayer";
+import { startReadAloud, stopReadAloud, useReadAloudState } from "~/readAloud/readAloudPlayer";
+import { registerReadableMessage } from "~/readAloud/readableMessages";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -45,14 +41,6 @@ function ReadAloudControl({
   );
 }
 
-/** Where the selection starts, if text is selected; the player ignores it outside this answer. */
-function selectionStart() {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
-  const range = selection.getRangeAt(0);
-  return { node: range.startContainer, offset: range.startOffset };
-}
-
 export const ReadAloudButton = memo(function ReadAloudButton({
   messageId,
   threadKey,
@@ -64,47 +52,41 @@ export const ReadAloudButton = memo(function ReadAloudButton({
 }) {
   const state = useReadAloudState();
   const active = state.status !== "idle" && state.key === messageId ? state : null;
+  useEffect(
+    () => registerReadableMessage(messageId, threadKey, text),
+    [messageId, threadKey, text],
+  );
 
   if (!active) {
     return (
       <ReadAloudControl
         label="Read aloud"
-        onClick={() => startReadAloud(messageId, threadKey, text, selectionStart())}
+        onClick={() => startReadAloud(messageId, threadKey, text)}
       >
         <Volume2Icon className="size-3" />
       </ReadAloudControl>
     );
   }
 
+  // Pause and the rest are in the player bar above the composer; here it starts and stops.
   return (
-    <>
-      {active.status === "loading" ? (
-        <ReadAloudControl
-          label={
-            active.downloadPercent !== null
-              ? `Downloading voice… ${active.downloadPercent}%`
-              : "Starting…"
-          }
-          onClick={stopReadAloud}
-        >
+    <ReadAloudControl
+      label={
+        active.status === "loading" && active.downloadPercent !== null
+          ? `Downloading voice… ${active.downloadPercent}%`
+          : "Stop reading"
+      }
+      onClick={stopReadAloud}
+    >
+      {active.status === "loading" && active.downloadPercent !== null ? (
+        <>
           <Spinner size="xs" />
           {/* The first use downloads the model; say so instead of a bare spinner. */}
-          {active.downloadPercent !== null ? (
-            <span className="tabular-nums">Downloading voice {active.downloadPercent}%</span>
-          ) : null}
-        </ReadAloudControl>
-      ) : active.status === "paused" ? (
-        <ReadAloudControl label="Resume" onClick={resumeReadAloud}>
-          <PlayIcon className="size-3 fill-current" />
-        </ReadAloudControl>
+          <span className="tabular-nums">Downloading voice {active.downloadPercent}%</span>
+        </>
       ) : (
-        <ReadAloudControl label="Pause" onClick={pauseReadAloud}>
-          <PauseIcon className="size-3 fill-current" />
-        </ReadAloudControl>
-      )}
-      <ReadAloudControl label="Stop reading" onClick={stopReadAloud}>
         <SquareIcon className="size-2.5 fill-current" />
-      </ReadAloudControl>
-    </>
+      )}
+    </ReadAloudControl>
   );
 });
