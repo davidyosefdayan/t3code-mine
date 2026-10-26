@@ -206,18 +206,47 @@ function Scrubber({ progress }: { progress: ReadAloudProgress }) {
 }
 
 /** Whether the word being read is in sight, so the bar offers to jump there only when it isn't. */
-function useWordInView(progress: ReadAloudProgress | null) {
+function useWordInView(word: number) {
   const [inView, setInView] = useState(true);
-  const word = progress?.word;
+  // Checked when the word moves and on scroll; the button remounts when another chat opens.
   useEffect(() => {
-    if (word === undefined) return;
-    const check = () => setInView(isReadAloudWordInView());
+    const check = () => setInView(isReadAloudWordInView(word));
     check();
+    // A chat that just opened draws its messages a moment later.
+    const settled = setTimeout(check, 300);
     // Scroll events don't bubble; capturing catches the chat list's.
     document.addEventListener("scroll", check, { capture: true, passive: true });
-    return () => document.removeEventListener("scroll", check, { capture: true });
+    return () => {
+      clearTimeout(settled);
+      document.removeEventListener("scroll", check, { capture: true });
+    };
   }, [word]);
   return inView;
+}
+
+/** Shown only while the word being read is out of sight, including in another chat. */
+function JumpToReading({ word, onJump }: { word: number; onJump: () => Promise<void> }) {
+  const inView = useWordInView(word);
+  if (inView) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label="Jump to reading"
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => void onJump()}
+          />
+        }
+      >
+        <LocateFixedIcon />
+        {/* Icon only when the composer is narrow. */}
+        <span className="@max-[30rem]:hidden">Jump to reading</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">Jump to reading</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 export function ReadAloudPlayerBar({ routeThreadRef }: { routeThreadRef: ScopedThreadRef }) {
@@ -225,14 +254,16 @@ export function ReadAloudPlayerBar({ routeThreadRef }: { routeThreadRef: ScopedT
   const progress = useReadAloudProgress();
   const [, saveSpeed] = useReadAloudSpeed();
   const router = useRouter();
-  const elsewhere = state.status !== "idle" && state.threadKey !== scopedThreadKey(routeThreadRef);
-  const inView = useWordInView(progress);
   if (state.status === "idle" || !progress) return null;
 
   const atEnd = chunkAtWord(progress, progress.word) >= progress.chunks.length - 1;
 
+  // Opens the chat being read first when it isn't this one; out of view covers both cases.
   const show = async () => {
-    const threadRef = elsewhere ? parseScopedThreadKey(state.threadKey) : null;
+    const threadRef =
+      state.threadKey !== scopedThreadKey(routeThreadRef)
+        ? parseScopedThreadKey(state.threadKey)
+        : null;
     if (threadRef) {
       await router.navigate({
         to: "/$environmentId/$threadId",
@@ -250,77 +281,70 @@ export function ReadAloudPlayerBar({ routeThreadRef }: { routeThreadRef: ScopedT
   return (
     <ComposerBanner.Attachment>
       <ComposerBanner.Root data-read-aloud-player="true">
-        <ComposerBanner.Row>
-          <ComposerBanner.Content className="gap-0.5">
-            <Control label="Previous sentence" onClick={() => skipReadAloud(-1)}>
-              <SkipBackIcon className="fill-current" />
+        {/* One row where every control keeps its size and the progress bar takes
+            what's left, so a narrow composer can't squeeze it to nothing. */}
+        <div className="flex min-w-0 items-center gap-0.5 *:shrink-0">
+          <Control label="Previous sentence" onClick={() => skipReadAloud(-1)}>
+            <SkipBackIcon className="fill-current" />
+          </Control>
+          {state.status === "loading" ? (
+            // Still pauses: a seek loads its sentence first, and this is where you'd stop it.
+            <Control label="Pause" onClick={pauseReadAloud}>
+              <Spinner size="xs" />
             </Control>
-            {state.status === "loading" ? (
-              // Still pauses: a seek loads its sentence first, and this is where you'd stop it.
-              <Control label="Pause" onClick={pauseReadAloud}>
-                <Spinner size="xs" />
-              </Control>
-            ) : state.status === "paused" ? (
-              <Control label="Resume" onClick={resumeReadAloud}>
-                <PlayIcon className="fill-current" />
-              </Control>
-            ) : (
-              <Control label="Pause" onClick={pauseReadAloud}>
-                <PauseIcon className="fill-current" />
-              </Control>
-            )}
-            <Control label="Next sentence" disabled={atEnd} onClick={() => skipReadAloud(1)}>
-              <SkipForwardIcon className="fill-current" />
+          ) : state.status === "paused" ? (
+            <Control label="Resume" onClick={resumeReadAloud}>
+              <PlayIcon className="fill-current" />
             </Control>
-            {state.status === "loading" && state.downloadPercent !== null ? (
-              // The first use downloads the model; say so instead of a bare spinner.
-              <span className="flex-1 px-2 text-muted-foreground tabular-nums">
-                Downloading voice {state.downloadPercent}%
-              </span>
-            ) : (
-              <span className="flex min-w-0 flex-1 px-2">
-                <Scrubber progress={progress} />
-              </span>
-            )}
-          </ComposerBanner.Content>
-          <ComposerBanner.Actions className="gap-0.5">
-            <Menu>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <MenuTrigger
-                      render={<Button aria-label="Speed" size="xs" variant="ghost-muted" />}
-                    />
-                  }
-                >
-                  <span className="tabular-nums">{formatSpeed(progress.speed)}</span>
-                </TooltipTrigger>
-                <TooltipPopup side="top">Speed</TooltipPopup>
-              </Tooltip>
-              <MenuPopup side="top" align="end">
-                <MenuRadioGroup
-                  value={progress.speed}
-                  onValueChange={(value) => changeSpeed(Number(value))}
-                >
-                  {SPEEDS.map((speed) => (
-                    <MenuRadioItem key={speed} value={speed} closeOnClick>
-                      {formatSpeed(speed)}
-                    </MenuRadioItem>
-                  ))}
-                </MenuRadioGroup>
-              </MenuPopup>
-            </Menu>
-            {elsewhere || !inView ? (
-              <Button size="xs" variant="ghost-muted" onClick={() => void show()}>
-                <LocateFixedIcon />
-                {elsewhere ? "Go to chat" : "Jump to reading"}
-              </Button>
-            ) : null}
-            <Control label="Stop reading" onClick={stopReadAloud}>
-              <XIcon />
+          ) : (
+            <Control label="Pause" onClick={pauseReadAloud}>
+              <PauseIcon className="fill-current" />
             </Control>
-          </ComposerBanner.Actions>
-        </ComposerBanner.Row>
+          )}
+          <Control label="Next sentence" disabled={atEnd} onClick={() => skipReadAloud(1)}>
+            <SkipForwardIcon className="fill-current" />
+          </Control>
+          {state.status === "loading" && state.downloadPercent !== null ? (
+            // The first use downloads the model; say so instead of a bare spinner.
+            <span className="min-w-0 flex-1 shrink! truncate px-2 text-muted-foreground tabular-nums">
+              Downloading voice {state.downloadPercent}%
+            </span>
+          ) : (
+            <span className="flex min-w-12 flex-1 shrink! px-2">
+              <Scrubber progress={progress} />
+            </span>
+          )}
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={<Button aria-label="Speed" size="xs" variant="ghost-muted" />}
+                  />
+                }
+              >
+                <span className="tabular-nums">{formatSpeed(progress.speed)}</span>
+              </TooltipTrigger>
+              <TooltipPopup side="top">Speed</TooltipPopup>
+            </Tooltip>
+            <MenuPopup side="top" align="end">
+              <MenuRadioGroup
+                value={progress.speed}
+                onValueChange={(value) => changeSpeed(Number(value))}
+              >
+                {SPEEDS.map((speed) => (
+                  <MenuRadioItem key={speed} value={speed} closeOnClick>
+                    {formatSpeed(speed)}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
+          <JumpToReading key={scopedThreadKey(routeThreadRef)} word={progress.word} onJump={show} />
+          <Control label="Stop reading" onClick={stopReadAloud}>
+            <XIcon />
+          </Control>
+        </div>
       </ComposerBanner.Root>
     </ComposerBanner.Attachment>
   );
