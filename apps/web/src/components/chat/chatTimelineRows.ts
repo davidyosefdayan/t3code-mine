@@ -21,7 +21,14 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { hasQuestionAnswer } from "@t3tools/client-runtime/work-log/user-input";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
-import { MessageId, type RunId } from "@t3tools/contracts";
+import {
+  idleCompactionOf,
+  isCompactionCommandMessage,
+  MessageId,
+  type OrchestrationV2IdleCompaction,
+  type RunId,
+} from "@t3tools/contracts";
+import { IDLE_COMPACTION_TITLES } from "@t3tools/client-runtime/user-message";
 import * as DateTime from "effect/DateTime";
 
 import {
@@ -397,10 +404,22 @@ function deriveChatRows(
     opener = { id: entry.id, createdAt: entry.createdAt, consumed: false };
   };
 
+  // Like upstream, a /compact prompt is the compaction itself: no bubble of
+  // its own, and T3 Code's automatic ones say why they ran.
+  const compactionReasonByRunId = new Map<RunId, OrchestrationV2IdleCompaction | undefined>();
+  for (const entry of entries) {
+    if (entry.kind === "message" && entry.message.runId !== null) {
+      if (isCompactionCommandMessage(entry.message)) {
+        compactionReasonByRunId.set(entry.message.runId, idleCompactionOf(entry.message));
+      }
+    }
+  }
+
   for (const entry of entries) {
     if (entry.kind === "message") {
       const { message } = entry;
       if (message.role === "user") {
+        if (isCompactionCommandMessage(message)) continue;
         speak(entry, messageRow(entry, message, undefined));
         continue;
       }
@@ -438,11 +457,12 @@ function deriveChatRows(
           continue;
         }
         const compaction = work.structuredPayload;
+        const reason = work.runId ? compactionReasonByRunId.get(work.runId) : undefined;
         pushSide(entry, {
           kind: "context-compaction",
           id: entry.id,
           createdAt: entry.createdAt,
-          label: work.label,
+          label: reason ? IDLE_COMPACTION_TITLES[reason] : work.label,
           tokenCounts:
             compaction?.type === "compaction" ? contextCompactionTokenCounts(compaction) : null,
           active: false,

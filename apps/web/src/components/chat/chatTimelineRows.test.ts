@@ -465,6 +465,29 @@ describe("deriveChatTimelineRows", () => {
     expect(live.find((row) => row.kind === "chat-typing")).toMatchObject({ compacting: true });
   });
 
+  it("shows T3 Code's own /compact as the compaction row alone, titled with why it ran", () => {
+    const compactPrompt: OrchestrationV2TurnItem = {
+      ...user("compact-prompt", 6, runB),
+      text: "/compact",
+      createdBy: "agent",
+      creationSource: "server",
+      idleCompaction: "onReturn",
+    } as OrchestrationV2TurnItem;
+    const rows = rowsFor(
+      [
+        user("ask", 0, runA),
+        assistant("answer", 5, runA, "Done."),
+        compactPrompt,
+        compaction("compact", 7, runB),
+      ],
+      { latest: { runId: runB, start: 6, end: 8 } },
+    );
+    expect(shape(rows)).not.toContain("user: compact-prompt");
+    expect(rows.find((row) => row.kind === "context-compaction")).toMatchObject({
+      label: "Context compacted after being idle",
+    });
+  });
+
   it("shows your answer to the agent's question as a reply that closes the line", () => {
     const rows = rowsFor(
       [
