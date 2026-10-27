@@ -389,6 +389,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort projects sidebar manual created recent"],
   },
   {
+    // Personal build: thread rows with or without the project's icon.
+    id: "thread-row-icons",
+    title: "Project icons",
+    to: "/settings/general",
+    searchTerms: ["thread list sidebar avatar chat icon picture row"],
+  },
+  {
     id: "snooze-limited-threads",
     title: "Snooze until limits reset",
     to: "/settings/threads",

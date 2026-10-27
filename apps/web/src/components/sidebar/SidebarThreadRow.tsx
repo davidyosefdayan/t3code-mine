@@ -6,7 +6,9 @@ import {
   SidebarThreadCardBody,
   ThreadAvatar,
   ThreadRowHoverActions,
+  ThreadRowMetaLine,
   ThreadRowSecondLine,
+  useThreadRowAvatarSetting,
 } from "./ThreadRowParts";
 import { isYourTurnUnseen, yourTurnSince } from "../needsYouCount";
 import { resolveThreadRowLine } from "./threadGroups";
@@ -16,7 +18,6 @@ import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { useDeadlinePassed } from "~/hooks/useDeadline";
-import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -66,7 +67,6 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import {
   animateSidebarLayoutChanges,
-  hasUnseenCompletion,
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
@@ -521,7 +521,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     gitStatus.data,
   );
 
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
@@ -612,14 +611,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : thread.modelSelection.model;
 
   // Personal build: the chat's avatar, shared by the row and its hover card.
-  const threadAvatar = (
-    <ThreadAvatar
-      threadKey={threadKey}
-      project={props.project}
-      providerEntry={providerEntry}
-      modelInstanceId={modelInstanceId}
-    />
-  );
+  const threadAvatar = <ThreadAvatar threadKey={threadKey} project={props.project} />;
+  const [showRowAvatar] = useThreadRowAvatarSetting();
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={thread}
@@ -788,7 +781,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     topStatus,
     hasUnsentDraft,
     draftPrompt,
-    fallback: [props.projectDisplayName ?? props.scratchMachineLabel, thread.branch],
+    // The bottom line names the project and branch; a chat without a project names its machine.
+    fallback: [props.projectDisplayName ? null : props.scratchMachineLabel],
   });
   // Personal build: one time per row. Snoozed chats show when they come back,
   // settled ones when they were settled, working ones how long the agent has
@@ -815,18 +809,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const title =
     isRenaming && canOperateThread ? (
-      <input
-        autoFocus
-        value={renamingTitle}
-        dir="auto"
-        aria-label="Thread title"
-        onChange={(event) => onRenameTitleChange(event.target.value)}
-        onFocus={(event) => event.currentTarget.select()}
-        onKeyDown={handleRenameKeyDown}
-        onBlur={handleRenameBlur}
-        onClick={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
-        className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
+      <ThreadRenameInput
+        title={renamingTitle}
+        onTitleChange={onRenameTitleChange}
+        onCommit={() => onCommitRename(threadRef, renamingTitle, thread.title)}
+        onCancel={onCancelRename}
       />
     ) : (
       <span
@@ -835,10 +822,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           "min-w-0 flex-1 truncate text-start text-sm transition-opacity motion-reduce:transition-none",
           // Personal build: like a messages app, unread chats read bold;
           // everything else steps back.
-          showsAsUnread ? "font-semibold" : "font-medium",
-          props.isActive || showsAsUnread
-            ? "text-sidebar-foreground"
-            : "text-sidebar-foreground/80",
+          "font-semibold",
+          "text-sidebar-foreground",
           isRegeneratingTitle && "opacity-55",
         )}
         dir={textDirection(thread.title)}
@@ -870,9 +855,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the h-12 row; the py-0.5 padding is added on top. A larger
+        // Matches the h-16 row; the py-0.5 padding is added on top. A larger
         // placeholder makes every remounted list collapse a few pixels per row.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_48px]",
+        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_64px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -896,11 +881,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
-          {/* Personal build: the chat's avatar spanning both lines, then two
-              calm lines: title and one time on top; status and the latest
-              reply in gray below. */}
-          <div className="relative z-10 flex h-12 items-center gap-2.5 px-(--sidebar-row-content-inset)">
-            {threadAvatar}
+          {/* Personal build: the chat's own icon if it has one, then three
+              levels: bold title and time; the reply or status; gray details. */}
+          <div className="relative z-10 flex h-16 items-center gap-2.5 px-(--sidebar-row-content-inset)">
+            <ThreadAvatar
+              threadKey={threadKey}
+              project={props.project}
+              ownIconOnly={!showRowAvatar}
+              size="row"
+            />
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
               <div className="flex h-5 min-w-0 items-center gap-2">
                 {title}
@@ -971,6 +960,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 details={rowLine.details}
                 trailing={terminalStatusIcon}
               />
+              <ThreadRowMetaLine
+                thread={thread}
+                project={props.project}
+                projectDisplayName={props.projectDisplayName}
+                providerEntryByInstanceId={props.providerEntryByInstanceId}
+              />
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
@@ -980,13 +975,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </li>
   );
 });
-
-function latestRunDiff(
-  thread: SidebarThreadSummary,
-): { insertions: number; deletions: number } | null {
-  void thread;
-  return null;
-}
 
 // Attached only to the highlighted result, so React calls it each time the
 // highlight lands on a different row: a new query, late rows replacing the first

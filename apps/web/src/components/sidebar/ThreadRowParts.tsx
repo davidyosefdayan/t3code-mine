@@ -2,7 +2,9 @@
 // have: calm two-line rows with the chat's avatar, the group titles, the
 // contact-card hover card, and the row's hover actions. Sidebar.tsx keeps
 // upstream's row logic and renders these.
+import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
@@ -20,8 +22,9 @@ import {
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { usePinIcon } from "../../pinIcons";
-import type { ProviderInstanceEntry } from "../../providerInstances";
+import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import type { SidebarThreadSummary } from "../../types";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
@@ -49,51 +52,34 @@ export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
 export const activeSurfaceClassName = "bg-row-active";
 export const selectedSurfaceClassName = "bg-row-selected";
 
-/** The model's provider logo on the corner of a chat's avatar. */
-function ChatAvatarModelBadge(props: {
-  providerEntry: ProviderBadgeEntry | null;
-  instanceId: string;
-}) {
-  const driverKind = props.providerEntry?.driverKind ?? null;
-  if (driverKind === null) return null;
-  return (
-    <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-popover shadow-xs">
-      <ProviderInstanceIcon
-        driverKind={driverKind}
-        displayName={props.providerEntry?.displayName ?? props.instanceId}
-        accentColor={props.providerEntry?.accentColor}
-        acpRegistryAgentId={props.providerEntry?.acpRegistryAgentId}
-        acpRegistryIconUrl={props.providerEntry?.acpRegistryIconUrl}
-        showBadge={false}
-        iconClassName="size-3"
-      />
-    </span>
-  );
-}
-
 /** A chat's avatar: its own icon (right-click, Change icon…), else its
-    project's, with the model's provider logo on the corner. Shared by the row,
-    the draft row, and the hover card. */
+    project's. The agent shows in text and logos beside it, never on its
+    corner. Shared by the row, the draft row, and the hover card. */
 export function ThreadAvatar(props: {
   /** Null for a draft, which has no icon of its own yet. */
   threadKey: string | null;
   project: ProjectFaviconProject | null;
-  providerEntry: ProviderBadgeEntry | null;
-  modelInstanceId: string | null;
+  /** Only an icon chosen for the chat (Change icon…), never the project's. */
+  ownIconOnly?: boolean;
+  /** "row" spans a thread row's three lines. */
+  size?: "md" | "row";
 }) {
+  const row = props.size === "row";
+  const box = row ? "size-14 rounded-xl" : "size-7 rounded-md";
   const pinEmoji = usePinIcon(props.threadKey ?? "");
   const chosen = props.threadKey === null ? null : pinEmoji;
   const pinLine = chosen === null ? null : pinLineIcon(chosen);
+  if (props.ownIconOnly && chosen === null) return null;
   return (
-    <span className="relative flex size-7 shrink-0 items-center justify-center">
+    <span className={cn("relative flex shrink-0 items-center justify-center", box)}>
       {/* A chosen icon sits in its own rounded square, like a project's icon,
           so it reads as the chat's avatar. */}
       {pinLine !== null ? (
-        <span className="flex size-7 items-center justify-center rounded-md bg-chip">
+        <span className={cn("flex items-center justify-center bg-chip", box)}>
           <pinLine.Icon
             aria-hidden
             className={cn(
-              "size-4",
+              row ? "size-6" : "size-4",
               pinLine.color === null ? "text-sidebar-foreground" : PIN_ICON_COLORS[pinLine.color],
             )}
           />
@@ -101,18 +87,16 @@ export function ThreadAvatar(props: {
       ) : chosen !== null ? (
         <span
           aria-hidden
-          className="flex size-7 items-center justify-center rounded-md bg-chip text-base leading-none"
+          className={cn(
+            "flex items-center justify-center bg-chip leading-none",
+            row ? "text-2xl" : "text-base",
+            box,
+          )}
         >
           {chosen}
         </span>
       ) : props.project ? (
-        <ProjectFavicon project={props.project} className="size-7 rounded-md" />
-      ) : null}
-      {props.modelInstanceId !== null ? (
-        <ChatAvatarModelBadge
-          providerEntry={props.providerEntry}
-          instanceId={props.modelInstanceId}
-        />
+        <ProjectFavicon project={props.project} className={box} />
       ) : null}
     </span>
   );
@@ -459,7 +443,7 @@ export function ThreadRowSecondLine(props: {
   trailing: ReactNode;
 }) {
   return (
-    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground">
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-foreground">
       <span className="min-w-0 flex-1 truncate">
         {props.status ? (
           <span className={cn("font-medium", props.status.className)}>{props.status.label}</span>
@@ -468,6 +452,77 @@ export function ThreadRowSecondLine(props: {
         {props.details}
       </span>
       {props.trailing}
+    </div>
+  );
+}
+
+const THREAD_ROW_AVATAR_KEY = "t3code:sidebar-thread-avatar";
+
+/** Whether thread rows lead with the project's icon (Settings → General → Sidebar). Off by default. */
+export function useThreadRowAvatarSetting() {
+  return useLocalStorage(THREAD_ROW_AVATAR_KEY, false, Schema.Boolean);
+}
+
+type StackProviderEntry = ProviderBadgeEntry & { readonly enabled: boolean };
+
+/** Every agent the chat has used, oldest first, the current one in front. */
+function ThreadRowProviderStack(props: {
+  thread: SidebarThreadSummary;
+  providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
+}) {
+  const stack = resolveThreadProviderStack(props.thread);
+  return (
+    <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+      {stack.map((instanceId, index) => {
+        const entry = props.providerEntryByInstanceId.get(instanceId);
+        if (entry === undefined) return null;
+        const current = index === stack.length - 1;
+        return (
+          <ProviderInstanceIcon
+            key={instanceId}
+            driverKind={entry.driverKind}
+            displayName={entry.displayName}
+            accentColor={current ? entry.accentColor : undefined}
+            acpRegistryAgentId={entry.acpRegistryAgentId}
+            acpRegistryIconUrl={entry.acpRegistryIconUrl}
+            showBadge={
+              current && shouldShowInstanceBadge(entry, props.providerEntryByInstanceId.values())
+            }
+            size="compact"
+            iconClassName={current ? "opacity-60 grayscale" : "size-3 opacity-35 grayscale"}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
+/** The row's bottom line: where the chat lives (project, branch) and who's talking, in gray. */
+export function ThreadRowMetaLine(props: {
+  thread: SidebarThreadSummary;
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
+}) {
+  return (
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground">
+      {props.project ? (
+        <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
+      ) : null}
+      {props.projectDisplayName ? (
+        <span className="max-w-[45%] shrink-0 truncate">{props.projectDisplayName}</span>
+      ) : null}
+      {props.thread.branch ? (
+        <>
+          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+          {/* Plain truncation: middle truncation measured too wide beside the logos. */}
+          <span className="min-w-0 flex-1 truncate">{props.thread.branch}</span>
+        </>
+      ) : null}
+      <ThreadRowProviderStack
+        thread={props.thread}
+        providerEntryByInstanceId={props.providerEntryByInstanceId}
+      />
     </div>
   );
 }
@@ -488,12 +543,7 @@ export function DraftRowBody(props: {
     : "New thread";
   return (
     <div className="relative z-10 flex h-12 items-center gap-2.5 px-(--sidebar-row-content-inset)">
-      <ThreadAvatar
-        threadKey={null}
-        project={props.project}
-        providerEntry={props.providerEntry}
-        modelInstanceId={props.modelInstanceId}
-      />
+      <ThreadAvatar threadKey={null} project={props.project} />
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <div className="flex h-5 min-w-0 items-center gap-2">
           <span
