@@ -1453,7 +1453,7 @@ describe("storage cleanup reports and local file policies", () => {
         yield* command(worktree, ["switch", "--orphan", "other"]);
         expect((yield* service.runNow).entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Branch switched to other",
+          reason: "Branch other has no commits",
         });
         yield* command(worktree, ["switch", "-c", "(feature)", "feature"]);
         setThreads([shell({ branch: "(feature)", worktreePath: worktree })]);
@@ -1914,13 +1914,14 @@ describe("worktree backups", () => {
   );
 });
 
-describe("merged pull requests after a branch switch", () => {
+describe("worktrees whose agent switched branches", () => {
   // An agent opened the pull request from a new branch inside the worktree.
-  const switchedFixture = () =>
+  const switchedFixture = (storageCleanup: Partial<StorageCleanupSettings> = {}) =>
     Effect.gen(function* () {
       const fixture = yield* cleanupFixture({
         ...DEFAULT_SERVER_SETTINGS.storageCleanup,
         worktreeOnMerge: true,
+        ...storageCleanup,
       });
       const { fs, repo, worktree, command } = fixture;
       const remote = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
@@ -1944,27 +1945,15 @@ describe("merged pull requests after a branch switch", () => {
           updatedAt: null,
           ...overrides,
         }) satisfies GitManager.GitBranchPullRequest;
-      const linkedTo = (number: number) =>
-        shell({
-          branch: "feature",
-          worktreePath: worktree,
-          branchPullRequest: {
-            projectId: ProjectId.make("project-1"),
-            repository: "example/repo",
-            number,
-            url: `https://github.com/example/repo/pull/${number}`,
-          },
-        });
-      return { ...fixture, mergedPullRequest, linkedTo };
+      return { ...fixture, mergedPullRequest };
     });
 
-  it.live("removes the worktree when the thread's pull request on the new branch was merged", () =>
+  it.live("removes the worktree once the new branch's pull request is merged", () =>
     runCleanupTest(
       Effect.gen(function* () {
-        const { service, fs, repo, worktree, command, setThreads, setBranchPullRequest, ...f } =
+        const { service, fs, repo, worktree, command, setBranchPullRequest, mergedPullRequest } =
           yield* switchedFixture();
-        setThreads([f.linkedTo(7)]);
-        setBranchPullRequest(f.mergedPullRequest());
+        setBranchPullRequest(mergedPullRequest());
         expect((yield* service.runNow).entries[0]).toMatchObject({
           outcome: "removed",
           reason: "Pull request was merged",
@@ -1979,34 +1968,29 @@ describe("merged pull requests after a branch switch", () => {
   );
 
   it.live.each([
-    ["is not linked to the thread", { linked: 8, pullRequest: {} }],
-    ["is still open", { linked: 7, pullRequest: { state: "open" as const } }],
-    ["was merged at an earlier commit", { linked: 7, pullRequest: { headSha: "c".repeat(40) } }],
-  ] as const)(
-    "keeps a switched worktree whose pull request %s",
-    ([_name, { linked, pullRequest }]) =>
-      runCleanupTest(
-        Effect.gen(function* () {
-          const { service, fs, worktree, setThreads, setBranchPullRequest, ...f } =
-            yield* switchedFixture();
-          setThreads([f.linkedTo(linked)]);
-          setBranchPullRequest(f.mergedPullRequest(pullRequest));
-          expect((yield* service.runNow).entries[0]).toMatchObject({
-            outcome: "kept",
-            reason: "Branch switched to pr-branch",
-          });
-          expect(yield* fs.exists(worktree)).toBe(true);
-        }),
-      ),
+    ["is still open", { state: "open" as const }],
+    ["was merged at an earlier commit", { headSha: "c".repeat(40) }],
+  ] as const)("keeps a switched worktree whose pull request %s", ([_name, pullRequest]) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, setBranchPullRequest, mergedPullRequest } =
+          yield* switchedFixture();
+        setBranchPullRequest(mergedPullRequest(pullRequest));
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Not merged",
+        });
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
   );
 
   it.live("keeps a switched worktree with uncommitted changes even when merged", () =>
     runCleanupTest(
       Effect.gen(function* () {
-        const { service, fs, worktree, setThreads, setBranchPullRequest, ...f } =
+        const { service, fs, worktree, setBranchPullRequest, mergedPullRequest } =
           yield* switchedFixture();
-        setThreads([f.linkedTo(7)]);
-        setBranchPullRequest(f.mergedPullRequest());
+        setBranchPullRequest(mergedPullRequest());
         yield* fs.writeFileString(`${worktree}/tracked.txt`, "unsaved\n");
         expect((yield* service.runNow).entries[0]).toMatchObject({
           outcome: "kept",
@@ -2017,16 +2001,42 @@ describe("merged pull requests after a branch switch", () => {
     ),
   );
 
-  it.live("keeps a switched worktree with no linked pull request, even when settled long ago", () =>
+  it.live("applies the settled rule to a switched worktree like any other", () =>
     runCleanupTest(
       Effect.gen(function* () {
-        const { service, fs, worktree, setThreads } = yield* switchedFixture();
+        const { service, fs, repo, worktree, command, setThreads } = yield* switchedFixture({
+          worktreeOnMerge: false,
+          worktreeSettledAfterDays: 3,
+        });
         setThreads([
-          shell({ branch: "feature", worktreePath: worktree, settledAt: at(-30 * DAY_MS) }),
+          shell({ branch: "feature", worktreePath: worktree, settledAt: at(-4 * DAY_MS) }),
+        ]);
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: expect.stringMatching(/^Settled for \d+ days$/),
+        });
+        expect(yield* fs.exists(worktree)).toBe(false);
+        expect((yield* command(repo, ["log", "-1", "--format=%s", "pr-branch"])).stdout).toBe(
+          "pull request work\n",
+        );
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree with no branch checked out, whose commits could be lost", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, command, setThreads } = yield* switchedFixture({
+          worktreeOnMerge: false,
+          worktreeSettledAfterDays: 3,
+        });
+        yield* command(worktree, ["checkout", "--detach"]);
+        setThreads([
+          shell({ branch: "feature", worktreePath: worktree, settledAt: at(-4 * DAY_MS) }),
         ]);
         expect((yield* service.runNow).entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Branch switched to pr-branch",
+          reason: "Repository or branch changed",
         });
         expect(yield* fs.exists(worktree)).toBe(true);
       }),

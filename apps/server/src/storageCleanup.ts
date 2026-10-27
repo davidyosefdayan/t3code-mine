@@ -218,22 +218,6 @@ export function storageCleanupPullRequestMerged(
   );
 }
 
-/** Personal build: pull requests linked to the thread, by number. */
-export function storageCleanupLinkedPullRequestNumbers(
-  thread: Pick<
-    OrchestrationV2ThreadShell,
-    "pullRequests" | "branchPullRequest" | "linkedPullRequest"
-  >,
-): ReadonlySet<number> {
-  return new Set([
-    ...(thread.pullRequests ?? [])
-      .filter((link) => link.source !== "stack-dismissed")
-      .map((link) => link.number),
-    ...(thread.branchPullRequest ? [thread.branchPullRequest.number] : []),
-    ...(thread.linkedPullRequest ? [thread.linkedPullRequest.number] : []),
-  ]);
-}
-
 export class StorageCleanup extends Context.Service<
   StorageCleanup,
   {
@@ -1039,23 +1023,19 @@ const make = Effect.gen(function* () {
           return keep("contains a project checkout");
         if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
           return keep("not a linked worktree");
-        // Personal build: agents often open their pull request from a new
-        // branch. A switch to a branch with a pull request linked to the thread
-        // can still be removed once that pull request is merged.
-        const checkedOut = yield* checkedOutBranch(worktreePath);
-        const switchedBranch =
-          checkedOut !== thread.branch &&
-          typeof checkedOut === "string" &&
-          storageCleanupLinkedPullRequestNumbers(thread).size > 0
-            ? checkedOut
-            : null;
-        if (checkedOut !== thread.branch && switchedBranch === null)
-          return keep(
-            typeof checkedOut === "string"
-              ? `branch switched to ${checkedOut}`
-              : "repository or branch changed",
-          );
-        const worktreeBranch = switchedBranch ?? thread.branch;
+        // Personal build: agents often switch branches in their worktree, for
+        // example to open a pull request. Removal never deletes a branch, so
+        // the rules apply to whichever branch is checked out. Without one
+        // (detached), commits could exist only here, so it is kept.
+        const worktreeBranch = yield* checkedOutBranch(worktreePath);
+        if (typeof worktreeBranch !== "string") return keep("repository or branch changed");
+        const born = yield* git.execute({
+          operation: "StorageCleanup.headCommit",
+          cwd: worktreePath,
+          args: ["rev-parse", "--verify", "--quiet", "HEAD"],
+          allowNonZeroExit: true,
+        });
+        if (born.exitCode !== 0) return keep(`branch ${worktreeBranch} has no commits`);
         const changes = yield* localChangesReason(worktreePath, settings);
         if (changes !== null) return keep(changes);
         if (
@@ -1082,7 +1062,7 @@ const make = Effect.gen(function* () {
           settledFor !== null &&
           settings.worktreeSettledAfterDays !== null &&
           settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
-        let eligible = switchedBranch === null && (deleted || old || settled);
+        let eligible = deleted || old || settled;
         let removalReason = deleted
           ? "thread was deleted"
           : old
@@ -1145,32 +1125,26 @@ const make = Effect.gen(function* () {
               { cwd: worktreePath, branch: worktreeBranch },
               { refresh: true },
             );
-            eligible =
-              (switchedBranch === null ||
-                (pullRequest !== null &&
-                  storageCleanupLinkedPullRequestNumbers(thread).has(pullRequest.number))) &&
-              storageCleanupPullRequestMerged(pullRequest, {
-                branch: worktreeBranch,
-                defaultBranch: branch,
-                headSha: head.commitSha,
-                integrated,
-              });
+            eligible = storageCleanupPullRequestMerged(pullRequest, {
+              branch: worktreeBranch,
+              defaultBranch: branch,
+              headSha: head.commitSha,
+              integrated,
+            });
             if (eligible) removalReason = "pull request was merged";
           }
         }
         if (!eligible)
           return keep(
-            switchedBranch !== null
-              ? `branch switched to ${switchedBranch}`
-              : !deleted && settings.worktreeAfterDays !== null
-                ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} of ${settings.worktreeAfterDays} days`
-                : settings.worktreeSettledAfterDays !== null
-                  ? settledFor === null
-                    ? "not settled"
-                    : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
-                  : settings.worktreeOnMerge
-                    ? "not merged"
-                    : "has commits beyond the default branch",
+            !deleted && settings.worktreeAfterDays !== null
+              ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} of ${settings.worktreeAfterDays} days`
+              : settings.worktreeSettledAfterDays !== null
+                ? settledFor === null
+                  ? "not settled"
+                  : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
+                : settings.worktreeOnMerge
+                  ? "not merged"
+                  : "has commits beyond the default branch",
           );
         // Threads, queued deletion work and provider sessions as they are now, so a
         // queued turn, resumed session or new thread sharing this path cancels
