@@ -103,7 +103,27 @@ export function latestUnheldRun(
   let latest: OrchestrationV2Run | null = null;
   for (const run of runs) {
     if (run.status === "queued" && run.queueHeld === true) continue;
+    if (isDroppedFromQueue(run, runs)) continue;
     if (latest === null || run.ordinal > latest.ordinal) latest = run;
   }
   return latest;
+}
+
+// Personal build: a queued message steered into the live turn, or removed from the queue,
+// leaves a cancelled run that never started. Presenting it as latest hides the
+// turn still running before it, so that turn's completion is never unread.
+function isDroppedFromQueue(
+  run: OrchestrationV2Run,
+  runs: ReadonlyArray<OrchestrationV2Run>,
+): boolean {
+  if (run.status !== "cancelled" || run.startedAt !== null || run.completedAt === null) {
+    return false;
+  }
+  const droppedAt = DateTime.toEpochMillis(run.completedAt);
+  return runs.some(
+    (other) =>
+      other.ordinal < run.ordinal &&
+      other.status !== "queued" &&
+      (other.completedAt === null || DateTime.toEpochMillis(other.completedAt) > droppedAt),
+  );
 }
