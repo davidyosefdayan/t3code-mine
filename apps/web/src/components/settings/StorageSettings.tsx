@@ -37,6 +37,7 @@ import {
 } from "./settingsLayout";
 import { DatabaseStorageNotice } from "./DatabaseStorageNotice";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
+import { StorageWorktreeList } from "./StorageWorktreeList";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { SettingsGroup } from "./SettingsGroup";
 import type { ScopedSettingsTarget } from "./scopedSettings";
@@ -674,6 +675,8 @@ export function StorageSettingsPanel() {
           </>
         )}
       </SettingsSection>
+      {/* Personal build: where worktree disk space goes, with per-folder actions. */}
+      {!isProjectScope && <StorageWorktreeList />}
 
       {!isProjectScope && (
         <SettingsSection id="storage-artifacts" title="Artifacts and logs">
