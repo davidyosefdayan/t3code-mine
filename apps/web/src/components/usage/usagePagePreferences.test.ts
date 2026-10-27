@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
+import {
+  readUsagePagePreferences,
+  rememberUsageView,
+  saveUsagePagePreferences,
+} from "./usagePagePreferences";
 
 const key = "t3code:usage-page-preferences:v1";
 let values: Map<string, string>;
@@ -42,5 +46,18 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual({ metric: "limits", windowDays: 30 });
     saveUsagePagePreferences({ metric: "tokens", windowDays: 7 });
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 7 });
+  });
+
+  // The rail opens Usage on the saved view, so a sidebar switch must save it.
+  it("remembers the view chosen from the Usage sidebar", () => {
+    saveUsagePagePreferences({ metric: "tokens", windowDays: 7, spendMetric: "tokens" });
+    rememberUsageView("limits");
+    expect(readUsagePagePreferences()).toEqual({
+      metric: "limits",
+      windowDays: 7,
+      spendMetric: "tokens",
+    });
+    rememberUsageView("cost");
+    expect(readUsagePagePreferences()).toMatchObject({ metric: "cost", spendMetric: "cost" });
   });
 });

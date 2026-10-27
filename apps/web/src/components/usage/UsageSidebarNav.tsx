@@ -2,7 +2,7 @@ import { CoinsIcon, GaugeIcon } from "lucide-react";
 import { useLocation, useRouter } from "@tanstack/react-router";
 
 import { PageSidebarNav } from "../sidebar/PageSidebarNav";
-import { readUsagePagePreferences } from "./usagePagePreferences";
+import { readUsagePagePreferences, rememberUsageView } from "./usagePagePreferences";
 
 type UsageView = "limits" | "cost" | "tokens";
 
@@ -21,7 +21,10 @@ export function UsageSidebarNav() {
   });
   const metric = isUsageView(searchMetric) ? searchMetric : saved.metric;
   const onLimits = metric === "limits";
-  const show = (view: UsageView) => void router.navigate({ href: `/usage?metric=${view}` });
+  const show = (view: UsageView) => {
+    rememberUsageView(view);
+    void router.navigate({ href: `/usage?metric=${view}` });
+  };
   return (
     <PageSidebarNav
       sections={[
