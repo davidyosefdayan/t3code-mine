@@ -33,3 +33,17 @@ export function saveUsagePagePreferences(preferences: UsagePagePreferences): voi
     console.error("Could not save Usage page preferences.", error);
   }
 }
+
+/**
+ * Personal build: saves a view picked outside the page, such as the Usage
+ * sidebar. Opening Usage without one in the URL shows the saved view.
+ */
+export function rememberUsageView(metric: UsagePagePreferences["metric"]): void {
+  const { provider, ...rest } = readUsagePagePreferences();
+  saveUsagePagePreferences({
+    ...rest,
+    metric,
+    ...(metric === "limits" && provider ? { provider } : {}),
+    ...(metric !== "limits" ? { spendMetric: metric } : {}),
+  });
+}
