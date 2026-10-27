@@ -189,6 +189,25 @@ describe("thread execution presentation", () => {
     expect(threadRuntimeHasInterruptibleRun(runtime)).toBe(true);
   });
 
+  it("keeps the turn a queued message was steered into as the latest run", () => {
+    const later = DateTime.add(now, { seconds: 40 });
+    const steered = { ...run("run-steered", 2, "cancelled"), startedAt: null, completedAt: now };
+    const runningRun = run("run-running", 1, "running");
+    const running = { ...v2Projection, runs: [runningRun, steered], updatedAt: now };
+    expect(deriveLatestThreadRun(running)?.runId).toBe(runningRun.id);
+
+    const completedRun = { ...runningRun, status: "completed" as const, completedAt: later };
+    const completed = { ...running, runs: [completedRun, steered] };
+    expect(deriveLatestThreadRun(completed)).toMatchObject({
+      runId: completedRun.id,
+      status: "completed",
+    });
+
+    // Stopped before it started, with nothing running after it: still the latest.
+    const earlier = { ...completedRun, completedAt: DateTime.subtract(now, { seconds: 5 }) };
+    expect(deriveLatestThreadRun({ ...running, runs: [earlier, steered] })?.runId).toBe(steered.id);
+  });
+
   it("marks an open run whose provider turn already ended", () => {
     const attemptId = RunAttemptId.make("attempt-open");
     const openRun = { ...run("run-open", 1, "running"), activeAttemptId: attemptId };
