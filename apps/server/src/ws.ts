@@ -592,6 +592,7 @@ const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
     const usage = yield* UsageService.UsageService;
     const sql = yield* SqlClient.SqlClient;
     const skillLibrary = yield* SkillLibrary.SkillLibrary;
+    const storageCleanup = yield* StorageCleanup.StorageCleanup;
     return ForkServerWsRpcGroup.of({
       [WS_METHODS.serverGetUsageBreakdown]: (input) =>
         readUsageBreakdown(input).pipe(
@@ -603,6 +604,10 @@ const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
       [WS_METHODS.skillsSetEnabled]: (input) => skillLibrary.setEnabled(input),
       [WS_METHODS.skillsShare]: (input) => skillLibrary.share(input),
       [WS_METHODS.skillsDelete]: (input) => skillLibrary.delete(input),
+      [WS_METHODS.serverGetStorageWorktrees]: () => storageCleanup.worktrees,
+      [WS_METHODS.serverFreeStorageWorktreePackages]: (input) =>
+        storageCleanup.freeWorktreePackages(input),
+      [WS_METHODS.serverDeleteStorageWorktree]: (input) => storageCleanup.deleteWorktree(input),
     });
   }),
 );
