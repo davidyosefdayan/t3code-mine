@@ -32,6 +32,7 @@ import {
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { DatabaseStorageNotice } from "./DatabaseStorageNotice";
 import { AdvancedSettings } from "./AdvancedSettings";
+import { StorageWorktreeList } from "./StorageWorktreeList";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { SettingsGroup } from "./SettingsGroup";
@@ -505,8 +506,8 @@ export function WorktreeCleanupSection() {
   }
 
   return (
-    <SettingsSection id="storage-worktrees" title="Cleanup">
-      <>
+    <>
+      <SettingsSection id="storage-worktrees" title="Cleanup">
         {isProjectScope && (
           <SettingsRow
             title="Automatic worktree cleanup"
@@ -684,8 +685,10 @@ export function WorktreeCleanupSection() {
             </AdvancedSettings>
           </>
         )}
-      </>
-    </SettingsSection>
+      </SettingsSection>
+      {/* Personal build: where worktree disk space goes, with per-folder actions. */}
+      {!isProjectScope && <StorageWorktreeList />}
+    </>
   );
 }
 

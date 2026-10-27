@@ -353,6 +353,14 @@ import {
   SkillShareInput,
 } from "./skills.ts";
 import {
+  StorageWorktreeDeleteInput,
+  StorageWorktreeDeletePlan,
+  StorageWorktreeError,
+  StorageWorktreeFreeResult,
+  StorageWorktreeList,
+  StorageWorktreeTarget,
+} from "./storageWorktrees.ts";
+import {
   StorageCleanupReport,
   DatabaseStorageStatus,
   ServerSettings,
@@ -420,6 +428,10 @@ export const WS_METHODS = {
   skillsSetEnabled: "skills.setEnabled",
   skillsShare: "skills.share",
   skillsDelete: "skills.delete",
+  // Personal build: the worktree list in Settings → Storage.
+  serverGetStorageWorktrees: "server.getStorageWorktrees",
+  serverFreeStorageWorktreePackages: "server.freeStorageWorktreePackages",
+  serverDeleteStorageWorktree: "server.deleteStorageWorktree",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -1332,6 +1344,28 @@ const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
   error: SkillLibraryRpcError,
 });
 
+// Personal build: the worktree list in Settings → Storage.
+const StorageWorktreeRpcError = Schema.Union([StorageWorktreeError, EnvironmentAuthorizationError]);
+const WsServerGetStorageWorktreesRpc = Rpc.make(WS_METHODS.serverGetStorageWorktrees, {
+  payload: Schema.Struct({}),
+  success: StorageWorktreeList,
+  stream: true,
+  error: EnvironmentAuthorizationError,
+});
+const WsServerFreeStorageWorktreePackagesRpc = Rpc.make(
+  WS_METHODS.serverFreeStorageWorktreePackages,
+  {
+    payload: StorageWorktreeTarget,
+    success: StorageWorktreeFreeResult,
+    error: StorageWorktreeRpcError,
+  },
+);
+const WsServerDeleteStorageWorktreeRpc = Rpc.make(WS_METHODS.serverDeleteStorageWorktree, {
+  payload: StorageWorktreeDeleteInput,
+  success: StorageWorktreeDeletePlan,
+  error: StorageWorktreeRpcError,
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -2181,7 +2215,7 @@ export const UpstreamWsRpcGroup = RpcGroup.make(
 
 /**
  * Personal build: the fork's own methods (Skills page, Usage → Limits
- * breakdown). They live in their own group so the server can build their
+ * breakdown, Storage worktree list). They live in their own group so the server can build their
  * handlers apart from upstream's: one handler object for every method
  * exceeds TypeScript's instantiation depth.
  */
@@ -2192,6 +2226,9 @@ export const ForkWsRpcGroup = RpcGroup.make(
   WsSkillsSetEnabledRpc,
   WsSkillsShareRpc,
   WsSkillsDeleteRpc,
+  WsServerGetStorageWorktreesRpc,
+  WsServerFreeStorageWorktreePackagesRpc,
+  WsServerDeleteStorageWorktreeRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsRpcGroup = UpstreamWsRpcGroup.merge(ForkWsRpcGroup);
