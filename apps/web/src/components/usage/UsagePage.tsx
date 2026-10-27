@@ -244,7 +244,8 @@ export function UsagePage({
   );
 
   const updatePreferences = (patch: Partial<UsagePagePreferences>) => {
-    const nextPreferences = { ...preferences, ...patch };
+    // Personal build: keep the view on screen, which the sidebar may have changed.
+    const nextPreferences = { ...preferences, metric, ...patch };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
   };
