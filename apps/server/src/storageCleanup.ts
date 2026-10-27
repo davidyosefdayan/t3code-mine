@@ -303,22 +303,6 @@ export function storageCleanupPullRequestMerged(
   );
 }
 
-/** Personal build: pull requests linked to the thread, by number. */
-export function storageCleanupLinkedPullRequestNumbers(
-  thread: Pick<
-    OrchestrationV2ThreadShell,
-    "pullRequests" | "branchPullRequest" | "linkedPullRequest"
-  >,
-): ReadonlySet<number> {
-  return new Set([
-    ...(thread.pullRequests ?? [])
-      .filter((link) => link.source !== "stack-dismissed")
-      .map((link) => link.number),
-    ...(thread.branchPullRequest ? [thread.branchPullRequest.number] : []),
-    ...(thread.linkedPullRequest ? [thread.linkedPullRequest.number] : []),
-  ]);
-}
-
 export class StorageCleanup extends Context.Service<
   StorageCleanup,
   {
@@ -1176,23 +1160,19 @@ const make = Effect.gen(function* () {
         if (group.some((member) => member.branch !== thread.branch))
           return keep("a subagent thread's branch differs from this worktree's branch");
         if (hasTerminal(worktreePath)) return keep(waitForStop("open terminal"));
-        // Personal build: agents often open their pull request from a new
-        // branch. A switch to a branch with a pull request linked to the thread
-        // can still be removed once that pull request is merged.
-        const checkedOut = yield* checkedOutBranch(worktreePath);
-        const switchedBranch =
-          checkedOut !== thread.branch &&
-          typeof checkedOut === "string" &&
-          storageCleanupLinkedPullRequestNumbers(thread).size > 0
-            ? checkedOut
-            : null;
-        if (checkedOut !== thread.branch && switchedBranch === null)
-          return keep(
-            typeof checkedOut === "string"
-              ? `branch switched to ${checkedOut}`
-              : "repository or branch changed",
-          );
-        const worktreeBranch = switchedBranch ?? thread.branch;
+        // Personal build: agents often switch branches in their worktree, for
+        // example to open a pull request. Removal never deletes a branch, so
+        // the rules apply to whichever branch is checked out. Without one
+        // (detached), commits could exist only here, so it is kept.
+        const worktreeBranch = yield* checkedOutBranch(worktreePath);
+        if (typeof worktreeBranch !== "string") return keep("repository or branch changed");
+        const born = yield* git.execute({
+          operation: "StorageCleanup.headCommit",
+          cwd: worktreePath,
+          args: ["rev-parse", "--verify", "--quiet", "HEAD"],
+          allowNonZeroExit: true,
+        });
+        if (born.exitCode !== 0) return keep(`branch ${worktreeBranch} has no commits`);
         if (
           [...group, ...settlementChain.slice(1)].some(
             (member) =>
@@ -1215,7 +1195,7 @@ const make = Effect.gen(function* () {
           settledFor !== null &&
           settings.worktreeSettledAfterDays !== null &&
           settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
-        let eligible = switchedBranch === null && (deleted || old || settled);
+        let eligible = deleted || old || settled;
         let removalReason = deleted
           ? "thread was deleted"
           : old
@@ -1330,22 +1310,17 @@ const make = Effect.gen(function* () {
               { cwd: worktreePath, branch: worktreeBranch },
               { refresh: true },
             );
-            eligible =
-              (switchedBranch === null ||
-                (pullRequest !== null &&
-                  storageCleanupLinkedPullRequestNumbers(thread).has(pullRequest.number))) &&
-              storageCleanupPullRequestMerged(pullRequest, {
-                branch: worktreeBranch,
-                defaultBranch: branch,
-                headSha: head.commitSha,
-                integrated,
-              });
+            eligible = storageCleanupPullRequestMerged(pullRequest, {
+              branch: worktreeBranch,
+              defaultBranch: branch,
+              headSha: head.commitSha,
+              integrated,
+            });
             if (eligible) removalReason = "pull request was merged";
           }
           if (!eligible && remote === null) return keep("has commits beyond the project branch");
         }
-        if (!eligible)
-          return keep(switchedBranch !== null ? `branch switched to ${switchedBranch}` : notDueReason);
+        if (!eligible) return keep(notDueReason);
         // Re-read this path's threads and sessions so new activity cancels removal; full per-worktree snapshots take seconds.
         const blockedSinceCheck = Effect.fnUntraced(function* () {
           const latestProjects = yield* projectStore.listShells();
