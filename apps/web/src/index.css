@@ -2692,8 +2692,9 @@ html.dark[data-palette]:not([data-palette=""]) {
   --accent: var(--pal-soft-hover);
   --toolbar-control-hover: var(--pal-soft-hover);
   --message-surface: color-mix(in oklab, var(--primary) 11%, var(--background));
-  /* A theme tint barely lifts off a true-black canvas; the frame's own color does. */
-  --pal-agent-bubble: color-mix(in oklab, var(--pal-shell) 60%, var(--background));
+  /* A theme tint barely lifts off a true-black canvas, and some frames are near black,
+     so the sidebar's tone is lightened toward the text color. */
+  --pal-agent-bubble: color-mix(in oklab, var(--foreground) 10%, var(--pal-list));
 }
 
 /* The page sidebar sits inside the rounded content panel, so its chips and row

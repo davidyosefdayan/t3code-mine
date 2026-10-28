@@ -75,7 +75,6 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
-import { ThreadRowAvatarSettingRow } from "./ThreadRowAvatarSetting";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -845,7 +844,6 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
-        <ThreadRowAvatarSettingRow />
         {/* Personal build: Working is always its own sidebar group, so the
             "Working section" switch is gone. */}
       </SettingsSection>

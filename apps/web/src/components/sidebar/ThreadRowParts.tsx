@@ -4,7 +4,6 @@
 // upstream's row logic and renders these.
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
 import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
@@ -22,15 +21,12 @@ import {
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { usePinIcon } from "../../pinIcons";
 import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import type { SidebarThreadSummary } from "../../types";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { liveWorkLine } from "../liveWorkLine";
 import { sidebarMessagePreview } from "../messagePreview";
-import { PIN_ICON_COLORS, pinLineIcon } from "../pinLineIcons";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import {
@@ -52,53 +48,12 @@ export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
 export const activeSurfaceClassName = "bg-row-active";
 export const selectedSurfaceClassName = "bg-row-selected";
 
-/** A chat's avatar: its own icon (right-click, Change icon…), else its
-    project's. The agent shows in text and logos beside it, never on its
-    corner. Shared by the row, the draft row, and the hover card. */
-export function ThreadAvatar(props: {
-  /** Null for a draft, which has no icon of its own yet. */
-  threadKey: string | null;
-  project: ProjectFaviconProject | null;
-  /** Only an icon chosen for the chat (Change icon…), never the project's. */
-  ownIconOnly?: boolean;
-  /** "row" spans a thread row's three lines. */
-  size?: "md" | "row";
-}) {
-  const row = props.size === "row";
-  const box = row ? "size-14 rounded-xl" : "size-7 rounded-md";
-  const pinEmoji = usePinIcon(props.threadKey ?? "");
-  const chosen = props.threadKey === null ? null : pinEmoji;
-  const pinLine = chosen === null ? null : pinLineIcon(chosen);
-  if (props.ownIconOnly && chosen === null) return null;
-  return (
-    <span className={cn("relative flex shrink-0 items-center justify-center", box)}>
-      {/* A chosen icon sits in its own rounded square, like a project's icon,
-          so it reads as the chat's avatar. */}
-      {pinLine !== null ? (
-        <span className={cn("flex items-center justify-center bg-chip", box)}>
-          <pinLine.Icon
-            aria-hidden
-            className={cn(
-              row ? "size-6" : "size-4",
-              pinLine.color === null ? "text-sidebar-foreground" : PIN_ICON_COLORS[pinLine.color],
-            )}
-          />
-        </span>
-      ) : chosen !== null ? (
-        <span
-          aria-hidden
-          className={cn(
-            "flex items-center justify-center bg-chip leading-none",
-            row ? "text-2xl" : "text-base",
-            box,
-          )}
-        >
-          {chosen}
-        </span>
-      ) : props.project ? (
-        <ProjectFavicon project={props.project} className={box} />
-      ) : null}
-    </span>
+/** The project's icon, for the hover card and the draft row. */
+export function ThreadAvatar(props: { project: ProjectFaviconProject | null }) {
+  return props.project ? (
+    <ProjectFavicon project={props.project} className="size-7 shrink-0 rounded-md" />
+  ) : (
+    <span className="size-7 shrink-0" />
   );
 }
 
@@ -456,13 +411,6 @@ export function ThreadRowSecondLine(props: {
   );
 }
 
-const THREAD_ROW_AVATAR_KEY = "t3code:sidebar-thread-avatar";
-
-/** Whether thread rows lead with the project's icon (Settings → General → Sidebar). Off by default. */
-export function useThreadRowAvatarSetting() {
-  return useLocalStorage(THREAD_ROW_AVATAR_KEY, false, Schema.Boolean);
-}
-
 type StackProviderEntry = ProviderBadgeEntry & { readonly enabled: boolean };
 
 /** Every agent the chat has used, oldest first, the current one in front. */
@@ -543,7 +491,7 @@ export function DraftRowBody(props: {
     : "New thread";
   return (
     <div className="relative z-10 flex h-12 items-center gap-2.5 px-(--sidebar-row-content-inset)">
-      <ThreadAvatar threadKey={null} project={props.project} />
+      <ThreadAvatar project={props.project} />
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <div className="flex h-5 min-w-0 items-center gap-2">
           <span

@@ -8,7 +8,6 @@ import {
   ThreadRowHoverActions,
   ThreadRowMetaLine,
   ThreadRowSecondLine,
-  useThreadRowAvatarSetting,
 } from "./ThreadRowParts";
 import { isYourTurnUnseen, yourTurnSince } from "../needsYouCount";
 import { resolveThreadRowLine } from "./threadGroups";
@@ -551,7 +550,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         ? {
             label: "Waiting",
             icon: "waiting" as const,
-            className: "text-muted-foreground",
+            className: "text-info-foreground",
           }
         : status === "approval"
           ? {
@@ -611,8 +610,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : thread.modelSelection.model;
 
   // Personal build: the chat's avatar, shared by the row and its hover card.
-  const threadAvatar = <ThreadAvatar threadKey={threadKey} project={props.project} />;
-  const [showRowAvatar] = useThreadRowAvatarSetting();
+  const threadAvatar = <ThreadAvatar project={props.project} />;
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={thread}
@@ -849,15 +847,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       canToggleRead ||
       isPinnedRow);
 
+  const hasSecondLine = Boolean(rowLine.status || rowLine.details || terminalProcessCount > 0);
   return (
     <li
       data-thread-item={threadKey}
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the h-16 row; the py-0.5 padding is added on top. A larger
+        // Matches the row's height; the py-0.5 padding is added on top. A larger
         // placeholder makes every remounted list collapse a few pixels per row.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_64px]",
+        "list-none py-0.5 [content-visibility:auto]",
+        hasSecondLine ? "[contain-intrinsic-size:auto_64px]" : "[contain-intrinsic-size:auto_46px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -881,15 +881,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
-          {/* Personal build: the chat's own icon if it has one, then three
-              levels: bold title and time; the reply or status; gray details. */}
-          <div className="relative z-10 flex h-16 items-center gap-2.5 px-(--sidebar-row-content-inset)">
-            <ThreadAvatar
-              threadKey={threadKey}
-              project={props.project}
-              ownIconOnly={!showRowAvatar}
-              size="row"
-            />
+          {/* Personal build: three levels: bold title and time; the reply or
+              status; gray details. */}
+          <div className="relative z-10 flex items-center gap-2.5 px-(--sidebar-row-content-inset) py-1">
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
               <div className="flex h-5 min-w-0 items-center gap-2">
                 {title}
@@ -956,7 +950,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ) : null}
               {/* Pull requests live in the hover card, not on the row. */}
               {/* Settled and archived rows carry no reply preview, so they skip the line. */}
-              {rowLine.status || rowLine.details || terminalProcessCount > 0 ? (
+              {hasSecondLine ? (
                 <ThreadRowSecondLine
                   status={rowLine.status}
                   details={rowLine.details}
