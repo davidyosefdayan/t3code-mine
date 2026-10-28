@@ -6344,6 +6344,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           AND json_extract(candidate.payload_json, '$.queueHeld') IS 1
         )
         AND NOT ${isSilentShellRun("candidate")}
+        -- Personal build: mirrors isDroppedFromQueue.
+        AND NOT (
+          candidate.status = 'cancelled'
+          AND json_extract(candidate.payload_json, '$.startedAt') IS NULL
+          AND candidate.completed_at IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_runs earlier
+            WHERE earlier.thread_id = ${threadId}
+              AND earlier.ordinal < candidate.ordinal
+              AND earlier.status <> 'queued'
+              AND (earlier.completed_at IS NULL
+                OR earlier.completed_at > candidate.completed_at)
+          )
+        )
       ORDER BY candidate.ordinal DESC, candidate.run_id DESC
       LIMIT 1
     )`;
