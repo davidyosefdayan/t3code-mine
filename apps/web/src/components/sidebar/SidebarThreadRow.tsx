@@ -955,11 +955,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 </span>
               ) : null}
               {/* Pull requests live in the hover card, not on the row. */}
-              <ThreadRowSecondLine
-                status={rowLine.status}
-                details={rowLine.details}
-                trailing={terminalStatusIcon}
-              />
+              {/* Settled and archived rows carry no reply preview, so they skip the line. */}
+              {rowLine.status || rowLine.details || terminalProcessCount > 0 ? (
+                <ThreadRowSecondLine
+                  status={rowLine.status}
+                  details={rowLine.details}
+                  trailing={terminalStatusIcon}
+                />
+              ) : null}
               <ThreadRowMetaLine
                 thread={thread}
                 project={props.project}
