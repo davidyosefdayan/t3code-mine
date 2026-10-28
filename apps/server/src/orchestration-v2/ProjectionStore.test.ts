@@ -3364,6 +3364,109 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       }),
   );
 
+  it.effect("keeps the shell on the turn a queued message was steered into", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const later = DateTime.add(now, { seconds: 40 });
+      const threadId = ThreadId.make("thread:projection-shell-steered");
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-steered:thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: threadId,
+          projectId: ProjectId.make("project:projection-shell-steered"),
+          title: "Steered",
+          providerInstanceId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: null,
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          deletedAt: null,
+        },
+      });
+      const run = (ordinal: number) => ({
+        id: RunId.make(`run:projection-shell-steered:${ordinal}`),
+        threadId,
+        ordinal,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make(`message:projection-shell-steered:${ordinal}`),
+        rootNodeId: null,
+        activeAttemptId: null,
+        status: "running" as const,
+        requestedAt: now,
+        startedAt: now,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      });
+      const turn = run(1);
+      const steered = {
+        ...run(2),
+        status: "cancelled" as const,
+        startedAt: null,
+        completedAt: now,
+      };
+      for (const payload of [turn, steered]) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:projection-shell-steered:${payload.ordinal}`),
+          type: "run.created",
+          threadId,
+          runId: payload.id,
+          nodeId: NodeId.make(`node:projection-shell-steered:${payload.ordinal}`),
+          driver,
+          occurredAt: now,
+          payload,
+        });
+      }
+
+      const presented = Effect.gen(function* () {
+        const sqlShell = (yield* projectionStore.getShellSnapshot()).threads.find(
+          (thread) => thread.id === threadId,
+        );
+        const memoryShell = ProjectionStore.threadShellFromProjection(
+          yield* projectionStore.getThreadProjection(threadId),
+        );
+        return [sqlShell, memoryShell].map((shell) => ({
+          latestRunId: shell?.latestRunId ?? null,
+          status: shell?.status ?? null,
+        }));
+      });
+      assert.deepStrictEqual(yield* presented, [
+        { latestRunId: turn.id, status: "running" },
+        { latestRunId: turn.id, status: "running" },
+      ]);
+
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-steered:completed"),
+        type: "run.updated",
+        threadId,
+        occurredAt: later,
+        payload: { ...turn, status: "completed", completedAt: later },
+      });
+      assert.deepStrictEqual(yield* presented, [
+        { latestRunId: turn.id, status: "completed" },
+        { latestRunId: turn.id, status: "completed" },
+      ]);
+    }),
+  );
+
   it.effect("only exposes interruptible runs through the shell activeRunId", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
@@ -3547,7 +3650,11 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             value == null ? null : DateTime.toEpochMillis(value);
           assert.equal(timestamp(sqlShell.activityRunStartedAt), expected);
           assert.equal(timestamp(memoryShell.activityRunStartedAt), expected);
-          assert.equal(sqlShell.latestRunId, "run:clock:newer");
+          // A run dropped from the queue does not hide the run still going before it.
+          const latestRunId =
+            status === "cancelled" && activityStatus !== "completed" ? runId : "run:clock:newer";
+          assert.equal(sqlShell.latestRunId, latestRunId);
+          assert.equal(memoryShell.latestRunId, latestRunId);
         }
       }
 
