@@ -115,7 +115,6 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
-import { PinIconPicker } from "./PinIconPicker";
 import {
   sidebarThreadState,
   sortOpenHome,
@@ -2556,7 +2555,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
-  const [pinIconTarget, setPinIconTarget] = useState<string | null>(null);
   const handleThreadContextMenu = useStableCallback(
     (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
       void (async () => {
@@ -2628,7 +2626,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 snooze: configLoaded,
                 pinning: configLoaded,
                 titleRegeneration: configLoaded,
-                changeIcon: true,
               },
               snoozePresets,
             }),
@@ -2723,9 +2720,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           }
-          case "change-icon":
-            setPinIconTarget(threadKey);
-            return;
           case "auto-settle:enabled":
           case "auto-settle:disabled": {
             const result = await setThreadAutoSettle(
@@ -3663,7 +3657,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         </SidebarGroup>
       </SidebarContent>
       <SidebarChromeFooter showUndoNotice />
-      <PinIconPicker threadKey={pinIconTarget} onClose={() => setPinIconTarget(null)} />
     </>
   );
 }
