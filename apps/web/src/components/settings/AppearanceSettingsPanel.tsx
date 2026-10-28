@@ -75,27 +75,7 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">
-        <SettingsRow
-          {...searchableSetting("new-design")}
-          description="A true black dark mode, dimmer read threads, and simpler composer controls. Turn it off for the classic look."
-          resetAction={
-            settings.redesignEnabled !== DEFAULT_UNIFIED_SETTINGS.redesignEnabled ? (
-              <SettingResetButton
-                label="new design"
-                onClick={() =>
-                  updateSettings({ redesignEnabled: DEFAULT_UNIFIED_SETTINGS.redesignEnabled })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.redesignEnabled}
-              onCheckedChange={(checked) => updateSettings({ redesignEnabled: Boolean(checked) })}
-              aria-label="New design"
-            />
-          }
-        />
+        {/* Personal build: one design, no "New design" switch; upstream's new design stays on. */}
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."

@@ -21,7 +21,7 @@ export const USER_BUBBLE_CLASS_NAME =
 
 /** The agent's answer, and what it tells you along the way: a gray bubble. */
 export const AGENT_BUBBLE_CLASS_NAME =
-  "w-fit max-w-full rounded-2xl rounded-bl-md bg-accent px-4 py-2.5";
+  "w-fit max-w-full rounded-2xl rounded-bl-md bg-agent-bubble px-4 py-2.5";
 
 /** Steps and notes inside an opened work line hang off one continuous rail. */
 export function chatRowOnRail(row: MessagesTimelineRow): boolean {
@@ -51,7 +51,7 @@ export function ChatTypingTimelineRow({ hidden }: { hidden: boolean }) {
   if (hidden) return null;
   return (
     <div
-      className="mt-1 flex w-fit items-center rounded-2xl rounded-bl-md bg-accent px-4 py-3"
+      className="mt-1 flex w-fit items-center rounded-2xl rounded-bl-md bg-agent-bubble px-4 py-3"
       role="status"
       aria-label="The agent is working"
     >

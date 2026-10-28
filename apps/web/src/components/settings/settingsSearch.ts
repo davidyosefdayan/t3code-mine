@@ -408,12 +408,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["usage quota rate limit reset recover continue"],
   },
   {
-    id: "new-design",
-    title: "New design",
-    to: "/settings/appearance",
-    searchTerms: ["redesign look style sidebar composer black quieter classic"],
-  },
-  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",

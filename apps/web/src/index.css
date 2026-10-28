@@ -303,6 +303,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-row-hover: var(--pal-row-hover);
   --color-row-active: var(--pal-row-active);
   --color-row-selected: var(--pal-row-selected);
+  --color-agent-bubble: var(--pal-agent-bubble, var(--accent));
   --color-sidebar-foreground: var(--contrast-sidebar-foreground);
   --color-sidebar-muted-foreground: var(--contrast-sidebar-muted-foreground);
   --color-sidebar-control-surface: var(--sidebar-control-surface);
@@ -2691,6 +2692,8 @@ html.dark[data-palette]:not([data-palette=""]) {
   --accent: var(--pal-soft-hover);
   --toolbar-control-hover: var(--pal-soft-hover);
   --message-surface: color-mix(in oklab, var(--primary) 11%, var(--background));
+  /* A theme tint barely lifts off a true-black canvas; the frame's own color does. */
+  --pal-agent-bubble: color-mix(in oklab, var(--pal-shell) 60%, var(--background));
 }
 
 /* The page sidebar sits inside the rounded content panel, so its chips and row
@@ -2700,6 +2703,12 @@ html[data-palette]:not([data-palette=""]) [data-slot="sidebar"] {
   --pal-row-hover: color-mix(in oklab, var(--foreground) 6%, transparent);
   --pal-row-active: var(--background);
   --pal-row-selected: color-mix(in oklab, var(--background) 60%, transparent);
+}
+/* In the dark the panel color is near black and vanishes on the list, so open and
+   selected rows lighten it instead. */
+html.dark[data-palette]:not([data-palette=""]) [data-slot="sidebar"] {
+  --pal-row-active: color-mix(in oklab, var(--foreground) 13%, transparent);
+  --pal-row-selected: color-mix(in oklab, var(--foreground) 9%, transparent);
 }
 
 /* Sidebar notices (undo, provider updates): one flat, borderless style, sitting as
