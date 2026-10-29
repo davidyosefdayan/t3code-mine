@@ -63,7 +63,7 @@ function RailButton(props: {
             aria-current={props.active ? "page" : undefined}
             onClick={props.onClick}
             className={cn(
-              "relative flex size-9 cursor-pointer items-center justify-center rounded-lg text-sidebar-muted-foreground outline-none hover:bg-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-[18px]",
+              "group/rail-item relative flex size-9 cursor-pointer items-center justify-center rounded-lg text-sidebar-muted-foreground outline-none hover:bg-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-[18px]",
               props.active && [
                 "bg-row-active text-sidebar-foreground hover:bg-row-active",
                 props.activeFill,
@@ -74,10 +74,21 @@ function RailButton(props: {
       >
         {props.children}
         {props.dot ? (
+          // The cutout matches the tile behind it: the shell, with the hover
+          // or selected fill on top, since those fills can be translucent.
           <span
             aria-hidden="true"
-            className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-sidebar-shell"
-          />
+            className="absolute top-1 right-1 size-3 rounded-full bg-sidebar-shell"
+          >
+            <span
+              className={cn(
+                "flex size-full items-center justify-center rounded-full",
+                props.active ? "bg-row-active" : "group-hover/rail-item:bg-row-hover",
+              )}
+            >
+              <span className="size-2 rounded-full bg-destructive" />
+            </span>
+          </span>
         ) : null}
       </TooltipTrigger>
       <TooltipPopup side="right">{props.label}</TooltipPopup>

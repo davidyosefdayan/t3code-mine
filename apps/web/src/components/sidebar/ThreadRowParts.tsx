@@ -78,10 +78,10 @@ export function SidebarGroupButton(props: {
       aria-expanded={props.expanded}
       {...(props.rowId ? { "data-sidebar-row": props.rowId } : {})}
       className={cn(
-        "group/label flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 text-left text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "group/label flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-left text-2xs font-semibold tracking-wider uppercase outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         props.isDropTarget
           ? "text-primary"
-          : "text-sidebar-muted-foreground hover:text-sidebar-foreground",
+          : "text-sidebar-muted-foreground/80 hover:text-sidebar-foreground",
       )}
     >
       {props.label}
@@ -448,7 +448,40 @@ function ThreadRowProviderStack(props: {
   );
 }
 
-/** The row's bottom line: where the chat lives (project, branch) and who's talking, in gray. */
+// Even padding on every side of a row card. The top and bottom differ by the
+// lines' leading so the text itself sits evenly inside the card.
+export const rowContentClassName = "relative z-10 flex flex-col gap-1 px-3.5 pt-2 pb-2.5";
+
+/** The row's bottom line: where the chat lives (project, branch) and who's
+    talking, a step lighter than the message above it. */
+function RowMetaLine(props: {
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  branch: string | null;
+  trailing: ReactNode;
+}) {
+  return (
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground/75">
+      {props.project ? (
+        <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
+      ) : null}
+      {props.projectDisplayName ? (
+        <span className={cn("truncate", props.branch ? "max-w-[45%] shrink-0" : "min-w-0")}>
+          {props.projectDisplayName}
+        </span>
+      ) : null}
+      {props.branch ? (
+        <>
+          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+          {/* Plain truncation: middle truncation measured too wide beside the logos. */}
+          <span className="min-w-0 flex-1 truncate">{props.branch}</span>
+        </>
+      ) : null}
+      {props.trailing}
+    </div>
+  );
+}
+
 export function ThreadRowMetaLine(props: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
@@ -456,82 +489,84 @@ export function ThreadRowMetaLine(props: {
   providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
 }) {
   return (
-    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground">
-      {props.project ? (
-        <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
-      ) : null}
-      {props.projectDisplayName ? (
-        <span className="max-w-[45%] shrink-0 truncate">{props.projectDisplayName}</span>
-      ) : null}
-      {props.thread.branch ? (
-        <>
-          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-          {/* Plain truncation: middle truncation measured too wide beside the logos. */}
-          <span className="min-w-0 flex-1 truncate">{props.thread.branch}</span>
-        </>
-      ) : null}
-      <ThreadRowProviderStack
-        thread={props.thread}
-        providerEntryByInstanceId={props.providerEntryByInstanceId}
-      />
-    </div>
+    <RowMetaLine
+      project={props.project}
+      projectDisplayName={props.projectDisplayName}
+      branch={props.thread.branch}
+      trailing={
+        <ThreadRowProviderStack
+          thread={props.thread}
+          providerEntryByInstanceId={props.providerEntryByInstanceId}
+        />
+      }
+    />
   );
 }
 
-/** A new-thread draft, shaped like a thread row: "New thread in <project>",
-    then the typed text as the draft. */
+/** A new-thread draft, laid out like a thread row: "New thread", the typed
+    text as the draft, then the project and agent it will start in. */
 export function DraftRowBody(props: {
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   providerEntry: ProviderBadgeEntry | null;
-  modelInstanceId: string | null;
   preview: string;
   onDiscard: RowClick;
 }) {
-  // Titled like a messages app's "New Message to …".
-  const title = props.projectDisplayName
-    ? `New thread in ${props.projectDisplayName}`
-    : "New thread";
+  const { providerEntry } = props;
   return (
-    <div className="relative z-10 flex h-12 items-center gap-2.5 px-(--sidebar-row-content-inset)">
-      <ThreadAvatar project={props.project} />
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <div className="flex h-5 min-w-0 items-center gap-2">
-          <span
-            aria-hidden
-            className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground/90"
-          >
-            {title}
-          </span>
-          <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label="Discard draft"
-                    onClick={props.onDiscard}
-                    className="pointer-events-none inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup side="top">Discard draft</TooltipPopup>
-            </Tooltip>
-          </span>
-        </div>
-        <div
+    <div className={rowContentClassName}>
+      <div className="flex h-5 min-w-0 items-center gap-2">
+        <span
           aria-hidden
-          className="flex h-4 min-w-0 items-center text-xs text-sidebar-muted-foreground"
+          className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground"
         >
-          <span className="min-w-0 flex-1 truncate">
-            <span className="font-medium text-warning-foreground">Draft</span>
-            {": "}
-            {props.preview}
-          </span>
-        </div>
+          New thread
+        </span>
+        <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Discard draft"
+                  onClick={props.onDiscard}
+                  className="pointer-events-none -mr-1.5 inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Discard draft</TooltipPopup>
+          </Tooltip>
+        </span>
       </div>
+      <div aria-hidden>
+        <ThreadRowSecondLine
+          status={{ label: "Draft", className: "text-warning-foreground" }}
+          details={props.preview}
+          trailing={null}
+        />
+      </div>
+      <RowMetaLine
+        project={props.project}
+        projectDisplayName={props.projectDisplayName}
+        branch={null}
+        trailing={
+          providerEntry ? (
+            <span className="ml-auto inline-flex shrink-0 items-center">
+              <ProviderInstanceIcon
+                driverKind={providerEntry.driverKind}
+                displayName={providerEntry.displayName}
+                accentColor={providerEntry.accentColor}
+                acpRegistryAgentId={providerEntry.acpRegistryAgentId}
+                acpRegistryIconUrl={providerEntry.acpRegistryIconUrl}
+                size="compact"
+                iconClassName="opacity-60 grayscale"
+              />
+            </span>
+          ) : null
+        }
+      />
     </div>
   );
 }
