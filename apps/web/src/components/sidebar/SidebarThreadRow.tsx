@@ -6,6 +6,7 @@ import {
   SidebarThreadCardBody,
   ThreadAvatar,
   ThreadRowHoverActions,
+  rowContentClassName,
   ThreadRowMetaLine,
   ThreadRowSecondLine,
 } from "./ThreadRowParts";
@@ -889,7 +890,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         // Matches the row's height; the py-0.5 padding is added on top. A larger
         // placeholder makes every remounted list collapse a few pixels per row.
         "list-none py-0.5 [content-visibility:auto]",
-        hasSecondLine ? "[contain-intrinsic-size:auto_64px]" : "[contain-intrinsic-size:auto_46px]",
+        hasSecondLine ? "[contain-intrinsic-size:auto_78px]" : "[contain-intrinsic-size:auto_58px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -917,89 +918,86 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {accessibleTitle}
           {/* Personal build: three levels: bold title and time; the reply or
               status; gray details. */}
-          <div className="relative z-10 flex items-center gap-2.5 px-(--sidebar-row-content-inset) py-1">
-            <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-              <div className="flex h-5 min-w-0 items-center gap-2">
-                {title}
-                {/* Personal build: shows while this chat is being read aloud. */}
-                <ReadAloudThreadIndicator threadKey={threadKey} />
-                {/* The visible state owns this slot's width: the time at rest,
+          <div className={rowContentClassName}>
+            <div className="flex h-5 min-w-0 items-center gap-2">
+              {title}
+              {/* Personal build: shows while this chat is being read aloud. */}
+              <ReadAloudThreadIndicator threadKey={threadKey} />
+              {/* The visible state owns this slot's width: the time at rest,
                     actions on hover/keyboard focus or while the popover is
                     open. Keeping the hidden state out of flow lets the title
                     reclaim space without either state overlapping it. */}
-                {sortable?.isDragging ? (
-                  dragDestination
-                ) : (
-                  <span className="group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs">
-                    <span
-                      className={cn(
-                        "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0",
-                        showHoverActions &&
-                          "group-any-hover/sidebar-row:absolute group-any-hover/sidebar-row:right-0 group-any-hover/sidebar-row:opacity-0",
-                        "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
-                        snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
-                      )}
-                    >
-                      {/* Unread, like a messages app. */}
-                      {showsAsUnread ? (
-                        <span aria-hidden className="mr-1.5 size-2 rounded-full bg-primary" />
-                      ) : null}
-                      {rowTime}
-                    </span>
-                    {showHoverActions ? (
-                      <ThreadRowHoverActions
-                        variantAction={variantAction}
-                        isPinnedRow={isPinnedRow}
-                        hasUnsentDraft={hasUnsentDraft}
-                        canToggleRead={canToggleRead}
-                        showsAsUnread={showsAsUnread}
-                        snoozeSupported={props.snoozeSupported}
-                        settlementSupported={props.settlementSupported}
-                        snoozeMenuOpen={snoozeMenuOpen}
-                        snoozeButton={
-                          showSnoozeButton ? (
-                            <SnoozeMenuButton
-                              open={snoozeMenuOpen}
-                              onOpenChange={setSnoozeMenuOpen}
-                              onSnooze={handleSnoozePreset}
-                              timestampFormat={props.timestampFormat}
-                              environmentId={thread.environmentId}
-                            />
-                          ) : null
-                        }
-                        onUnpin={handleUnpinClick}
-                        onDiscardDraft={handleDiscardDraftClick}
-                        onToggleRead={handleToggleReadClick}
-                        onUnsnooze={handleUnsnoozeClick}
-                        onUnsettle={handleUnsettleClick}
-                        onSettle={handleSettleClick}
-                      />
+              {sortable?.isDragging ? (
+                dragDestination
+              ) : (
+                <span className="group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs">
+                  <span
+                    className={cn(
+                      "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0",
+                      showHoverActions &&
+                        "group-any-hover/sidebar-row:absolute group-any-hover/sidebar-row:right-0 group-any-hover/sidebar-row:opacity-0",
+                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
+                      snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
+                    )}
+                  >
+                    {/* Unread, like a messages app. */}
+                    {showsAsUnread ? (
+                      <span aria-hidden className="mr-1.5 size-2 rounded-full bg-primary" />
                     ) : null}
+                    {rowTime}
                   </span>
-                )}
-              </div>
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
+                  {showHoverActions ? (
+                    <ThreadRowHoverActions
+                      variantAction={variantAction}
+                      isPinnedRow={isPinnedRow}
+                      hasUnsentDraft={hasUnsentDraft}
+                      canToggleRead={canToggleRead}
+                      showsAsUnread={showsAsUnread}
+                      snoozeSupported={props.snoozeSupported}
+                      settlementSupported={props.settlementSupported}
+                      snoozeMenuOpen={snoozeMenuOpen}
+                      snoozeButton={
+                        showSnoozeButton ? (
+                          <SnoozeMenuButton
+                            open={snoozeMenuOpen}
+                            onOpenChange={setSnoozeMenuOpen}
+                            onSnooze={handleSnoozePreset}
+                            timestampFormat={props.timestampFormat}
+                            environmentId={thread.environmentId}
+                          />
+                        ) : null
+                      }
+                      onUnpin={handleUnpinClick}
+                      onDiscardDraft={handleDiscardDraftClick}
+                      onToggleRead={handleToggleReadClick}
+                      onUnsnooze={handleUnsnoozeClick}
+                      onUnsettle={handleUnsettleClick}
+                      onSettle={handleSettleClick}
+                    />
+                  ) : null}
                 </span>
-              ) : null}
-              {/* Pull requests live in the hover card, not on the row. */}
-              {/* Settled and archived rows carry no reply preview, so they skip the line. */}
-              {hasSecondLine ? (
-                <ThreadRowSecondLine
-                  status={rowLine.status}
-                  details={rowLine.details}
-                  trailing={terminalStatusIcon}
-                />
-              ) : null}
-              <ThreadRowMetaLine
-                thread={thread}
-                project={props.project}
-                projectDisplayName={props.projectDisplayName}
-                providerEntryByInstanceId={props.providerEntryByInstanceId}
-              />
+              )}
             </div>
-            {metaLine}
+            {isRegeneratingTitle ? (
+              <span role="status" className="sr-only">
+                Regenerating title
+              </span>
+            ) : null}
+            {/* Pull requests live in the hover card, not on the row. */}
+            {/* Settled and archived rows carry no reply preview, so they skip the line. */}
+            {hasSecondLine ? (
+              <ThreadRowSecondLine
+                status={rowLine.status}
+                details={rowLine.details}
+                trailing={terminalStatusIcon}
+              />
+            ) : null}
+            <ThreadRowMetaLine
+              thread={thread}
+              project={props.project}
+              projectDisplayName={props.projectDisplayName}
+              providerEntryByInstanceId={props.providerEntryByInstanceId}
+            />
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
         </TooltipTrigger>
