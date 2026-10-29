@@ -29,7 +29,6 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   projectDisplayName: string | null;
   // The agent the new thread will use.
   providerEntry: SidebarProviderEntry | null;
-  modelInstanceId: string | null;
   isActive: boolean;
   onNavigate: (draftId: DraftId) => void;
   onDiscard: (draftId: DraftId) => void;
@@ -105,7 +104,6 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
           project={props.project}
           projectDisplayName={props.projectDisplayName}
           providerEntry={props.providerEntry}
-          modelInstanceId={props.modelInstanceId}
           preview={preview}
           onDiscard={handleDiscard}
         />
@@ -216,7 +214,6 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
                     .get(session.environmentId)
                     ?.get(modelInstanceId) ?? null)
             }
-            modelInstanceId={modelInstanceId}
             isActive={draftId === props.routeDraftId}
             onNavigate={props.onNavigateToDraft}
             onDiscard={discardComposerDraft}
