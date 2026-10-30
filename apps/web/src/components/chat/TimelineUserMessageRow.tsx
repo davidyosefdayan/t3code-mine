@@ -868,7 +868,6 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             !audioOnly
             ? cn(
                 USER_BUBBLE_CLASS_NAME,
-                BUBBLE_CHIP_CLASS_NAME,
                 (mediaAboveText || row.groupedWithPrevious) && "rounded-tr-md",
               )
             : cn(

@@ -228,6 +228,7 @@ export function SkillsPage({ view }: { view: SkillsView }) {
   const environmentConnected =
     view.kind === "project" &&
     environments.some((environment) => environment.environmentId === view.environmentId);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the project's server to rescan its skills when the project page opens or reconnects
   useEffect(() => {
     if (projectKey !== null && environmentConnected) scanProjectOnOpen();
   }, [projectKey, environmentConnected]);

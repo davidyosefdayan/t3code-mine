@@ -209,6 +209,7 @@ function Scrubber({ progress }: { progress: ReadAloudProgress }) {
 function useWordInView(word: number) {
   const [inView, setInView] = useState(true);
   // Checked when the word moves and on scroll; the button remounts when another chat opens.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document scroll listener and timer that track whether the spoken word is on screen
   useEffect(() => {
     const check = () => setInView(isReadAloudWordInView(word));
     check();

@@ -321,7 +321,7 @@ function AboutVersionSection() {
           </Tooltip>
         }
       />
-      {hasDesktopBridge ? (
+      {hasDesktopBridge && FORK_SHOWS_UPDATE_TRACK ? (
         <SettingsRow
           {...searchableSetting("update-track")}
           description={
@@ -420,6 +420,10 @@ function AboutVersionSection() {
     </>
   );
 }
+
+// Personal build: the Update track switch also moves connected servers to upstream's
+// own releases, which lack this build's features, so Mine doesn't offer it.
+const FORK_SHOWS_UPDATE_TRACK = false;
 
 export function useSettingsRestore(onRestored?: () => void) {
   const {
