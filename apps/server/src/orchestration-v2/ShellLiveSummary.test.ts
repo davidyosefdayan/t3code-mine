@@ -132,6 +132,17 @@ describe("latestAssistantMessagePreview", () => {
     expect(truncateForShell("😀😀😀", 2)).toBe("😀…");
     expect(truncateForShell("short", 10)).toBe("short");
   });
+
+  it("keeps only link text, so the cut never leaves half a link", () => {
+    const link = "[RemoteHandoffCard.tsx](apps/mobile/src/features/home/RemoteHandoffCard.tsx)";
+    const preview = latestAssistantMessagePreview({
+      thread: unsettled,
+      visibleTurnItems: visible([
+        assistant("a", 1, `${"word ".repeat(40)}see ${link} and ![mock](mock.png)`),
+      ]),
+    });
+    expect(preview?.text.endsWith("see RemoteHandoffCard.tsx and mock")).toBe(true);
+  });
 });
 
 describe("liveActivityForShell", () => {
