@@ -43,6 +43,12 @@ export interface ThreadVisitTrackerOptions {
    * that keeps its own watermark for them records the visit here instead.
    */
   readonly markLocalVisit?: (ref: ScopedThreadRef, visitedAt: string) => void;
+  /**
+   * Personal build: whether the user can see the app (window in front and
+   * focused). While false the watermark holds, so a reply that lands in a chat
+   * left open behind another app or window stays unread until you come back.
+   */
+  readonly viewing?: Atom.Atom<boolean>;
 }
 
 /**
@@ -92,9 +98,12 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         );
       };
 
+      let latestShell: VisitedShell | null = null;
+      let inView = options.viewing ? registry.get(options.viewing) : true;
       const onShell = (shell: VisitedShell | null) => {
+        latestShell = shell;
         clearTimer();
-        if (shell === null) return;
+        if (shell === null || !inView) return;
 
         const shellUpdatedAtMs = Date.parse(shell.updatedAt);
         if (Number.isNaN(shellUpdatedAtMs)) return;
@@ -140,6 +149,12 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         );
       };
 
+      if (options.viewing) {
+        get.subscribe(options.viewing, (viewing) => {
+          inView = viewing;
+          onShell(latestShell);
+        });
+      }
       // `subscribe`, not `get`: a rebuild would reset the open and throttle
       // state on every streaming tick.
       get.subscribe(options.threadShellAtom(ref), onShell, { immediate: true });
