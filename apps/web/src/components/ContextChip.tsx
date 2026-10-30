@@ -60,6 +60,8 @@ function ContextChip({ className, kind, state, shape, render, ...props }: Contex
   const defaultProps = {
     className: cn(contextChipVariants({ kind, state, shape }), className),
     "data-slot": "context-chip",
+    // Personal build: the chip's look lives in index.css; tooltips overwrite data-slot.
+    "data-chip": "",
     "data-state": state,
   };
   return useRender({
