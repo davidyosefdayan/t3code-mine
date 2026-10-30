@@ -107,6 +107,7 @@ export function AppRail() {
   const needsYouCount = useNeedsYouCount();
   // Pages are split chunks. Load every rail destination once the app is idle so
   // switching pages never renders an empty frame while code downloads.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules idle-time preloading of the rail's route chunks
   useEffect(() => {
     const preload = () => {
       // Settings pages switch from the settings nav, not the rail, so load

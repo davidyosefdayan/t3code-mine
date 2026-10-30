@@ -207,6 +207,7 @@ import {
   shouldCreateNewThreadInCurrentProject,
   sidebarListItemId,
   sortInboxThreadsByReturn,
+  sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   threadShortcutContext,
   useThreadJumpHintsVisible,

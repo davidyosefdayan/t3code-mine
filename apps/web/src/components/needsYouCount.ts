@@ -5,13 +5,13 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useThreadShells } from "../state/entities";
+import { useDelegatedUnderParent, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom } from "../state/server";
 import { setNotificationBadge } from "../threadNotifications";
 import { useUiStateStore } from "../uiStateStore";
+import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   filterSidebarV2VisibleThreads,
-  isSidebarThreadWorking,
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
 } from "./Sidebar.logic";
@@ -98,9 +98,10 @@ export function countThreadsNeedingYou(
   capabilitiesOf: (thread: EnvironmentThreadShell) => NeedsYouCapabilities | undefined,
   localLastVisitedAtByKey: Readonly<Record<string, string>>,
   now: string,
+  delegatedUnderParent: ReadonlySet<string> = new Set(),
 ): number {
   let count = 0;
-  for (const thread of filterSidebarV2VisibleThreads(threads, null)) {
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
     if (isSidebarThreadWorking(thread)) continue;
     const capabilities = capabilitiesOf(thread);
     if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) continue;
@@ -118,6 +119,7 @@ export function countThreadsNeedingYou(
 /** The unread count for the Dock badge and the rail's Threads dot. */
 export function useNeedsYouCount(): number {
   const threads = useThreadShells();
+  const delegatedUnderParent = useDelegatedUnderParent();
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const localLastVisitedAtByKey = useUiStateStore((state) => state.threadLastVisitedAtById);
   // The minute clock, so a woken snooze counts within a minute and the
@@ -128,6 +130,7 @@ export function useNeedsYouCount(): number {
     (thread) => serverConfigs.get(thread.environmentId)?.environment.capabilities,
     localLastVisitedAtByKey,
     `${nowMinute}:00.000Z`,
+    delegatedUnderParent,
   );
 }
 
@@ -137,6 +140,7 @@ export function useNeedsYouCount(): number {
  */
 export function NeedsYouDockBadge() {
   const needsYouCount = useNeedsYouCount();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the desktop Dock badge in step with the unread count
   useEffect(() => setNotificationBadge(needsYouCount), [needsYouCount]);
   return null;
 }

@@ -19,6 +19,7 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
     if (activeElement instanceof HTMLElement) activeElement.blur();
     void closeAppModal();
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that closes the page on Escape
   useEffect(() => {
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);

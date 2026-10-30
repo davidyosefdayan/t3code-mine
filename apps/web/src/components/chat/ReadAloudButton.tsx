@@ -52,6 +52,7 @@ export const ReadAloudButton = memo(function ReadAloudButton({
 }) {
   const state = useReadAloudState();
   const active = state.status !== "idle" && state.key === messageId ? state : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this answer in the module-level read-aloud queue while mounted
   useEffect(
     () => registerReadableMessage(messageId, threadKey, text),
     [messageId, threadKey, text],

@@ -28,7 +28,7 @@ export function AppZoomIndicator() {
   }
   const visible = visibleFor !== null;
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Hides the bubble a moment after the last zoom change, unless the pointer is on it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Hides the bubble a moment after the last zoom change, unless the pointer is on it.
   useEffect(() => {
     if (visibleFor === null || hovered) return;
     const timer = window.setTimeout(() => setVisibleFor(null), HIDE_AFTER_MS);
