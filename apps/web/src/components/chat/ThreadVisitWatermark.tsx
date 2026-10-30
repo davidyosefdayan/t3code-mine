@@ -2,11 +2,29 @@ import { useAtomMount } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { type ScopedThreadRef } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 
 import { useUiStateStore } from "../../uiStateStore";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 
+// Personal build: the chat counts as read only while the window is in front and
+// focused, so a reply landing behind another app or window stays unread.
+const appInViewAtom = Atom.make((get) => {
+  const read = () => document.visibilityState === "visible" && document.hasFocus();
+  const update = () => get.setSelf(read());
+  window.addEventListener("focus", update);
+  window.addEventListener("blur", update);
+  document.addEventListener("visibilitychange", update);
+  get.addFinalizer(() => {
+    window.removeEventListener("focus", update);
+    window.removeEventListener("blur", update);
+    document.removeEventListener("visibilitychange", update);
+  });
+  return read();
+}).pipe(Atom.withLabel("app-in-view"));
+
 const threadVisitTracker = createThreadVisitTracker({
+  viewing: appInViewAtom,
   threadShellAtom: environmentThreadShells.threadShellAtom,
   visit: threadEnvironment.visit,
   markLocalVisit: (ref, visitedAt) =>
