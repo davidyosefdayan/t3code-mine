@@ -67,7 +67,11 @@ export function assistantMessagePreview(
   text: string,
   updatedAt: DateTime.Utc,
 ): OrchestrationV2LatestVisibleMessageSummary | null {
-  const collapsed = text.replace(/\s+/g, " ").trim();
+  // Links keep only their text before the cut; a link cut in half can't be cleaned up later.
+  const collapsed = text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
   if (collapsed.length === 0) return null;
   return {
     id,
