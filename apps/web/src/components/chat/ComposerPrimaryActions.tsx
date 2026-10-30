@@ -270,7 +270,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       ? formatContextWindowTokens(compactBeforeSendTokens)
       : null;
   const compactsBeforeSend = compactTokens !== null && !keepFullHistory;
-  const showCompactAndSend = compactsBeforeSend && !isConnecting && !isSendBusy;
+  const showCompactAndSend = compactsBeforeSend && !isSendBusy;
 
   const submitLabel = showResume
     ? "Resume thread"

@@ -68,6 +68,7 @@ function useVoiceSample(speed: number) {
     });
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the sample's Audio element on unmount
   useEffect(() => () => audioRef.current?.pause(), []);
 
   return { playing, play, stop };
@@ -84,6 +85,7 @@ export function ReadAloudSettings() {
     "--settings-slider-fill-offset": `${0.5 - speedRatio}rem`,
   } as CSSProperties;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads whether the voice model is in the browser cache, outside React
   useEffect(() => {
     void hasReadAloudModel().then(setDownloaded);
   }, []);

@@ -39,7 +39,6 @@ import {
 } from "../../session-logic";
 import type { ChatMessage, TurnDiffSummary } from "../../types";
 import {
-  computeMessageDurationStart,
   deriveActiveVisualResponseRunIds,
   deriveTerminalAssistantMessageIds,
   deriveUnsettledRunId,
@@ -267,9 +266,6 @@ function deriveChatRows(
         availableRevertTurnCounts: input.availableRevertTurnCounts,
       })
     : new Map<MessageId, number>();
-  const durationStarts = computeMessageDurationStart(
-    entries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
-  );
 
   const messageRow = (
     entry: { id: string; createdAt: string; projectedItem?: MessageRow["projectedItem"] },
@@ -283,7 +279,6 @@ function deriveChatRows(
       createdAt: entry.createdAt,
       message,
       ...(entry.projectedItem === undefined ? {} : { projectedItem: entry.projectedItem }),
-      durationStart: durationStarts.get(message.id) ?? message.createdAt,
       showAssistantMeta: shown,
       showAssistantCopyButton: shown,
       assistantCopyStreaming: message.streaming,

@@ -257,6 +257,7 @@ function useReleaseBootSplash(skip: boolean) {
   const bootstrapHopPending =
     pathname === "/" && (serverWelcome === null || Boolean(serverWelcome.bootstrapThreadId));
   const ready = skip || (bootstrapped && serverConfig !== null && !bootstrapHopPending);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- removes the static boot splash from the DOM once the app is ready
   useEffect(() => {
     if (ready) releaseBootSplash();
   }, [ready]);

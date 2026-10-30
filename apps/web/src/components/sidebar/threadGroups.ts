@@ -13,12 +13,14 @@ import { liveWorkLine } from "../liveWorkLine";
 import { sidebarMessagePreview } from "../messagePreview";
 import { isThreadUnread } from "../needsYouCount";
 import {
-  firstValidTimestampMs,
-  isSidebarThreadWorking,
-  resolveThreadLastVisitedAt,
-  sortArrangedThreads,
+  isThreadWorking as isSidebarThreadWorking,
   sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
+} from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  firstValidTimestampMs,
+  resolveThreadLastVisitedAt,
+  sortArrangedThreads,
   type SidebarThreadStatus,
 } from "../Sidebar.logic";
 import { getVisibleSidebarGroupThreads } from "../Sidebar.visibility";

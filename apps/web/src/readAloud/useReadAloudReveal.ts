@@ -27,6 +27,7 @@ export function useReadAloudReveal({
     // The row mounts on the next frame; the player then scrolls to the word itself.
     await new Promise((resolve) => requestAnimationFrame(resolve));
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this timeline in the module-level read-aloud reveal registry while mounted
   useEffect(() => {
     if (!enabled) return;
     return registerReadAloudReveal((messageId) => reveal(messageId));

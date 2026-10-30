@@ -90,6 +90,7 @@ export function useForkUpdate(): ForkUpdateState & { readonly currentVersion: st
     },
     () => state,
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval timer polling GitHub for a newer upstream release
   useEffect(() => {
     void checkForForkUpdate();
     const interval = window.setInterval(() => void checkForForkUpdate(), CHECK_INTERVAL_MS);

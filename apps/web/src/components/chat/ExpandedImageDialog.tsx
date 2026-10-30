@@ -119,6 +119,7 @@ function FilmStripThumb({
   const ref = useRef<HTMLButtonElement>(null);
   // Off-screen thumbnails stay empty, so a long chat signs and loads only what the strip shows.
   const [visible, setVisible] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- IntersectionObserver that loads a thumbnail once it scrolls into view
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -217,6 +218,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
 
   // Keeps the current thumbnail centered in the strip; the first placement is instant.
   const placedFilmStrip = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the film strip DOM node to center the current thumbnail
   useEffect(() => {
     const strip = filmStripRef.current;
     const thumb = strip?.querySelector<HTMLElement>(`[data-index="${index}"]`);

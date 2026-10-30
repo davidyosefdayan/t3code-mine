@@ -484,7 +484,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(rows)).not.toContain("user: compact-prompt");
     expect(rows.find((row) => row.kind === "context-compaction")).toMatchObject({
-      label: "Context compacted after being idle",
+      label: "Context compacted before sending",
     });
   });
 
