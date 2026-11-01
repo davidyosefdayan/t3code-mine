@@ -2796,3 +2796,14 @@ li[data-thread-item]:is([data-highlighted], :hover)::before,
 li[data-thread-item]:is([data-highlighted], :hover) + li[data-thread-item]::before {
   display: none;
 }
+
+/* Personal build: a faded icon fades as one shape. A translucent stroke draws darker (or
+   lighter) where an icon's lines overlap, so strokes are drawn solid and the icon's own
+   alpha is applied once, through a mask in its color. Solid icons look the same; a stroke
+   color class still wins. */
+@supports (color: rgb(from red r g b)) {
+  :where(svg.lucide) {
+    stroke: rgb(from currentColor r g b);
+    mask-image: linear-gradient(currentColor, currentColor);
+  }
+}
