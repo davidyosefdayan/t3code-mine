@@ -220,6 +220,7 @@ function setup() {
   };
 }
 
+// Personal build: notifications lead with the chat's title; the kind is the body.
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
   "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
@@ -287,14 +288,14 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.shells.set("one", shell(completed, asking, offline, done));
 
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       "Thread completed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
     ]);
     state.shells.set("one", { ...shell(completed, asking, offline, done), status: "cached" });
     state.shells.set("one", shell(completed, asking, offline, done));
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       "Thread completed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
@@ -312,8 +313,8 @@ it.each([false, true])(
     });
     state.shells.set("one", completed);
     state.shells.set("one", { ...completed, status: "cached" });
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual(["Thread completed"]);
     state.shells.set("one", continued ? shell() : completed);
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual(["Thread completed"]);
   },
 );
