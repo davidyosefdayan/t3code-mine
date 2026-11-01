@@ -1865,7 +1865,7 @@ const make = Effect.gen(function* () {
       projections.getThreadShell(entry.threadId),
     )).filter((shell) => shell !== null);
     const now = yield* Clock.currentTimeMillis;
-    if (shells.some((shell) => !storageCleanupThreadIdle(shell, now)))
+    if (shells.some((shell) => !storageCleanupThreadIdle(shell, now, serverSettings)))
       return yield* refuse("A thread is still working in this worktree.");
     if (hasTerminal(worktreePath)) return yield* refuse("A terminal is open in this worktree.");
     if (yield* liveSessionInside(worktreePath))
