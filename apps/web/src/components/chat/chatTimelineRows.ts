@@ -42,6 +42,7 @@ import {
   deriveActiveVisualResponseRunIds,
   deriveTerminalAssistantMessageIds,
   deriveUnsettledRunId,
+  groupOwnUserMessage,
   liveWorkEntryLabel,
   timelineRowEntries,
   workEntryIsVisibleInGroup,
@@ -586,7 +587,7 @@ function deriveChatRows(
   }
 
   placeWorktreeSetup(rows, input);
-  return rows;
+  return rows.map((row, index) => groupOwnUserMessage(row, rows[index - 1], rows[index + 1]));
 }
 
 /**

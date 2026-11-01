@@ -272,6 +272,16 @@ describe("deriveChatTimelineRows", () => {
     expect(shape(rows)).toEqual(["user: ask", "live: Thinking", "typing"]);
   });
 
+  it("stacks back-to-back messages from you like upstream's timeline", () => {
+    const rows = rowsFor([user("ask", 0, runA), user("more", 1, runA, "steer")], {
+      working: runA,
+    });
+    expect(rows.slice(0, 2)).toMatchObject([
+      { kind: "message", groupedWithNext: true, groupedWithPrevious: false },
+      { kind: "message", groupedWithNext: false, groupedWithPrevious: true },
+    ]);
+  });
+
   it("closes the line when you steer, and keeps naming a step your message interrupted", () => {
     const rows = rowsFor(
       [
@@ -284,7 +294,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(rows)).toEqual([
       "user: ask",
-      "line: Worked for 1.0s",
+      "line: Worked for 1s",
       "user: steer",
       "live: Running make",
       "typing",
@@ -302,17 +312,17 @@ describe("deriveChatTimelineRows", () => {
     ];
     expect(shape(rowsFor(finished, { latest: { runId: runB, start: 30, end: 35 } }))).toEqual([
       "user: ask",
-      "line: Worked for 4.0s",
+      "line: Worked for 4s",
       "answer: Started the job.",
       "event: wake",
-      "line: Worked for 5.0s",
+      "line: Worked for 5s",
       "answer: The job passed.",
     ]);
 
     // While the woken run works, the first run's answer does not fold back into work.
     expect(shape(rowsFor(finished.slice(0, 5), { working: runB }))).toEqual([
       "user: ask",
-      "line: Worked for 4.0s",
+      "line: Worked for 4s",
       "answer: Started the job.",
       "event: wake",
       "live: Thinking",
@@ -333,7 +343,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(rows)).toEqual([
       "user: ask",
-      "line: Worked for 5.0s",
+      "line: Worked for 5s",
       "event: job-done",
       "answer: Done.",
     ]);
@@ -353,7 +363,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(rows)).toEqual([
       "user: ask",
-      "line: Worked for 8.0s",
+      "line: Worked for 8s",
       "event: child-1",
       "answer: Both are running.",
     ]);
@@ -371,7 +381,7 @@ describe("deriveChatTimelineRows", () => {
     ];
     expect(shape(rowsFor(items, { working: runA }))).toEqual([
       "user: ask",
-      "line: Worked for 1.0s",
+      "line: Worked for 1s",
       "to-user: Found the bug; fixing it now.",
       "live: Running apply",
       "typing",
@@ -384,9 +394,9 @@ describe("deriveChatTimelineRows", () => {
     ];
     expect(shape(rowsFor(settled, { latest: { runId: runA, start: 0, end: 6 } }))).toEqual([
       "user: ask",
-      "line: Worked for 1.0s",
+      "line: Worked for 1s",
       "to-user: Found the bug; fixing it now.",
-      "line: Worked for 4.0s",
+      "line: Worked for 4s",
       "answer: Fixed.",
     ]);
   });
@@ -427,7 +437,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(continued)).toEqual([
       "user: ask",
-      "line: Worked for 3.0s",
+      "line: Worked for 3s",
       "answer: Here is my recommendation.",
       "line: Worked for 10s",
       "answer: Fixed it too.",
@@ -451,7 +461,7 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(finished)).toEqual([
       "user: ask",
-      "line: Worked for 5.0s",
+      "line: Worked for 5s",
       "context-compaction: compact",
       "answer: Done.",
     ]);
@@ -501,9 +511,9 @@ describe("deriveChatTimelineRows", () => {
     );
     expect(shape(rows)).toEqual([
       "user: ask",
-      "line: Worked for 1.0s",
+      "line: Worked for 1s",
       "reply: pick",
-      "line: Worked for 4.0s",
+      "line: Worked for 4s",
       "answer: Read it.",
     ]);
   });

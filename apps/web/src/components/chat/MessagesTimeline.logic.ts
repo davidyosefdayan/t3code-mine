@@ -2177,15 +2177,23 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])) {
       return { ...row, continuesWorkLog: true };
     }
-    if (!timelineRowIsOwnUserMessage(row)) return row;
-    const previous = result[index - 1];
-    const groupedWithNext = timelineRowIsOwnUserMessage(result[index + 1]);
-    const groupedWithPrevious = timelineRowIsOwnUserMessage(previous);
-    const continuesSteer =
-      groupedWithPrevious && messageIsSteer(row.message) && messageIsSteer(previous.message);
-    if (!groupedWithNext && !groupedWithPrevious) return row;
-    return { ...row, groupedWithNext, groupedWithPrevious, continuesSteer };
+    return groupOwnUserMessage(row, result[index - 1], result[index + 1]);
   });
+}
+
+/** Back-to-back messages from you stack as one burst. Also used by the chat layout's rows. */
+export function groupOwnUserMessage(
+  row: MessagesTimelineRow,
+  previous: MessagesTimelineRow | undefined,
+  next: MessagesTimelineRow | undefined,
+): MessagesTimelineRow {
+  if (!timelineRowIsOwnUserMessage(row)) return row;
+  const groupedWithNext = timelineRowIsOwnUserMessage(next);
+  const groupedWithPrevious = timelineRowIsOwnUserMessage(previous);
+  const continuesSteer =
+    groupedWithPrevious && messageIsSteer(row.message) && messageIsSteer(previous.message);
+  if (!groupedWithNext && !groupedWithPrevious) return row;
+  return { ...row, groupedWithNext, groupedWithPrevious, continuesSteer };
 }
 
 function timelineRowIsOwnUserMessage(
