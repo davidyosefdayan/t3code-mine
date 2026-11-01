@@ -221,6 +221,7 @@ function setup() {
   };
 }
 
+// Personal build: notifications lead with the chat's title; the kind is the body.
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
   "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
@@ -295,7 +296,7 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.shells.set("one", shell(completed, asking, offline, done));
 
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
     ]);
@@ -303,7 +304,7 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     state.shells.set("one", { ...shell(completed, asking, offline, done), status: "cached" });
     state.shells.set("one", shell(completed, asking, offline, done));
     await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
       "Thread completed",
@@ -326,7 +327,7 @@ it.each([false, true])(
     expect(TestNotification.sent).toEqual([]);
     state.shells.set("one", continued ? shell() : completed);
     await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual(
       continued ? [] : ["Thread completed"],
     );
   },
