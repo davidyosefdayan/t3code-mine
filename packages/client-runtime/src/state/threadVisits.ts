@@ -11,6 +11,9 @@ import type { VisitThreadInput } from "../operations/commands.ts";
 // second, and every server-side visit is a full command dispatch plus a
 // broadcast to all shell subscribers.
 export const VISIT_DISPATCH_THROTTLE_MS = 10_000;
+// Personal build: returning to the app must stay on the open chat this long before
+// it counts as read, so passing through it on the way to another chat doesn't.
+export const RETURN_TO_VIEW_DWELL_MS = 5_000;
 
 const IDLE_TRACKER: Atom.Atom<void> = Atom.make(undefined).pipe(
   Atom.withLabel("thread-visit-tracker:idle"),
@@ -46,7 +49,8 @@ export interface ThreadVisitTrackerOptions {
   /**
    * Personal build: whether the user can see the app (window in front and
    * focused). While false the watermark holds, so a reply that lands in a chat
-   * left open behind another app or window stays unread until you come back.
+   * left open behind another app or window stays unread until you come back and
+   * stay on it for `RETURN_TO_VIEW_DWELL_MS`.
    */
   readonly viewing?: Atom.Atom<boolean>;
 }
@@ -100,6 +104,8 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
 
       let latestShell: VisitedShell | null = null;
       let inView = options.viewing ? registry.get(options.viewing) : true;
+      // Opening the chat is deliberate, so only a return to the app starts a dwell.
+      let inViewSince = Number.NEGATIVE_INFINITY;
       const onShell = (shell: VisitedShell | null) => {
         latestShell = shell;
         clearTimer();
@@ -131,6 +137,11 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         }
         if (lastDispatchedUpdatedAt !== null && Date.parse(lastDispatchedUpdatedAt) >= updatedAtMs)
           return;
+        const inViewFor = Date.now() - inViewSince;
+        if (inViewFor < RETURN_TO_VIEW_DWELL_MS) {
+          timer = setTimeout(() => onShell(latestShell), RETURN_TO_VIEW_DWELL_MS - inViewFor);
+          return;
+        }
 
         const completedAtMs = shell.latestRun?.completedAt
           ? Date.parse(shell.latestRun.completedAt)
@@ -151,6 +162,7 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
 
       if (options.viewing) {
         get.subscribe(options.viewing, (viewing) => {
+          if (viewing && !inView) inViewSince = Date.now();
           inView = viewing;
           onShell(latestShell);
         });
