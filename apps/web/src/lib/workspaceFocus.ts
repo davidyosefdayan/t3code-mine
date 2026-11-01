@@ -276,7 +276,8 @@ export function createWorkspaceFocusController(doc: Document) {
   const recover = (event: FocusEvent) => {
     const lost = event.target;
     if (!(lost instanceof HTMLElement) || event.relatedTarget) return;
-    const areaName = workspaceArea(lost)?.dataset.workspaceArea;
+    const area = workspaceArea(lost);
+    const areaName = area?.dataset.workspaceArea;
     const recoveryArea = areaName === "conversation" ? "composer" : areaName;
     const label = lost.getAttribute("aria-label");
     requestAnimationFrame(() => {
@@ -286,6 +287,9 @@ export function createWorkspaceFocusController(doc: Document) {
         (isWorkspaceElementVisible(lost) && !lost.matches(":disabled"))
       )
         return;
+      // Personal build: a brief lock inside a usable area (a queued edit saving) refocuses
+      // when it lifts; focusing the bare area meanwhile drew its F6 outline.
+      if (lost.closest("[inert]") && area && isWorkspaceElementVisible(area)) return;
       const remounted = Array.from(doc.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).find(
         (element) =>
           element.tagName === lost.tagName &&

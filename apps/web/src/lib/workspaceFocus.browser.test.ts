@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import appCss from "~/index.css?inline";
+import { fakeTimers } from "../../test/render";
 import { createWorkspaceFocusController } from "./workspaceFocus";
 
 function setup() {
@@ -225,6 +226,22 @@ describe("workspace area focus", () => {
     else control.remove();
     const expected = destination === "composer" ? composer.button : area.button;
     await vi.waitFor(() => expect(document.activeElement).toBe(expected));
+  });
+
+  // Personal build: a save locks the composer briefly; focusing the bare area drew its F6 ring.
+  it("leaves focus alone while part of a usable area is briefly inert", () => {
+    using fixture = setup();
+    const composer = fixture.area("composer", 2);
+    const host = document.createElement("div");
+    host.append(composer.button);
+    composer.element.append(host);
+    composer.button.focus();
+    using _timers = fakeTimers();
+    host.inert = true;
+    // Chromium's focus fixup blurs an inert control at its next rendering update.
+    composer.button.blur();
+    vi.advanceTimersToNextFrame();
+    expect(document.activeElement).toBe(document.body);
   });
 
   it("falls back to the main content when the whole area disappears", async () => {
