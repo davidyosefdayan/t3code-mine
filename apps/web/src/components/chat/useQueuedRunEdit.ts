@@ -336,7 +336,10 @@ export function useQueuedRunEdit(input: {
     });
     setThreadError(editing.threadId, error);
     const current = finishSave(error === null);
-    if (error !== null) return;
+    if (error !== null) {
+      focusComposerSoon();
+      return;
+    }
     releaseDraftAttachments(newAttachments);
     // The edit was cancelled or begun again while this save ran; its drafts are the newer edit's.
     if (!current) return;

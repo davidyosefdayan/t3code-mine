@@ -244,11 +244,15 @@ export function createWorkspaceFocusController(doc: Document) {
   const recover = (event: FocusEvent) => {
     const lost = event.target;
     if (!(lost instanceof HTMLElement) || event.relatedTarget) return;
-    const areaName = workspaceArea(lost)?.dataset.workspaceArea;
+    const area = workspaceArea(lost);
+    const areaName = area?.dataset.workspaceArea;
     const label = lost.getAttribute("aria-label");
     requestAnimationFrame(() => {
       if (doc.activeElement !== doc.body || !doc.hasFocus() || isWorkspaceElementVisible(lost))
         return;
+      // Personal build: a brief lock inside a usable area (a queued edit saving) refocuses
+      // when it lifts; focusing the bare area meanwhile drew its F6 outline.
+      if (lost.closest("[inert]") && area && isWorkspaceElementVisible(area)) return;
       const remounted = Array.from(doc.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).find(
         (element) =>
           element.tagName === lost.tagName &&
