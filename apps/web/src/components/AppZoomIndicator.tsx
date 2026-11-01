@@ -49,7 +49,8 @@ export function AppZoomIndicator() {
       onPointerLeave={() => setHovered(false)}
       className={cn(
         // z-100 like toasts: the workspace header controls are their own z-50 layer.
-        "fixed top-11 right-3 z-100 flex items-center gap-0.5 rounded-xl border border-border bg-popover py-1 ps-3.5 pe-1 text-popover-foreground shadow-lg transition-opacity duration-150",
+        // Sits the same distance inside the panel's top and right edges (panel m-2).
+        "fixed top-[calc(var(--app-topbar-height)+1.25rem)] right-5 z-100 flex items-center gap-0.5 rounded-xl border border-border bg-popover py-1 ps-3.5 pe-1 text-popover-foreground shadow-lg transition-opacity duration-150",
         visible ? "opacity-100" : "pointer-events-none opacity-0",
       )}
     >
