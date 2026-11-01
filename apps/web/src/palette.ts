@@ -255,17 +255,22 @@ export function isDarkColor(hex: string): boolean {
 }
 
 // Light-on-dark overrides for a deep frame: text, icons, and row washes.
-const ON_DARK_FRAME = `
+// Muted text and icons are white mixed into the frame, not translucent white:
+// a translucent stroke draws darker where an icon's lines overlap.
+const onDarkFrame = (shell: string) => {
+  const muted = `color-mix(in srgb, #ffffff 62%, ${shell})`;
+  return `
   --contrast-sidebar-foreground: #ffffff;
-  --contrast-sidebar-muted-foreground: rgb(255 255 255 / 0.62);
+  --contrast-sidebar-muted-foreground: ${muted};
   --contrast-foreground: #ffffff;
-  --contrast-muted-foreground: rgb(255 255 255 / 0.62);
-  --contrast-icon-muted: rgb(255 255 255 / 0.62);
-  --sidebar-icon-color: rgb(255 255 255 / 0.62);
+  --contrast-muted-foreground: ${muted};
+  --contrast-icon-muted: ${muted};
+  --sidebar-icon-color: ${muted};
   --foreground: #ffffff;
-  --muted-foreground: rgb(255 255 255 / 0.62);
+  --muted-foreground: ${muted};
   --pal-row-hover: rgb(255 255 255 / 0.08);
   --pal-row-active: rgb(255 255 255 / 0.17);`;
+};
 
 function themeRules(theme: ColorTheme): string {
   // One step more specific than the stock theme rule (html[data-theme-id]
@@ -296,7 +301,7 @@ function themeRules(theme: ColorTheme): string {
 }`;
       // A dark frame in light mode needs light-on-dark rail controls.
       return mode === "light" && isDarkColor(colors.shell)
-        ? `${base}\n${selector} [data-app-rail],\n${selector} [data-app-topbar] {${ON_DARK_FRAME}\n}`
+        ? `${base}\n${selector} [data-app-rail],\n${selector} [data-app-topbar] {${onDarkFrame(colors.shell)}\n}`
         : base;
     })
     .join("\n");
