@@ -1,4 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { DownloadIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -13,6 +14,7 @@ import { useProjects } from "../../state/entities";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DesktopUpdateStatusIcon } from "./DesktopUpdateStatusIcon";
+import { RailDot } from "./RailDot";
 
 // Personal build: the rail's update control, in T3 Code's own update icon
 // style. It checks GitHub for a newer stable release on its own every few hours;
@@ -74,18 +76,26 @@ export function ForkUpdateRailButton() {
             type="button"
             aria-label={label}
             onClick={onClick}
-            className="flex size-9 cursor-pointer items-center justify-center rounded-lg text-sidebar-muted-foreground outline-none hover:bg-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[update=true]:text-sidebar-foreground"
+            className="group/rail-item relative flex size-9 cursor-pointer items-center justify-center rounded-lg text-sidebar-muted-foreground outline-none hover:bg-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[update=true]:text-sidebar-foreground"
             data-update={update !== null}
           />
         }
       >
-        <DesktopUpdateStatusIcon
-          status={update !== null ? "available" : isChecking ? "checking" : "idle"}
+        {/* The update dot is the rail's dot, like the chats one. */}
+        {update !== null ? (
+          <>
+            <DownloadIcon className="size-4" />
+            <RailDot />
+          </>
+        ) : (
+          <DesktopUpdateStatusIcon
+          status={isChecking ? "checking" : "idle"}
           isCheckAnimating={isChecking}
           onCheckAnimationIteration={() => {
             if (!checking) setSpinning(false);
           }}
         />
+        )}
       </TooltipTrigger>
       <TooltipPopup side="right">{label}</TooltipPopup>
     </Tooltip>
