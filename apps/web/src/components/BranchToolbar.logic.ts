@@ -99,8 +99,12 @@ export const WORKTREE_SUBMODULES_LABELS: Record<WorktreeSubmodules, string> = {
   none: "Skip",
 };
 
+export const CURRENT_CHECKOUT_VALUE = "current-checkout";
+
+// Personal build: "Current worktree" read as if picking a previous worktree had
+// been undone, so a new chat set to run in one says "Existing worktree".
 export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null): string {
-  return activeWorktreePath ? "Current worktree" : resolveEnvModeLabel("local");
+  return activeWorktreePath ? "Existing worktree" : resolveEnvModeLabel("local");
 }
 
 export function resolveLockedWorkspaceLabel(
