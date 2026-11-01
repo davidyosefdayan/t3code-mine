@@ -4,7 +4,11 @@ import { expect, it, vi } from "vite-plus/test";
 
 import type { VisitThreadInput } from "../operations/commands.ts";
 import { claimThreadOpen } from "./threadSearch.ts";
-import { createThreadVisitTracker, VISIT_DISPATCH_THROTTLE_MS } from "./threadVisits.ts";
+import {
+  createThreadVisitTracker,
+  RETURN_TO_VIEW_DWELL_MS,
+  VISIT_DISPATCH_THROTTLE_MS,
+} from "./threadVisits.ts";
 
 const environmentId = EnvironmentId.make("env-visits");
 
@@ -198,14 +202,15 @@ it("advances the watermark to a wake without waiting for the throttle", () => {
   expect(t.visits).toHaveLength(2);
 });
 
-// Personal build: a chat left open behind another app or window is not being read.
-it("marks a completion seen only once the app is in view again", () => {
+// Personal build: a chat left open behind another app or window is not being read,
+// nor is one you pass through on your way to another chat after coming back.
+it("marks a completion seen only once the app has been in view again for a moment", () => {
   using t = setup(
     "thread-background",
     { updatedAt: at(10), lastVisitedAt: at(0), latestRun: null },
     Atom.make(true),
   );
-  t.mount();
+  const unmount = t.mount();
   expect(t.visits).toHaveLength(1);
 
   t.setViewing(false);
@@ -214,5 +219,17 @@ it("marks a completion seen only once the app is in view again", () => {
   expect(t.visits).toHaveLength(1);
 
   t.setViewing(true);
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS - 1);
+  expect(t.visits).toHaveLength(1);
+  t.setViewing(false);
+  t.setViewing(true);
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS);
   expect(t.visits.slice(1)).toEqual([{ threadId: t.ref.threadId, visitedAt: at(20) }]);
+
+  t.setViewing(false);
+  t.update({ updatedAt: at(40), latestRun: { completedAt: at(40) } });
+  t.setViewing(true);
+  unmount();
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS);
+  expect(t.visits).toHaveLength(2);
 });
