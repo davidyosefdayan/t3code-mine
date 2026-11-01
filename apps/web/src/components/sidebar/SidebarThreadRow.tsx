@@ -4,7 +4,6 @@ import {
   restSurfaceClassName,
   selectedSurfaceClassName,
   SidebarThreadCardBody,
-  ThreadAvatar,
   ThreadRowHoverActions,
   rowContentClassName,
   ThreadRowMetaLine,
@@ -161,7 +160,7 @@ function terminalProcessLabel(count: number): string {
 
 function SidebarThreadTooltip({
   thread,
-  avatar,
+  project,
   projectDisplayName,
   environmentLabel,
   environmentMachine,
@@ -175,7 +174,6 @@ function SidebarThreadTooltip({
   terminalProcessCount,
 }: {
   thread: SidebarThreadSummary;
-  avatar: ReactNode;
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   environmentLabel: string | null;
@@ -198,10 +196,9 @@ function SidebarThreadTooltip({
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
-      {/* Personal build: a contact-card header like a messages app. */}
       <SidebarThreadCardBody
         thread={thread}
-        avatar={avatar}
+        project={project}
         projectDisplayName={projectDisplayName}
         environmentLabel={environmentLabel}
         environmentMachine={environmentMachine}
@@ -617,12 +614,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
     : thread.modelSelection.model;
 
-  // Personal build: the chat's avatar, shared by the row and its hover card.
-  const threadAvatar = <ThreadAvatar project={props.project} />;
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={thread}
-      avatar={threadAvatar}
       project={props.project}
       projectDisplayName={props.projectDisplayName}
       environmentLabel={props.environmentLabel}
@@ -864,17 +858,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       canToggleRead ||
       isPinnedRow);
 
-  const hasSecondLine = Boolean(rowLine.status || rowLine.details || terminalProcessCount > 0);
   return (
     <li
       data-thread-item={threadKey}
+      data-highlighted={props.isActive || isSelected || undefined}
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the row's height; the py-0.5 padding is added on top. A larger
-        // placeholder makes every remounted list collapse a few pixels per row.
-        "list-none py-0.5 [content-visibility:auto]",
-        hasSecondLine ? "[contain-intrinsic-size:auto_78px]" : "[contain-intrinsic-size:auto_58px]",
+        // Matches the row's height. A larger placeholder makes every remounted
+        // list collapse a few pixels per row.
+        // Personal build: no gap between rows; hairlines in `index.css` separate them.
+        "relative list-none [content-visibility:auto]",
+        "[contain-intrinsic-size:auto_74px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -968,14 +963,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               </span>
             ) : null}
             {/* Pull requests live in the hover card, not on the row. */}
-            {/* Settled and archived rows carry no reply preview, so they skip the line. */}
-            {hasSecondLine ? (
-              <ThreadRowSecondLine
-                status={rowLine.status}
-                details={rowLine.details}
-                trailing={terminalStatusIcon}
-              />
-            ) : null}
+            {/* Personal build: rows without a reply preview (settled, archived)
+                keep the line empty so every row is the same height. */}
+            <ThreadRowSecondLine
+              status={rowLine.status}
+              details={rowLine.details}
+              trailing={terminalStatusIcon}
+            />
             <ThreadRowMetaLine
               thread={thread}
               project={props.project}
@@ -1157,11 +1151,6 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
         </TooltipTrigger>
         <SidebarThreadTooltip
           thread={thread}
-          avatar={
-            props.project ? (
-              <ProjectFavicon project={props.project} className="size-7 shrink-0 rounded-md" />
-            ) : null
-          }
           project={props.project}
           projectDisplayName={props.projectDisplayName}
           environmentLabel={props.environmentLabel}

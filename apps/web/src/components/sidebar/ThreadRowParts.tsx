@@ -10,6 +10,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
+  FolderIcon,
   GitBranchIcon,
   MailIcon,
   MailOpenIcon,
@@ -47,15 +48,6 @@ type ProviderBadgeEntry = Pick<
 export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
 export const activeSurfaceClassName = "bg-row-active";
 export const selectedSurfaceClassName = "bg-row-selected";
-
-/** The project's icon, for the hover card and the draft row. */
-export function ThreadAvatar(props: { project: ProjectFaviconProject | null }) {
-  return props.project ? (
-    <ProjectFavicon project={props.project} className="size-7 shrink-0 rounded-md" />
-  ) : (
-    <span className="size-7 shrink-0" />
-  );
-}
 
 /** One title style for every group (New threads, Unread, Pinned, Open,
     Working, Snoozed, Settled). Clicking it collapses or expands the group. */
@@ -105,13 +97,12 @@ export function SidebarGroupButton(props: {
   );
 }
 
-/** The hover card, shaped like a messages app's contact card: the chat's
-    avatar, title, and project, then its latest reply (or, while it works,
-    what it's doing), then the details. Pull requests live here, not on the
-    row. */
+/** The hover card: the title with its latest reply (or, while it works, what
+    it's doing) under it, then the details, project first. Pull requests live
+    here, not on the row. */
 export function SidebarThreadCardBody(props: {
   thread: SidebarThreadSummary;
-  avatar: ReactNode;
+  project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
@@ -132,24 +123,26 @@ export function SidebarThreadCardBody(props: {
       ? liveWorkLine(thread) || null
       : sidebarMessagePreview(thread.latestVisibleMessage?.text);
   return (
-    <div className="flex w-72 min-w-0 flex-col gap-2.5 px-1 py-2">
-      <div className="flex min-w-0 items-center gap-2.5">
-        {props.avatar}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm leading-tight font-semibold text-foreground">
-            {thread.title}
-          </div>
-          {props.projectDisplayName ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {props.projectDisplayName}
-            </div>
-          ) : null}
+    <div className="flex w-72 min-w-0 flex-col gap-2.5 px-1 pt-2 pb-3">
+      <div className="grid min-w-0 gap-1">
+        <div className="truncate text-sm leading-tight font-semibold text-foreground">
+          {thread.title}
         </div>
+        {latestReply ? (
+          <p className="line-clamp-3 text-xs leading-relaxed text-foreground/80">{latestReply}</p>
+        ) : null}
       </div>
-      {latestReply ? (
-        <p className="line-clamp-3 text-xs leading-relaxed text-foreground/80">{latestReply}</p>
-      ) : null}
       <div className="grid gap-1.5 border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
+        {props.projectDisplayName ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {props.project ? (
+              <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
+            ) : (
+              <FolderIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            )}
+            <div className="min-w-0 truncate text-foreground/75">{props.projectDisplayName}</div>
+          </div>
+        ) : null}
         {props.environmentLabel ? (
           <div className="flex min-w-0 items-center gap-2">
             <EnvironmentMachineIcon

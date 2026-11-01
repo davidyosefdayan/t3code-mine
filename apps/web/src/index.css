@@ -2781,3 +2781,18 @@ html[data-palette]:not([data-palette=""])
   background-color: var(--message-action-foreground);
 }
 
+/* Personal build: hairlines between neighbouring chats, like Messages; a highlighted or
+   hovered row's card meets its neighbours with no line at either edge. */
+li[data-thread-item] + li[data-thread-item]::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0.875rem;
+  top: 0;
+  height: 1px;
+  background-color: var(--color-sidebar-border);
+  pointer-events: none;
+}
+li[data-thread-item]:is([data-highlighted], :hover)::before,
+li[data-thread-item]:is([data-highlighted], :hover) + li[data-thread-item]::before {
+  display: none;
+}
