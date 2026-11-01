@@ -81,6 +81,8 @@ import {
   WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { isElectron } from "../../env";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { UsageLimitsDashboard } from "./UsageLimitsDashboard";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
@@ -491,12 +493,12 @@ export function UsagePage({
   return (
     <AppRouteModal label="Usage">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="@container/usage-header flex min-h-12 shrink-0 items-center gap-1 border-b ps-5 pe-2">
+        <WorkspacePageHeader electron={isElectron} className="@container/usage-header gap-1">
           {topbarContent}
           <AppRouteModalClose />
-        </header>
+        </WorkspacePageHeader>
 
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1" scrollFade>
           <WorkspacePageContainer width="wide">
             {selectedEnvironments.length === 0 ? (
               <p className="text-sm text-muted-foreground">

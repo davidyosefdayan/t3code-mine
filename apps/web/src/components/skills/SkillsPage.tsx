@@ -454,7 +454,7 @@ export function SkillsPage({ view }: { view: SkillsView }) {
             }}
           />
         ) : null}
-        <div className="flex min-h-0 flex-1 border-t border-border/60">{body}</div>
+        <div className="flex min-h-0 flex-1">{body}</div>
       </div>
     </SidebarInset>
   );
