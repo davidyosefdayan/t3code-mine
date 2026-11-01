@@ -11,6 +11,7 @@ import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPr
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SkillsIcon } from "../skills/SkillsIcon";
 import { ForkUpdateRailButton } from "./ForkUpdateRailButton";
+import { RailDot } from "./RailDot";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { useNavigateToMainApp } from "./mainAppLocation";
 import { useNeedsYouCount } from "../needsYouCount";
@@ -73,23 +74,7 @@ function RailButton(props: {
         }
       >
         {props.children}
-        {props.dot ? (
-          // The cutout matches the tile behind it: the shell, with the hover
-          // or selected fill on top, since those fills can be translucent.
-          <span
-            aria-hidden="true"
-            className="absolute top-1 right-1 size-3 rounded-full bg-sidebar-shell"
-          >
-            <span
-              className={cn(
-                "flex size-full items-center justify-center rounded-full",
-                props.active ? "bg-row-active" : "group-hover/rail-item:bg-row-hover",
-              )}
-            >
-              <span className="size-2 rounded-full bg-destructive" />
-            </span>
-          </span>
-        ) : null}
+        {props.dot ? <RailDot active={props.active} /> : null}
       </TooltipTrigger>
       <TooltipPopup side="right">{props.label}</TooltipPopup>
     </Tooltip>
