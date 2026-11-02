@@ -38,16 +38,12 @@ function readMainContentBounds(): SwipeBounds {
 }
 
 // `event.target` stops at a shadow host; the composed path also reaches scrollers inside it.
-function canScrollHorizontally(path: readonly EventTarget[], deltaX: number): boolean {
+// A swipe that starts over a horizontal scroller belongs to it, even once it hits the end.
+function isInHorizontalScroller(path: readonly EventTarget[]): boolean {
   for (const element of path) {
     if (!(element instanceof Element) || element.scrollWidth <= element.clientWidth) continue;
     const { overflowX } = getComputedStyle(element);
-    if (overflowX !== "auto" && overflowX !== "scroll") continue;
-    const canScroll =
-      deltaX < 0
-        ? element.scrollLeft > 0
-        : element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
-    if (canScroll) return true;
+    if (overflowX === "auto" || overflowX === "scroll") return true;
   }
   return false;
 }
@@ -60,7 +56,7 @@ function lockSwipeAxis(
   if (path.some((node) => node instanceof Element && node.matches('[role="dialog"]'))) {
     return { kind: "ignored" };
   }
-  if (canScrollHorizontally(path, sumX)) return { kind: "ignored" };
+  if (isInHorizontalScroller(path)) return { kind: "ignored" };
   const direction = sumX < 0 ? "back" : "forward";
   if (!canNavigateHistory(direction)) return { kind: "ignored" };
   return {
