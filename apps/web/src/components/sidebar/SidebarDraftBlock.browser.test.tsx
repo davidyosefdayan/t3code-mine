@@ -32,6 +32,9 @@ it("keeps draft previews current through edits, promotion and removal", async ()
           routeDraftId={null}
           onNavigateToDraft={vi.fn()}
           onDraftContextMenu={vi.fn()}
+          providerEntriesByEnvironment={new Map()}
+          expanded
+          onToggle={vi.fn()}
         />
       </ul>
     </Profiler>,
