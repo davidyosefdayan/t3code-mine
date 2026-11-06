@@ -419,7 +419,7 @@ it.effect("shows message_user to thread agents only, always loaded", () =>
     });
   }).pipe(
     Effect.provide(
-      McpHttpServer.layerMessagesToolkit.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
+      McpHttpServer.layerMessagesToolkit.pipe(Layer.provideMerge(McpHttpServer.layerInProcessMcpServer)),
     ),
   ),
 );

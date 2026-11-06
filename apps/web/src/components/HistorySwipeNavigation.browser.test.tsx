@@ -24,7 +24,8 @@ describe("HistorySwipeNavigation", () => {
       false,
     ],
     ["scrolling left inside a scroller keeps the thread", "light", 100, -130, false],
-    ["swiping back at a shadow-root scroller's left edge navigates", "shadow", 0, -130, true],
+    // Personal build: a swipe over a horizontal scroller never navigates, even at its edge.
+    ["swiping back at a shadow-root scroller's left edge keeps the thread", "shadow", 0, -130, false],
     ["swiping back over a panel without overflow navigates", "none", 0, -130, true],
     ["a swipe that started in a closed dialog keeps the thread", "closed-dialog", 0, -130, false],
   ] as const)("%s", async (_name, scroller, scrollLeft, deltaX, navigates) => {
