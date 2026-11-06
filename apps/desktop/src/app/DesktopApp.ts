@@ -230,12 +230,9 @@ const bootstrap = Effect.gen(function* () {
     yield* logBootstrapInfo("bootstrap enabled network access", {
       endpointUrl: serverExposureState.endpointUrl,
     });
-  } else if (
-    settings.serverExposureMode === "network-accessible" &&
-    serverExposureState.mode === "local-only"
-  ) {
+  } else if (serverExposureState.mode === "network-accessible") {
     yield* logBootstrapWarning(
-      "bootstrap fell back to local-only because no advertised network host was available",
+      "bootstrap enabled network access before a network address was available",
     );
   }
 
