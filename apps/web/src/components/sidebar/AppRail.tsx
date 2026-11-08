@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, isMacPlatform } from "../../lib/utils";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { useEnvironments } from "../../state/environments";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
@@ -87,7 +87,8 @@ export function AppRail() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
   // Builds without an update feed (unsigned Mac builds, the browser) have nothing to offer.
-  const desktopUpdatesEnabled = useDesktopUpdateState()?.enabled === true;
+  const desktopUpdateState = useDesktopUpdateState();
+  const desktopUpdatesEnabled = desktopUpdateState?.enabled === true;
   const router = useRouter();
   const needsYouCount = useNeedsYouCount();
   // Pages are split chunks. Load every rail destination once the app is idle so
@@ -180,16 +181,17 @@ export function AppRail() {
         <SkillsIcon />
       </RailButton>
       <div className="flex-1" />
-      {/* The maintainer's builds move the fork onto upstream releases (set at
-          build time; see ForkUpdateRailButton) and leave upstream's update
-          control out. Everyone else's builds get the fork's own published
-          releases through the app's built-in updater. */}
+      {/* Maintainer builds (set at build time) move the fork onto upstream.
+          Others get the fork's releases: the built-in updater where there is
+          a feed (Windows), else an install chat (unsigned Mac builds). */}
       {import.meta.env.VITE_T3_FORK_MAINTAINER === "1" ? (
-        <ForkUpdateRailButton />
+        <ForkUpdateRailButton source="upstream" />
       ) : desktopUpdatesEnabled ? (
         <ul>
           <SidebarUpdatePill />
         </ul>
+      ) : desktopUpdateState && isMacPlatform(navigator.platform) ? (
+        <ForkUpdateRailButton source="release" />
       ) : null}
       <RailButton
         label="Settings"

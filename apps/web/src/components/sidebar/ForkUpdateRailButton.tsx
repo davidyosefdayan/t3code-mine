@@ -1,27 +1,35 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { DownloadIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
-  checkForForkUpdate,
   FORK_PROJECT_FOLDER,
+  forkInstallPrompt,
+  forkReleaseCheck,
   forkUpdatePrompt,
-  useForkUpdate,
+  upstreamReleaseCheck,
 } from "../../forkUpdates";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { useProjects } from "../../state/entities";
+import { primaryServerConfigAtom } from "../../state/server";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DesktopUpdateStatusIcon } from "./DesktopUpdateStatusIcon";
 import { RailDot } from "./RailDot";
 
-// Personal build: the rail's update control, in T3 Code's own update icon
-// style. It checks GitHub for a newer stable release on its own every few hours;
-// clicking checks now, or, when an update is out, opens a chat in the fork's
-// project with the update instructions waiting in the composer (forkUpdates.ts).
-export function ForkUpdateRailButton() {
-  const { checking, update, checkedAt, currentVersion } = useForkUpdate();
+// The fork's rail update control. When a release is out, clicking opens a chat
+// with instructions waiting in the composer (forkUpdates.ts): "upstream" moves
+// the fork onto upstream's release in the fork's project (maintainer builds);
+// "release" installs the fork's newest release (unsigned Mac builds).
+export function ForkUpdateRailButton({ source }: { source: "upstream" | "release" }) {
+  const serverVersion = useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
+  const appVersion = useDesktopUpdateState()?.currentVersion ?? null;
+  const releaseCheck = source === "upstream" ? upstreamReleaseCheck : forkReleaseCheck;
+  const currentVersion = source === "upstream" ? serverVersion : appVersion;
+  const { checking, update, checkedAt } = releaseCheck.use(currentVersion);
   const projects = useProjects();
   const handleNewThread = useNewThreadHandler();
   // Keep the spinner turning for at least one full turn on a manual check, so a
@@ -30,6 +38,24 @@ export function ForkUpdateRailButton() {
 
   const startUpdateChat = async () => {
     if (update === null || currentVersion === null) return;
+    if (source === "release") {
+      const project = projects[0];
+      if (!project) {
+        toastManager.add({
+          type: "error",
+          title: "No project",
+          description: "Add a project first. The update chat starts in one.",
+        });
+        return;
+      }
+      const draft = await handleNewThread(scopeProjectRef(project.environmentId, project.id));
+      if (draft) {
+        useComposerDraftStore
+          .getState()
+          .setPrompt(draft.draftId, forkInstallPrompt(update, currentVersion));
+      }
+      return;
+    }
     const project = projects.find((candidate) =>
       candidate.workspaceRoot.replace(/\/+$/, "").endsWith(`/${FORK_PROJECT_FOLDER}`),
     );
@@ -55,13 +81,15 @@ export function ForkUpdateRailButton() {
       return;
     }
     setSpinning(true);
-    void checkForForkUpdate();
+    void releaseCheck.check();
   };
 
   const isChecking = checking || spinning;
   const label =
     update !== null
-      ? `T3 Code v${update.version} is out. Start the update chat`
+      ? source === "upstream"
+        ? `T3 Code v${update.version} is out. Start the update chat`
+        : `T3 Code (Mine) v${update.version} is out. Start the update chat`
       : isChecking
         ? "Checking for updates…"
         : checkedAt !== null && currentVersion !== null
@@ -89,12 +117,12 @@ export function ForkUpdateRailButton() {
           </>
         ) : (
           <DesktopUpdateStatusIcon
-          status={isChecking ? "checking" : "idle"}
-          isCheckAnimating={isChecking}
-          onCheckAnimationIteration={() => {
-            if (!checking) setSpinning(false);
-          }}
-        />
+            status={isChecking ? "checking" : "idle"}
+            isCheckAnimating={isChecking}
+            onCheckAnimationIteration={() => {
+              if (!checking) setSpinning(false);
+            }}
+          />
         )}
       </TooltipTrigger>
       <TooltipPopup side="right">{label}</TooltipPopup>
