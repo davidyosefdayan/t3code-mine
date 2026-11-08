@@ -10,6 +10,7 @@ import {
   forkReleaseCheck,
   forkUpdatePrompt,
   upstreamReleaseCheck,
+  useReleaseCheck,
 } from "../../forkUpdates";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
@@ -30,7 +31,7 @@ export function ForkUpdateRailButton({ source }: { source: "upstream" | "release
   const appVersion = useDesktopUpdateState()?.currentVersion ?? null;
   const releaseCheck = source === "upstream" ? upstreamReleaseCheck : forkReleaseCheck;
   const currentVersion = source === "upstream" ? serverVersion : appVersion;
-  const { checking, update, checkedAt } = releaseCheck.use(currentVersion);
+  const { checking, update, checkedAt } = useReleaseCheck(releaseCheck, currentVersion);
   const projects = useProjects();
   const handleNewThread = useNewThreadHandler();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();

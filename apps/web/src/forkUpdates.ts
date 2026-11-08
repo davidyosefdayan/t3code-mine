@@ -48,8 +48,8 @@ export interface ForkUpdateState {
 export interface ReleaseCheck {
   /** Checks GitHub now. Safe to call repeatedly; overlapping checks are skipped. */
   readonly check: () => Promise<void>;
-  /** Update state, checked on mount and every few hours while mounted. */
-  readonly use: (currentVersion: string | null) => ForkUpdateState;
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly getState: () => CheckState;
 }
 
 function createReleaseCheck(repository: string): ReleaseCheck {
@@ -95,24 +95,28 @@ function createReleaseCheck(repository: string): ReleaseCheck {
     }
   };
 
-  const use = (currentVersion: string | null): ForkUpdateState => {
-    const snapshot = useSyncExternalStore(subscribe, () => state);
-    // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval timer polling GitHub for a newer release
-    useEffect(() => {
-      void check();
-      const interval = window.setInterval(() => void check(), CHECK_INTERVAL_MS);
-      return () => window.clearInterval(interval);
-    }, []);
-    const update =
-      snapshot.latest !== null &&
-      currentVersion !== null &&
-      isNewerVersion(snapshot.latest.version, currentVersion)
-        ? snapshot.latest
-        : null;
-    return { checking: snapshot.checking, update, checkedAt: snapshot.checkedAt };
-  };
+  return { check, subscribe, getState: () => state };
+}
 
-  return { check, use };
+/** Update state, checked on mount and every few hours while mounted. */
+export function useReleaseCheck(
+  releaseCheck: ReleaseCheck,
+  currentVersion: string | null,
+): ForkUpdateState {
+  const snapshot = useSyncExternalStore(releaseCheck.subscribe, releaseCheck.getState);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval timer polling GitHub for a newer release
+  useEffect(() => {
+    void releaseCheck.check();
+    const interval = window.setInterval(() => void releaseCheck.check(), CHECK_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [releaseCheck]);
+  const update =
+    snapshot.latest !== null &&
+    currentVersion !== null &&
+    isNewerVersion(snapshot.latest.version, currentVersion)
+      ? snapshot.latest
+      : null;
+  return { checking: snapshot.checking, update, checkedAt: snapshot.checkedAt };
 }
 
 /** Upstream's stable releases, compared to the server's (upstream) version. */
