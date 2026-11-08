@@ -1,16 +1,14 @@
-import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useSyncExternalStore } from "react";
 
-import { primaryServerConfigAtom } from "./state/server";
+// Two update checks for the fork (see FORK.md). The maintainer's builds look for
+// a newer stable upstream T3 Code release and open a chat that moves the fork
+// onto it. Everyone else's unsigned Mac builds can't update themselves, so they
+// look for a newer release of the fork and open a chat that installs it.
 
-// Personal build: this app never installs upstream updates itself (it has no
-// update feed). Instead it checks GitHub for a newer stable T3 Code release and
-// offers to start an agent chat that moves the fork onto it (see FORK.md).
-
-const LATEST_STABLE_RELEASE_URL = "https://api.github.com/repos/pingdotgg/t3code/releases/latest";
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Folder name of the fork's checkout; the matching project gets the update chat. */
 export const FORK_PROJECT_FOLDER = "T3 Code";
+export const FORK_REPOSITORY = "davidyosefdayan/t3code-mine";
 
 export interface ForkUpdate {
   readonly version: string;
@@ -34,7 +32,7 @@ export function isNewerVersion(candidate: string, current: string): boolean {
 
 interface CheckState {
   readonly checking: boolean;
-  /** Newest stable upstream release, as last reported by GitHub. */
+  /** Newest stable release, as last reported by GitHub. */
   readonly latest: ForkUpdate | null;
   /** Set after a check completes, so the UI can say "up to date". */
   readonly checkedAt: number | null;
@@ -47,63 +45,80 @@ export interface ForkUpdateState {
   readonly checkedAt: number | null;
 }
 
-// Only GitHub's answer is stored; whether it is newer is decided when read,
-// against the current version. The app briefly reports a cached version at
-// startup, so a comparison stored at check time could go stale.
-let state: CheckState = { checking: false, latest: null, checkedAt: null };
-const listeners = new Set<() => void>();
-function setState(next: Partial<CheckState>): void {
-  state = { ...state, ...next };
-  for (const listener of listeners) listener();
+export interface ReleaseCheck {
+  /** Checks GitHub now. Safe to call repeatedly; overlapping checks are skipped. */
+  readonly check: () => Promise<void>;
+  /** Update state, checked on mount and every few hours while mounted. */
+  readonly use: (currentVersion: string | null) => ForkUpdateState;
 }
 
-/** Checks GitHub now. Safe to call repeatedly; overlapping checks are skipped. */
-export async function checkForForkUpdate(): Promise<void> {
-  if (state.checking) return;
-  setState({ checking: true });
-  try {
-    const response = await fetch(LATEST_STABLE_RELEASE_URL, {
-      headers: { Accept: "application/vnd.github+json" },
-    });
-    if (!response.ok) return;
-    const release = (await response.json()) as { tag_name?: string; html_url?: string };
-    const version = release.tag_name?.replace(/^v/, "");
-    if (!version) return;
-    setState({
-      latest: { version, url: release.html_url ?? LATEST_STABLE_RELEASE_URL },
-      checkedAt: Date.now(),
-    });
-  } catch {
-    // Offline or rate limited: the next check tries again.
-  } finally {
-    setState({ checking: false });
-  }
+function createReleaseCheck(repository: string): ReleaseCheck {
+  const latestReleaseUrl = `https://api.github.com/repos/${repository}/releases/latest`;
+  // Only GitHub's answer is stored; whether it is newer is decided when read,
+  // against the current version. The app briefly reports a cached version at
+  // startup, so a comparison stored at check time could go stale.
+  let state: CheckState = { checking: false, latest: null, checkedAt: null };
+  const listeners = new Set<() => void>();
+  const setState = (next: Partial<CheckState>) => {
+    state = { ...state, ...next };
+    for (const listener of listeners) listener();
+  };
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  };
+
+  const check = async () => {
+    if (state.checking) return;
+    setState({ checking: true });
+    try {
+      const response = await fetch(latestReleaseUrl, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!response.ok) return;
+      const release = (await response.json()) as { tag_name?: string; html_url?: string };
+      const version = release.tag_name?.replace(/^v/, "");
+      if (!version) return;
+      setState({
+        latest: {
+          version,
+          url: release.html_url ?? `https://github.com/${repository}/releases/latest`,
+        },
+        checkedAt: Date.now(),
+      });
+    } catch {
+      // Offline or rate limited: the next check tries again.
+    } finally {
+      setState({ checking: false });
+    }
+  };
+
+  const use = (currentVersion: string | null): ForkUpdateState => {
+    const snapshot = useSyncExternalStore(subscribe, () => state);
+    // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval timer polling GitHub for a newer release
+    useEffect(() => {
+      void check();
+      const interval = window.setInterval(() => void check(), CHECK_INTERVAL_MS);
+      return () => window.clearInterval(interval);
+    }, []);
+    const update =
+      snapshot.latest !== null &&
+      currentVersion !== null &&
+      isNewerVersion(snapshot.latest.version, currentVersion)
+        ? snapshot.latest
+        : null;
+    return { checking: snapshot.checking, update, checkedAt: snapshot.checkedAt };
+  };
+
+  return { check, use };
 }
 
-/** Update state, checked at startup and every few hours while mounted. */
-export function useForkUpdate(): ForkUpdateState & { readonly currentVersion: string | null } {
-  const currentVersion = useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-  const snapshot = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => state,
-  );
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval timer polling GitHub for a newer upstream release
-  useEffect(() => {
-    void checkForForkUpdate();
-    const interval = window.setInterval(() => void checkForForkUpdate(), CHECK_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, []);
-  const update =
-    snapshot.latest !== null &&
-    currentVersion !== null &&
-    isNewerVersion(snapshot.latest.version, currentVersion)
-      ? snapshot.latest
-      : null;
-  return { checking: snapshot.checking, update, checkedAt: snapshot.checkedAt, currentVersion };
-}
+/** Upstream's stable releases, compared to the server's (upstream) version. */
+export const upstreamReleaseCheck = createReleaseCheck("pingdotgg/t3code");
+/** The fork's releases, compared to the desktop app's (fork) version. */
+export const forkReleaseCheck = createReleaseCheck(FORK_REPOSITORY);
 
 /** Instructions pasted into the update chat; the maintainer reviews them before sending. */
 export function forkUpdatePrompt(update: ForkUpdate, currentVersion: string): string {
@@ -117,4 +132,15 @@ This isn't just a rebase that compiles. I want everything upstream added and fix
 - Changes that redesign something we redesigned: I decide. Show me screenshots of their version and ours side by side, and tell me what else theirs fixes.
 
 Once I've answered, do the update, build the Mac app, and tell me when to quit the app so the update installs.`;
+}
+
+/** Instructions pasted into the install chat on someone else's Mac; they review them before sending. */
+export function forkInstallPrompt(update: ForkUpdate, currentVersion: string): string {
+  const zipUrl = `https://github.com/${FORK_REPOSITORY}/releases/download/v${update.version}/T3-Code-${update.version}-arm64.zip`;
+  return `T3 Code (Mine) v${update.version} is out (release notes: ${update.url}). This Mac has v${currentVersion}. Please install the update for me.
+
+1. Download the Apple silicon build, ${zipUrl}, and unzip it with \`ditto -x -k\` into a new temporary folder. It holds \`T3 Code (Mine).app\`.
+2. Don't replace the app yet: you are running inside it, and replacing it now can crash this chat. Find the app's main process, which also tells you where it's installed (normally \`/Applications/T3 Code (Mine).app\`): \`ps -axo pid=,ppid=,comm= | awk '$2 == 1 && /\\/Contents\\/MacOS\\/T3 Code \\(Mine\\)$/'\`. Write a small script that waits for that PID to exit (\`while kill -0 <pid> 2>/dev/null; do sleep 1; done\`), then replaces the installed app with the new one, runs \`xattr -cr\` and \`codesign --force --deep --sign -\` on it (the build isn't signed by Apple, so macOS would otherwise call it damaged), and opens it. Have it log to a file next to it.
+3. Start the script in its own session, so it outlives the app quitting (quitting can stop this chat's whole process group, even with \`nohup\`): \`nohup /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' /bin/bash <script> >/dev/null 2>&1 &\`. Check it's running.
+4. Tell me to quit T3 Code (Mine) with Cmd+Q. It reopens on v${update.version} within a few seconds, and my chats and settings stay. If it doesn't reopen within a minute, tell me to install it by hand from the release page.`;
 }

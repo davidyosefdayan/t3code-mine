@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { forkUpdatePrompt, isNewerVersion } from "./forkUpdates";
+import { forkInstallPrompt, forkUpdatePrompt, isNewerVersion } from "./forkUpdates";
 
 describe("isNewerVersion", () => {
   it("compares stable versions numerically", () => {
@@ -8,6 +8,7 @@ describe("isNewerVersion", () => {
     expect(isNewerVersion("v0.1.0", "0.0.99")).toBe(true);
     expect(isNewerVersion("0.0.45", "0.0.45")).toBe(false);
     expect(isNewerVersion("0.0.44", "0.0.45")).toBe(false);
+    expect(isNewerVersion("0.1.701", "0.1.601")).toBe(true);
   });
 
   it("ignores versions it cannot read, such as nightlies", () => {
@@ -21,5 +22,16 @@ describe("forkUpdatePrompt", () => {
     expect(prompt).toContain("v0.0.46");
     expect(prompt).toContain("v0.0.45");
     expect(prompt).toContain("FORK.md");
+  });
+});
+
+describe("forkInstallPrompt", () => {
+  it("links the release's Mac build and waits for the app to quit", () => {
+    const prompt = forkInstallPrompt(
+      { version: "0.1.701", url: "https://example.test" },
+      "0.1.601",
+    );
+    expect(prompt).toContain("/releases/download/v0.1.701/T3-Code-0.1.701-arm64.zip");
+    expect(prompt).toContain("v0.1.601");
   });
 });
