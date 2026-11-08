@@ -12,6 +12,7 @@ import {
   upstreamReleaseCheck,
 } from "../../forkUpdates";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useScratchProject } from "../../hooks/useScratchProject";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { useProjects } from "../../state/entities";
 import { primaryServerConfigAtom } from "../../state/server";
@@ -23,7 +24,7 @@ import { RailDot } from "./RailDot";
 // The fork's rail update control. When a release is out, clicking opens a chat
 // with instructions waiting in the composer (forkUpdates.ts): "upstream" moves
 // the fork onto upstream's release in the fork's project (maintainer builds);
-// "release" installs the fork's newest release (unsigned Mac builds).
+// "release" installs the fork's newest release in a No project chat (unsigned Mac builds).
 export function ForkUpdateRailButton({ source }: { source: "upstream" | "release" }) {
   const serverVersion = useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
   const appVersion = useDesktopUpdateState()?.currentVersion ?? null;
@@ -32,6 +33,7 @@ export function ForkUpdateRailButton({ source }: { source: "upstream" | "release
   const { checking, update, checkedAt } = releaseCheck.use(currentVersion);
   const projects = useProjects();
   const handleNewThread = useNewThreadHandler();
+  const { scratchEnvironmentId, openScratchProject } = useScratchProject();
   // Keep the spinner turning for at least one full turn on a manual check, so a
   // fast response still reads as "checked".
   const [spinning, setSpinning] = useState(false);
@@ -39,20 +41,13 @@ export function ForkUpdateRailButton({ source }: { source: "upstream" | "release
   const startUpdateChat = async () => {
     if (update === null || currentVersion === null) return;
     if (source === "release") {
-      const project = projects[0];
-      if (!project) {
-        toastManager.add({
-          type: "error",
-          title: "No project",
-          description: "Add a project first. The update chat starts in one.",
+      // Installing needs no repo, so it runs as a No project chat.
+      const environmentId = scratchEnvironmentId(null);
+      const project = environmentId === null ? null : await openScratchProject(environmentId);
+      if (project) {
+        await handleNewThread(scopeProjectRef(project.environmentId, project.id), {
+          prompt: forkInstallPrompt(update, currentVersion),
         });
-        return;
-      }
-      const draft = await handleNewThread(scopeProjectRef(project.environmentId, project.id));
-      if (draft) {
-        useComposerDraftStore
-          .getState()
-          .setPrompt(draft.draftId, forkInstallPrompt(update, currentVersion));
       }
       return;
     }
