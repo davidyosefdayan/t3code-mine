@@ -26,6 +26,25 @@ export interface ElectronMenuTemplateInput {
   readonly frame?: Electron.WebFrameMain;
 }
 
+// SF Symbols are not square; scale one to fit a `size`-point square and center
+// it, drawn at 2x, so it keeps its proportions and titles stay aligned.
+function fitMenuSymbol(image: Electron.NativeImage, size: number): Electron.NativeImage {
+  const natural = image.getSize();
+  if (image.isEmpty() || natural.width <= 0 || natural.height <= 0) return image;
+  const box = size * 2;
+  const scale = box / Math.max(natural.width, natural.height);
+  const width = Math.max(1, Math.round(natural.width * scale));
+  const height = Math.max(1, Math.round(natural.height * scale));
+  const source = image.resize({ width, height, quality: "best" }).toBitmap();
+  const canvas = Buffer.alloc(box * box * 4);
+  const left = Math.floor((box - width) / 2);
+  const top = Math.floor((box - height) / 2);
+  for (let row = 0; row < height; row++) {
+    source.copy(canvas, ((top + row) * box + left) * 4, row * width * 4, (row + 1) * width * 4);
+  }
+  return Electron.nativeImage.createFromBitmap(canvas, { width: box, height: box, scaleFactor: 2 });
+}
+
 const ElectronMenuOperation = Schema.Literals([
   "set-application-menu",
   "popup-template",
@@ -129,10 +148,7 @@ export const make = Effect.gen(function* () {
     }
 
     try {
-      const icon = Electron.nativeImage.createFromNamedImage("trash").resize({
-        width: 12,
-        height: 12,
-      });
+      const icon = fitMenuSymbol(Electron.nativeImage.createFromNamedImage("trash"), 12);
       icon.setTemplateImage(true);
       destructiveMenuIconCache = icon.isEmpty() ? Option.none() : Option.some(icon);
     } catch {
@@ -151,10 +167,7 @@ export const make = Effect.gen(function* () {
     if (cached !== undefined) return cached;
     let icon: Option.Option<Electron.NativeImage> = Option.none();
     try {
-      const image = Electron.nativeImage.createFromNamedImage(symbol).resize({
-        width: 14,
-        height: 14,
-      });
+      const image = fitMenuSymbol(Electron.nativeImage.createFromNamedImage(symbol), 14);
       image.setTemplateImage(true);
       if (!image.isEmpty()) icon = Option.some(image);
     } catch {
