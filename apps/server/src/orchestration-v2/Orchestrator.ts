@@ -4103,7 +4103,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           if (
             next === null
               ? current === null
-              : current?.kind === next.kind && current.reason === next.reason
+              : current?.kind === next.kind &&
+                current.reason === next.reason &&
+                current.wakeOnMerge === next.wakeOnMerge &&
+                current.pullRequest?.number === next.pullRequest?.number &&
+                current.pullRequest?.repository === next.pullRequest?.repository
           ) {
             return thread;
           }
@@ -4470,6 +4474,70 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         occurredAt: now,
         payload: link,
       });
+      // Personal build: a "Needs you" mark naming this pull request ends when it merges or closes.
+      const waiting = updatedThread.waitingOnYou;
+      const state = link.snapshot?.state;
+      if (
+        command.type === "thread.pull-request-link.sync" &&
+        waiting?.pullRequest !== undefined &&
+        (state === "merged" || state === "closed") &&
+        threadPullRequestKeysEqual(
+          normalizeThreadPullRequestKey(waiting.pullRequest),
+          normalizeThreadPullRequestKey(command),
+        )
+      ) {
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: updatedThread.providerInstanceId,
+          occurredAt: now,
+          payload: { ...updatedThread, waitingOnYou: null, updatedAt: now },
+        });
+        if (
+          waiting.wakeOnMerge === true &&
+          state === "merged" &&
+          updatedThread.archivedAt === null &&
+          updatedThread.settledOverride !== "settled"
+        ) {
+          // A wake that can't start must not block the sync, or the mark would never clear.
+          const committed = { events: yield* Ref.get(events), effects: yield* Ref.get(effects) };
+          yield* dispatchMessage(
+            {
+              type: "message.dispatch",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              messageId: MessageId.make(`message:needs-you-merged:${command.commandId}`),
+              text: `Pull request #${link.number} (${link.url}) was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.`,
+              notification: {
+                source: { kind: "monitor" },
+                outcome: "updated",
+                summary: `#${link.number}: merged`,
+              },
+              attachments: [],
+              dispatchMode: { type: "queue_after_active" },
+              createdBy: "agent",
+              creationSource: "server",
+            },
+            events,
+            effects,
+          ).pipe(
+            Effect.catch((error) =>
+              Ref.set(events, committed.events).pipe(
+                Effect.andThen(Ref.set(effects, committed.effects)),
+                Effect.andThen(
+                  Effect.logWarning("Needs you merge wake could not start", {
+                    threadId: command.threadId,
+                    error,
+                  }),
+                ),
+              ),
+            ),
+          );
+        }
+      }
       return;
     }
     const eventType = (() => {

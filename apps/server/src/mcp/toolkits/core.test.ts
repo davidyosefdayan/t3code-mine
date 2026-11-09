@@ -435,6 +435,15 @@ const messagesToolkitWith = (dispatched: Array<unknown>) =>
     Layer.provide(
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+        getProjectThreadRecords: ({ threadId: id }) => {
+          const projection = McpToolAccessTestkit.idleThreadProjection(
+            McpToolAccessTestkit.liveThreadShell(id),
+          );
+          return Effect.succeed({
+            ...projection,
+            thread: { ...projection.thread, pullRequests: [linkedPullRequest] },
+          } as never);
+        },
         dispatch: (command) => {
           dispatched.push(command);
           return Effect.succeed({ sequence: 1 } as never);
@@ -442,6 +451,16 @@ const messagesToolkitWith = (dispatched: Array<unknown>) =>
       }),
     ),
   );
+const linkedPullRequest = {
+  host: "github.com",
+  repository: "acme/app",
+  number: 7,
+  url: "https://github.com/acme/app/pull/7",
+  source: "agent" as const,
+  linkedAt: "2026-11-01T00:00:00.000Z",
+  snapshot: null,
+  stack: null,
+};
 
 it.effect("shows message_user to thread agents only, always loaded", () =>
   Effect.gen(function* () {
@@ -464,7 +483,7 @@ it.effect("shows message_user to thread agents only, always loaded", () =>
   }).pipe(Effect.provide(messagesToolkitWith([]))),
 );
 
-it.effect("sets and clears Needs you on the calling thread only", () => {
+it.effect("sets and clears Needs you, tied to a linked PR when named", () => {
   const dispatched: Array<unknown> = [];
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -485,6 +504,19 @@ it.effect("sets and clears Needs you on the calling thread only", () => {
       waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
     });
     expect((yield* call({ action: "clear" })).structuredContent).toEqual({ waitingOnYou: null });
+    const tied = yield* call({
+      action: "set",
+      kind: "merge",
+      reason: "PR #7",
+      pullRequest: 7,
+      wakeOnMerge: true,
+    });
+    expect(tied.structuredContent).toMatchObject({
+      waitingOnYou: {
+        pullRequest: { host: "github.com", repository: "acme/app", number: 7 },
+        wakeOnMerge: true,
+      },
+    });
     expect(dispatched).toMatchObject([
       {
         type: "thread.waiting-on-you.set",
@@ -492,7 +524,17 @@ it.effect("sets and clears Needs you on the calling thread only", () => {
         waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
       },
       { type: "thread.waiting-on-you.set", threadId, waitingOnYou: null },
+      {
+        type: "thread.waiting-on-you.set",
+        threadId,
+        waitingOnYou: { pullRequest: { repository: "acme/app", number: 7 }, wakeOnMerge: true },
+      },
     ]);
+    const unlinked = yield* call({ action: "set", kind: "merge", reason: "x", pullRequest: 8 });
+    expect(unlinked.isError).toBe(true);
+    expect(unlinked.content[0]).toMatchObject({
+      text: expect.stringContaining("PR #8 is not linked"),
+    });
 
     const missingReason = yield* call({ action: "set", kind: "decision" });
     expect(missingReason.isError).toBe(true);
@@ -501,7 +543,7 @@ it.effect("sets and clears Needs you on the calling thread only", () => {
     });
     const outside = yield* call({ action: "clear" }, { ...scope, thread: undefined });
     expect(outside.isError).toBe(true);
-    expect(dispatched).toHaveLength(2);
+    expect(dispatched).toHaveLength(3);
   }).pipe(Effect.provide(messagesToolkitWith(dispatched)));
 });
 

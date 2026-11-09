@@ -46,11 +46,7 @@ import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
-import {
-  ThreadWaitingOnYou,
-  ThreadWaitingOnYouKind,
-  ThreadWaitingOnYouReason,
-} from "./threadWaitingOnYou.ts";
+import { ThreadWaitingOnYou, ThreadWaitingOnYouRequest } from "./threadWaitingOnYou.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -3077,9 +3073,7 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.waiting-on-you.set"),
     commandId: CommandId,
     threadId: ThreadId,
-    waitingOnYou: Schema.NullOr(
-      Schema.Struct({ kind: ThreadWaitingOnYouKind, reason: ThreadWaitingOnYouReason }),
-    ),
+    waitingOnYou: Schema.NullOr(ThreadWaitingOnYouRequest),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin.reorder"),

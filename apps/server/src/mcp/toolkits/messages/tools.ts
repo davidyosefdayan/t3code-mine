@@ -1,7 +1,10 @@
 import {
   OrchestratorMcpFailure,
+  PositiveInt,
+  ThreadId,
   ThreadWaitingOnYouKind,
   ThreadWaitingOnYouReason,
+  ThreadWaitingOnYouRequest,
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
@@ -40,11 +43,11 @@ export const MessageUserTool = Tool.make("message_user", {
   // has to search for this tool first mostly won't.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
-// Personal build: the agent puts its own thread in "Needs you", with a reason
-// the sidebar shows, when the user or a skill asks. Pending prompts count without it.
+// Personal build: an agent puts a thread in "Needs you", with a reason the
+// sidebar shows, when the user or a skill asks. Pending prompts count without it.
 const NeedsYouTool = Tool.make("t3_needs_you", {
   description:
-    "Put this thread in the user's \"Needs you\" section with a short reason, or take it out. Use it only when the user or a skill tells you to, such as when a PR is ready to merge; don't use it on your own. It stays until you clear it, and reading the thread doesn't clear it. Pending approvals and questions show there without this.",
+    "Put a thread in the user's \"Needs you\" section with a short reason, or take it out. Omit `threadId` for this thread. Use it only when the user or a skill tells you to, such as when a PR is ready to merge; don't use it on your own. It stays until cleared, and reading the thread doesn't clear it. With `pullRequest`, T3 clears it when that PR merges or closes, and `wakeOnMerge` wakes you after the merge. Pending approvals and questions show there without this.",
   parameters: Schema.Struct({
     action: Schema.Literals(["set", "clear"]),
     kind: Schema.optional(ThreadWaitingOnYouKind).annotate({
@@ -55,11 +58,16 @@ const NeedsYouTool = Tool.make("t3_needs_you", {
       description:
         'For set. One short line on what they need to do, like "PR #1058 is ready to merge".',
     }),
+    pullRequest: Schema.optional(PositiveInt).annotate({
+      description: "For set. The number of a PR linked to the thread that this waits on.",
+    }),
+    wakeOnMerge: Schema.optional(Schema.Boolean).annotate({
+      description: "For set with pullRequest. Wake this thread's agent once the PR merges.",
+    }),
+    threadId: Schema.optional(ThreadId),
   }),
   success: Schema.Struct({
-    waitingOnYou: Schema.NullOr(
-      Schema.Struct({ kind: ThreadWaitingOnYouKind, reason: ThreadWaitingOnYouReason }),
-    ),
+    waitingOnYou: Schema.NullOr(ThreadWaitingOnYouRequest),
   }),
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,

@@ -2498,6 +2498,82 @@ it.layer(layerLegacyImportTest)("OrchestrationV2 legacy import", (it) => {
 });
 
 it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
+  // Personal build: a "Merge ready" mark naming a PR ends when the PR merges, and can wake the agent.
+  it.effect("clears a Needs you mark when its pull request merges and wakes the agent", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const key = { host: "github.com", repository: "acme/app", number: 7 };
+      yield* seedProject({
+        projectId: ProjectId.make("needs-you-project"),
+        title: "Needs you",
+        workspaceRoot: "/workspace/needs-you",
+        defaultModelSelection: null,
+        createdAt: "2026-11-01T00:00:00.000Z",
+      });
+      const wakesAfterMerge = Effect.fn(function* (name: string, projectId: string) {
+        const threadId = ThreadId.make(`needs-you-${name}`);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`needs-you-${name}-create`),
+          threadId,
+          projectId: ProjectId.make(projectId),
+          title: "Needs you merge",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.link",
+          commandId: CommandId.make(`needs-you-${name}-link`),
+          threadId,
+          ...key,
+          url: "https://github.com/acme/app/pull/7",
+          source: "agent",
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.waiting-on-you.set",
+          commandId: CommandId.make(`needs-you-${name}-set`),
+          threadId,
+          waitingOnYou: { kind: "merge", reason: "PR #7", pullRequest: key, wakeOnMerge: true },
+        });
+        for (const state of ["open", "merged"] as const) {
+          if (state === "merged") {
+            assert.deepInclude((yield* orchestrator.getThreadShell(threadId))?.waitingOnYou, {
+              reason: "PR #7",
+            });
+          }
+          yield* orchestrator.dispatch({
+            type: "thread.pull-request-link.sync",
+            commandId: CommandId.make(`needs-you-${name}-${state}`),
+            threadId,
+            ...key,
+            snapshot: {
+              state,
+              title: "Feature",
+              headBranch: "feature",
+              baseBranch: "main",
+              isDraft: false,
+              updatedAt: null,
+              syncedAt: "2026-11-09T12:00:00.000Z",
+            },
+            stack: null,
+          });
+        }
+        assert.isNull((yield* orchestrator.getThreadShell(threadId))?.waitingOnYou);
+        const { messages } = yield* orchestrator.getThreadProjection(threadId);
+        return messages.filter((message) => message.text.includes("was merged")).length;
+      });
+
+      assert.equal(yield* wakesAfterMerge("wake", "needs-you-project"), 1);
+      // A wake that cannot start (here its project is gone) still clears the mark.
+      assert.equal(yield* wakesAfterMerge("no-project", "needs-you-missing-project"), 0);
+    }),
+  );
+
   it.effect("applies lifecycle commands idempotently and emits archive/removal shell deltas", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -2687,6 +2763,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         });
       yield* setWaiting("set", { kind: "merge", reason: "PR #1058 is ready to merge" });
       const waiting = shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou;
+      assert.exists(waiting);
       assert.deepInclude(waiting, { kind: "merge", reason: "PR #1058 is ready to merge" });
       yield* TestClock.adjust("1 minute");
       yield* setWaiting("reword", { kind: "merge", reason: "PR #1058 is green and ready" });
@@ -2700,12 +2777,12 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.deepEqual(shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou, {
         kind: "merge",
         reason: "PR #1058 is green and ready",
-        since: waiting?.since,
+        since: waiting.since,
       });
       yield* setWaiting("new-kind", { kind: "decision", reason: "Choose how refunds split" });
       assert.notEqual(
         shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou?.since,
-        waiting?.since,
+        waiting.since,
       );
       yield* setWaiting("clear", null);
       assert.isNull(shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou);
