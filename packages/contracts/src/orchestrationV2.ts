@@ -21,6 +21,7 @@ import {
   MessageId,
   EnvironmentId,
   NodeId,
+  ForwardCompatibleOptional,
   ForwardCompatibleUnion,
   ForwardCompatibleUnionArray,
   hasUnknownUnionTag,
@@ -45,6 +46,11 @@ import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
+import {
+  ThreadWaitingOnYou,
+  ThreadWaitingOnYouKind,
+  ThreadWaitingOnYouReason,
+} from "./threadWaitingOnYou.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -493,6 +499,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  // Personal build: what the agent handed back to the user (`t3_waiting_on_user`).
+  waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2174,6 +2182,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  // Personal build: what the agent handed back to the user (`t3_waiting_on_user`).
+  waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
   titleRegeneration: Schema.optional(
@@ -3061,6 +3071,15 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     tag: ThreadTag,
     tagged: Schema.Boolean,
+  }),
+  // Personal build: null clears it.
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting-on-you.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    waitingOnYou: Schema.NullOr(
+      Schema.Struct({ kind: ThreadWaitingOnYouKind, reason: ThreadWaitingOnYouReason }),
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin.reorder"),

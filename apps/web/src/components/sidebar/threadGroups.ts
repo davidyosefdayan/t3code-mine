@@ -1,9 +1,8 @@
-// Personal build: the thread list's groups (Unread, Pinned, Open, Working,
-// Snoozed, Settled) and what each row's second line says. Sidebar.tsx keeps
-// upstream's partition and calls into these.
+// Personal build: the thread list's groups (Waiting on you, Working, Pinned,
+// Open, Snoozed, Settled) and what each row's second line says. Sidebar.tsx
+// keeps upstream's partition and calls into these.
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
 
@@ -11,15 +10,13 @@ import { useLocalStorage } from "../../hooks/useLocalStorage";
 import type { SidebarThreadSummary } from "../../types";
 import { liveWorkLine } from "../liveWorkLine";
 import { sidebarMessagePreview } from "../messagePreview";
-import { isThreadUnread } from "../needsYouCount";
+import { threadWaitingOnYou, WAITING_ON_YOU_LABELS } from "../needsYouCount";
 import {
   isThreadWorking as isSidebarThreadWorking,
-  sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   firstValidTimestampMs,
-  resolveThreadLastVisitedAt,
   sortArrangedThreads,
   type SidebarThreadStatus,
 } from "../Sidebar.logic";
@@ -27,7 +24,7 @@ import { getVisibleSidebarGroupThreads } from "../Sidebar.visibility";
 
 /** Groups that collapse from their title. Snoozed and Settled keep upstream's
     own shelf toggles. */
-export type SidebarGroupId = "drafts" | "unread" | "pinned" | "open" | "working";
+export type SidebarGroupId = "drafts" | "waiting-on-you" | "pinned" | "open" | "working";
 
 const COLLAPSED_GROUPS_STORAGE_KEY = "t3code:sidebar-collapsed-groups";
 const CollapsedGroupsSchema = Schema.Array(Schema.String);
@@ -66,21 +63,16 @@ export function visibleGroupThreads(
   });
 }
 
-/** Pinned and Open are homes you arrange; Unread and Working are states. While
-    a chat is in one it shows in that state's group, pinned or not, and
-    afterwards it goes back to its spot at home. */
+/** Pinned and Open are homes you arrange; Waiting on you and Working are
+    states a chat joins and leaves, pinned or not. Waiting on you outranks
+    Working, so a chat that needs you stays in view while its agent keeps
+    going. Unread is a dot on the row, not a group. */
 export function sidebarThreadState(
   thread: EnvironmentThreadShell,
-  localLastVisitedAtByKey: Readonly<Record<string, string>>,
-  now: string,
   isWorking: (thread: EnvironmentThreadShell) => boolean = isSidebarThreadWorking,
-): "working" | "unread" | null {
-  if (isWorking(thread)) return "working";
-  const lastVisitedAt = resolveThreadLastVisitedAt(
-    thread.lastVisitedAt,
-    localLastVisitedAtByKey[threadKeyOf(thread)],
-  );
-  return isThreadUnread(thread, lastVisitedAt, now) ? "unread" : null;
+): "waiting-on-you" | "working" | null {
+  if (threadWaitingOnYou(thread) !== null) return "waiting-on-you";
+  return isWorking(thread) ? "working" : null;
 }
 
 // Homes keep your order, and anything that arrives without a drag (a new
@@ -101,17 +93,16 @@ export function sortOpenHome<T extends EnvironmentThreadShell>(threads: readonly
   );
 }
 
-/** Unread is a queue, oldest at the top, by when each chat started waiting on
-    you (it came back to the inbox, or its snooze woke). */
-export function sortUnreadByArrival<T extends EnvironmentThreadShell>(
+/** Waiting on you is a queue, oldest at the top, by when each chat started
+    waiting. */
+export function sortWaitingOnYouBySince<T extends EnvironmentThreadShell>(
   threads: readonly T[],
-  now: string,
-  returnedAt: (thread: T) => number | undefined,
 ): T[] {
-  return sortInboxThreadsByReturn(threads, (thread) => {
-    const wokeAt = threadWokeAt(thread, { now });
-    return Math.max(returnedAt(thread) ?? 0, wokeAt === null ? 0 : firstValidTimestampMs(wokeAt));
-  }).toReversed();
+  return threads.toSorted(
+    (left, right) =>
+      firstValidTimestampMs(threadWaitingOnYou(left)?.since ?? null) -
+      firstValidTimestampMs(threadWaitingOnYou(right)?.since ?? null),
+  );
 }
 
 /** By the last message you sent, newest at the bottom; finishing and waking
@@ -128,12 +119,10 @@ interface RowStatus {
   readonly className: string;
 }
 
-/** A row's gray second line: why the chat is here, in its status color, then
-    the latest reply (like a messages app). Unsent text you're writing
-    outranks the status: you're already answering it. Unread and Working say
-    "done" and "working" through their groups, so neither repeats here. A
-    failed chat says why, and while the agent works its last reply is stale,
-    so the line says what it's doing now. */
+/** A row's gray second line: its status in color, then the latest reply.
+    Unsent text outranks the status. A chat waiting on you says what for, in
+    the agent's words; a failed chat says why; a working one says what it's
+    doing now, since its last reply is stale. */
 export function resolveThreadRowLine(input: {
   readonly thread: SidebarThreadSummary;
   readonly status: SidebarThreadStatus;
@@ -143,18 +132,29 @@ export function resolveThreadRowLine(input: {
   readonly fallback: readonly (string | null | undefined)[];
 }): { readonly status: RowStatus | null; readonly details: string } {
   const { thread, topStatus, hasUnsentDraft } = input;
+  // Approvals, questions, and guest requests keep their own labels below.
+  const agentWaiting = thread.waitingOnYou ?? null;
   const lineStatus: RowStatus | null = hasUnsentDraft
     ? { label: "Draft", icon: "draft", className: "text-warning-foreground" }
-    : topStatus?.icon === "done" || topStatus?.icon === "working" || topStatus === null
-      ? null
+    : topStatus?.icon === "approval" ||
+        topStatus?.icon === "input" ||
+        topStatus?.icon === "request" ||
+        agentWaiting === null
+      ? topStatus?.icon === "done" || topStatus?.icon === "working" || topStatus === null
+        ? null
+        : {
+            ...topStatus,
+            label:
+              topStatus.icon === "approval"
+                ? "Asks for approval"
+                : topStatus.icon === "input"
+                  ? "Needs your input"
+                  : topStatus.label,
+          }
       : {
-          ...topStatus,
-          label:
-            topStatus.icon === "approval"
-              ? "Asks for approval"
-              : topStatus.icon === "input"
-                ? "Needs your input"
-                : topStatus.label,
+          label: WAITING_ON_YOU_LABELS[agentWaiting.kind],
+          icon: "waiting-on-you",
+          className: "text-warning-foreground",
         };
   const draftPreview = hasUnsentDraft
     ? sidebarMessagePreview(
@@ -168,6 +168,7 @@ export function resolveThreadRowLine(input: {
   const workingDetails = input.status === "working" ? liveWorkLine(thread) : null;
   const details =
     draftPreview ??
+    (lineStatus?.icon === "waiting-on-you" ? agentWaiting?.reason : null) ??
     failurePreview ??
     workingDetails ??
     sidebarMessagePreview(thread.latestVisibleMessage?.text) ??

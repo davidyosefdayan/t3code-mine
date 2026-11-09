@@ -603,6 +603,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pin.reorder":
     case "thread.active.reorder":
     case "thread.tag.set":
+    case "thread.waiting-on-you.set":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -3514,6 +3515,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unpin"
           | "thread.pin.reorder"
           | "thread.tag.set"
+          | "thread.waiting-on-you.set"
           | "thread.active.reorder"
           | "thread.mark-unread"
           | "thread.metadata.update"
@@ -4094,6 +4096,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : current.filter((tag) => tag !== command.tag),
           };
         }
+        // Personal build: a new kind restarts the wait; a reworded reason keeps it.
+        case "thread.waiting-on-you.set": {
+          const current = thread.waitingOnYou ?? null;
+          const next = command.waitingOnYou;
+          if (
+            next === null
+              ? current === null
+              : current?.kind === next.kind && current.reason === next.reason
+          ) {
+            return thread;
+          }
+          return {
+            ...thread,
+            waitingOnYou:
+              next === null
+                ? null
+                : {
+                    ...next,
+                    since: current?.kind === next.kind ? current.since : DateTime.formatIso(now),
+                  },
+            updatedAt: now,
+          };
+        }
         case "thread.mark-unread": {
           // Retire the wake before rewinding the visit, preserving its settlement timer.
           const snoozeExpired =
@@ -4477,6 +4502,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        // Personal build: an existing event type, so older apps on the same database still read it.
+        case "thread.waiting-on-you.set":
           return "thread.metadata-updated" as const;
         case "thread.pull-request.link":
         case "thread.pull-request.unlink":
@@ -13696,6 +13723,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pin.reorder":
       case "thread.active.reorder":
       case "thread.tag.set":
+      case "thread.waiting-on-you.set":
       case "thread.mark-unread":
       case "thread.metadata.update":
       case "thread.pull-request.link":

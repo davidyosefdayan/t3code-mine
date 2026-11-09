@@ -2674,6 +2674,43 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         DateTime.toEpochMillis(untaggedShell.updatedAt),
       );
 
+      // Personal build: Waiting on you stays until the agent clears it; reading the thread keeps it.
+      const setWaiting = (
+        step: string,
+        waitingOnYou: { kind: "merge" | "decision"; reason: string } | null,
+      ) =>
+        orchestrator.dispatch({
+          type: "thread.waiting-on-you.set",
+          commandId: CommandId.make(`runtime-layer-lifecycle-waiting-${step}`),
+          threadId,
+          waitingOnYou,
+        });
+      yield* setWaiting("set", { kind: "merge", reason: "PR #1058 is ready to merge" });
+      const waiting = shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou;
+      assert.deepInclude(waiting, { kind: "merge", reason: "PR #1058 is ready to merge" });
+      yield* TestClock.adjust("1 minute");
+      yield* setWaiting("reword", { kind: "merge", reason: "PR #1058 is green and ready" });
+      yield* orchestrator.dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make("runtime-layer-lifecycle-waiting-visit"),
+        threadId,
+        visitedAt: DateTime.formatIso(yield* DateTime.now),
+        opened: true,
+      });
+      assert.deepEqual(shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou, {
+        kind: "merge",
+        reason: "PR #1058 is green and ready",
+        since: waiting?.since,
+      });
+      yield* setWaiting("new-kind", { kind: "decision", reason: "Choose how refunds split" });
+      assert.notEqual(
+        shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou?.since,
+        waiting?.since,
+      );
+      yield* setWaiting("clear", null);
+      assert.isNull(shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou);
+      assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.waitingOnYou);
+
       const preAutoProjection = yield* orchestrator.getThreadProjection(threadId);
       const staleAutoSettle = yield* orchestrator
         .dispatch({

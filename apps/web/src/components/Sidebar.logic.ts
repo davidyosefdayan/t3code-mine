@@ -180,9 +180,15 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
 // Snoozed rows cannot accept drops without a wake time. Working rows only drag out as chat context.
-// Personal build: neither is "Unread", which sits above the pins.
+// Personal build: nor can "Waiting on you", which sits above Working and the pins.
 
-export type SidebarSection = "unread" | "pinned" | "active" | "working" | "snoozed" | "settled";
+export type SidebarSection =
+  | "waiting-on-you"
+  | "working"
+  | "pinned"
+  | "active"
+  | "snoozed"
+  | "settled";
 
 export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
@@ -198,8 +204,8 @@ export function resolveSidebarThreadSection(input: {
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
 
 export type SidebarListMarker =
-  /** Personal build: heads the "Unread" rows above the pins. */
-  | "unread-header"
+  /** Personal build: heads the "Waiting on you" rows at the top. */
+  | "waiting-on-you-header"
   | "pinned-header"
   | "active-placeholder"
   | "settled-placeholder"
@@ -221,11 +227,11 @@ export function sidebarListItemId(item: SidebarListItem): string {
 }
 
 /** The section a slot belongs to, read off the markers around it: from
-    the top down, everything before the pinned header is unread, then pins
-    until the pinned divider, then the inbox until the first shelf header,
-    each shelf until the next header, then settled. */
+    the top down, Waiting on you until the Working header, Working until the
+    pinned header, then pins until the pinned divider, then the inbox until
+    the first shelf header, each shelf until the next header, then settled. */
 function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number): SidebarSection {
-  let section: SidebarSection = "unread";
+  let section: SidebarSection = "waiting-on-you";
   for (let i = 0; i < index && i < items.length; i += 1) {
     const item = items[i]!;
     if (item.kind !== "marker") continue;
@@ -254,8 +260,8 @@ export function resolveSidebarDropTarget(
   if (activeIndex === -1 || overIndex === -1 || items[activeIndex]?.kind !== "thread") return null;
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
-  // Personal build: the Pinned title has Unread above it, so a row
-  // dropped on the title goes first in Pinned, below the title.
+  // Personal build: the Pinned title has Waiting on you and Working above
+  // it, so a row dropped on the title goes first in Pinned, below the title.
   let slot = overIndex;
   const next = moved[slot + 1];
   if (next?.kind === "marker" && next.marker === "pinned-header") {
@@ -264,20 +270,16 @@ export function resolveSidebarDropTarget(
     slot += 1;
   }
   const section = sectionAtSidebarSlot(moved, slot);
-  if (section === "unread" || section === "working" || section === "snoozed") return null;
+  if (section === "waiting-on-you" || section === "working" || section === "snoozed") return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
-  let currentSection: SidebarSection = "unread";
+  let currentSection: SidebarSection = "waiting-on-you";
   for (const item of moved) {
     if (item.kind === "marker") {
-      if (item.marker === "pinned-header") currentSection = "pinned";
+      if (item.marker === "working-header") currentSection = "working";
+      else if (item.marker === "pinned-header") currentSection = "pinned";
       else if (item.marker === "pinned-divider") currentSection = "active";
-      else if (
-        item.marker === "working-header" ||
-        item.marker === "snoozed-header" ||
-        item.marker === "settled-header"
-      )
-        break;
+      else if (item.marker === "snoozed-header" || item.marker === "settled-header") break;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
     else if (currentSection === "active") activeOrder.push(item.key);
   }
@@ -313,7 +315,7 @@ export function resolveSidebarDropVerb(
   from: SidebarSection,
   to: SidebarSection | null,
 ): SidebarDropVerb | null {
-  if (to === null || to === from || to === "unread" || to === "working" || to === "snoozed")
+  if (to === null || to === from || to === "waiting-on-you" || to === "working" || to === "snoozed")
     return null;
   if (to === "pinned") return "pin";
   if (to === "settled") return "settle";
@@ -399,9 +401,9 @@ export function planSidebarThreadDrop(input: {
     activeKeysById,
     activeReorderableKeys,
   } = input;
-  // Personal build: Unread follows live status like Working, so its rows also
-  // drag out only as chat context.
-  if (activeSection === "working" || activeSection === "unread") return { kind: "none" };
+  // Personal build: Waiting on you follows live status like Working, so its
+  // rows also drag out only as chat context.
+  if (activeSection === "working" || activeSection === "waiting-on-you") return { kind: "none" };
   if (input.supportsSettlement === false && (target.section === "settled" || activeSettled)) {
     return { kind: "none" };
   }

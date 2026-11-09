@@ -10,8 +10,8 @@ import {
   type SidebarSection,
 } from "./Sidebar.logic";
 
-// Personal build: Pinned and Open are homes you arrange; Unread sits above
-// them and follows live status.
+// Personal build: Pinned and Open are homes you arrange; Waiting on you and
+// Working sit above them and follow live status.
 
 describe("sortArrangedThreads", () => {
   const row = (id: string, orderKey: string | null, arrivedAt: string) => ({
@@ -39,7 +39,7 @@ describe("sortArrangedThreads", () => {
   });
 });
 
-describe("resolveSidebarDropTarget with Unread above the pins", () => {
+describe("resolveSidebarDropTarget with Waiting on you and Working above the pins", () => {
   const thread = (key: string, section: SidebarSection): SidebarListItem => ({
     kind: "thread",
     key,
@@ -47,19 +47,20 @@ describe("resolveSidebarDropTarget with Unread above the pins", () => {
   });
   const marker = (name: SidebarListMarker): SidebarListItem => ({ kind: "marker", marker: name });
   const items: readonly SidebarListItem[] = [
-    marker("unread-header"),
-    thread("u1", "unread"),
+    marker("waiting-on-you-header"),
+    thread("u1", "waiting-on-you"),
+    marker("working-header"),
+    thread("w1", "working"),
     marker("pinned-header"),
     thread("p1", "pinned"),
     marker("pinned-divider"),
     marker("active-placeholder"),
     thread("a1", "active"),
     thread("a2", "active"),
-    marker("working-header"),
-    thread("w1", "working"),
+    marker("settled-header"),
   ];
 
-  it("lands first in Pinned when dropped on the Pinned title, leaving Unread out", () => {
+  it("lands first in Pinned when dropped on the Pinned title, leaving the states out", () => {
     expect(resolveSidebarDropTarget(items, "a2", sidebarMarkerId("pinned-header"))).toEqual({
       section: "pinned",
       pinnedOrder: ["a2", "p1"],
@@ -67,7 +68,7 @@ describe("resolveSidebarDropTarget with Unread above the pins", () => {
     });
   });
 
-  it("reorders Open without counting Unread rows", () => {
+  it("reorders Open without counting Waiting on you or Working rows", () => {
     expect(resolveSidebarDropTarget(items, "a2", "a1")).toEqual({
       section: "active",
       pinnedOrder: ["p1"],
@@ -75,8 +76,9 @@ describe("resolveSidebarDropTarget with Unread above the pins", () => {
     });
   });
 
-  it("never drops into Unread", () => {
+  it("never drops into Waiting on you or Working", () => {
     expect(resolveSidebarDropTarget(items, "a1", "u1")).toBeNull();
-    expect(resolveSidebarDropVerb("active", "unread")).toBeNull();
+    expect(resolveSidebarDropTarget(items, "a1", "w1")).toBeNull();
+    expect(resolveSidebarDropVerb("active", "waiting-on-you")).toBeNull();
   });
 });

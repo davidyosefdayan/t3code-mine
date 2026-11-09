@@ -11,7 +11,7 @@ import {
   ThreadRowMetaLine,
   ThreadRowSecondLine,
 } from "./ThreadRowParts";
-import { isYourTurnUnseen, yourTurnSince } from "../needsYouCount";
+import { isYourTurnUnseen, threadWaitingOnYou, yourTurnSince } from "../needsYouCount";
 import { resolveThreadRowLine } from "./threadGroups";
 import { ReadAloudThreadIndicator } from "./ReadAloudThreadIndicator";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
@@ -548,8 +548,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
   // Personal build: unread covers a finished turn, an approval, question, or
-  // failure you haven't looked at, and a woken snooze (the Unread group's
-  // rule). "Mark as read" or opening the thread clears any of them.
+  // failure you haven't looked at, and a woken snooze (the row's dot).
+  // "Mark as read" or opening the thread clears any of them.
   const showsAsUnread = isWoke || isYourTurnUnseen(thread, lastVisitedAt);
   const canToggleRead = yourTurnSince(thread) !== null || isWoke;
   const handleToggleReadClick = (event: ReactMouseEvent) => {
@@ -815,13 +815,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     fallback: [props.projectDisplayName ? null : props.scratchMachineLabel],
   });
   // Personal build: one time per row. Snoozed chats show when they come back,
-  // settled ones when they were settled, working ones how long the agent has
-  // been at it (waiting ones since the turn ended), else the last activity.
+  // settled ones when they were settled, chats waiting on you since when,
+  // working ones how long the agent has been at it, else the last activity.
+  const waitingOnYouSince = threadWaitingOnYou(thread)?.since ?? null;
   const rowTime =
     variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
       props.snoozeWakeLabelText
     ) : variantAction === "unsettle" ? (
       <RelativeTimeLabel timestamp={resolveSettledThreadTimestamp(thread)} />
+    ) : waitingOnYouSince !== null ? (
+      <RelativeTimeLabel timestamp={waitingOnYouSince} />
     ) : status === "preparing" || status === "working" ? (
       <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
     ) : status === "waiting" ? (
@@ -832,7 +835,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
-    statusLabel: topStatus?.label ?? null,
+    // Personal build: a chat waiting on you says what for.
+    statusLabel: rowLine.status?.label ?? topStatus?.label ?? null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
   });

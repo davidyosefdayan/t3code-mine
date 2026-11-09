@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { ThreadWaitingOnYouKind } from "@t3tools/contracts";
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -16,10 +17,10 @@ import {
   resolveThreadLastVisitedAt,
 } from "./Sidebar.logic";
 
-// Personal build: the sidebar's "Unread" rule and the Dock badge count.
-// Unread means it became your turn and you haven't looked: a finished turn,
-// an approval or question, a failure, or a woken snooze. Reading the chat
-// (opening it, or Mark as read) clears it.
+// Personal build: the sidebar's "Waiting on you" and unread rules, and the
+// Dock badge count. Unread means it became your turn and you haven't looked:
+// a finished turn, an approval or question, a failure, or a woken snooze.
+// Reading the chat (opening it, or Mark as read) clears it.
 
 type YourTurnInput = Pick<
   EnvironmentThreadShell,
@@ -85,14 +86,47 @@ export function isYourTurnUnseen(
   return Number.isNaN(visitedMs) || sinceMs > visitedMs;
 }
 
+/** Personal build: what a thread is waiting on you for. An approval,
+    question, or guest request counts on its own and clears when you answer;
+    anything else is what the agent set with `t3_waiting_on_user`, until it
+    clears it. Reading the thread clears neither. */
+export type WaitingOnYouKind = ThreadWaitingOnYouKind | "approval" | "input" | "request";
+
+export interface WaitingOnYouState {
+  readonly kind: WaitingOnYouKind;
+  readonly reason: string | null;
+  readonly since: string;
+}
+
+type WaitingOnYouInput = YourTurnInput &
+  Pick<EnvironmentThreadShell, "pendingGuestMessageCount" | "waitingOnYou">;
+
+export function threadWaitingOnYou(thread: WaitingOnYouInput): WaitingOnYouState | null {
+  const status = resolveSidebarThreadStatus(thread);
+  if (status === "approval" || status === "input" || status === "request") {
+    return { kind: status, reason: null, since: thread.updatedAt };
+  }
+  return thread.waitingOnYou ?? null;
+}
+
+/** Row labels for what an agent set. Approvals, questions, and requests
+    keep the row's own status labels. */
+export const WAITING_ON_YOU_LABELS: Record<ThreadWaitingOnYouKind, string> = {
+  merge: "Merge",
+  decision: "Decision",
+  review: "Review",
+  credential: "Credential",
+  other: "Your turn",
+};
+
 interface NeedsYouCapabilities {
   readonly threadSnooze?: boolean;
   readonly threadSettlement?: boolean;
 }
 
-/** How many threads are unread, by the sidebar's rule, across every project,
-    pins included. Snoozed, settled, archived, subagent, and still-working
-    threads don't count. */
+/** How many threads are waiting on you or unread, by the sidebar's rules,
+    across every project, pins included. Snoozed, settled, archived, and
+    subagent threads don't count, nor do unread ones still working. */
 export function countThreadsNeedingYou(
   threads: readonly EnvironmentThreadShell[],
   capabilitiesOf: (thread: EnvironmentThreadShell) => NeedsYouCapabilities | undefined,
@@ -102,10 +136,14 @@ export function countThreadsNeedingYou(
 ): number {
   let count = 0;
   for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
-    if (isSidebarThreadWorking(thread)) continue;
     const capabilities = capabilitiesOf(thread);
     if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) continue;
     if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") continue;
+    if (threadWaitingOnYou(thread) !== null) {
+      count += 1;
+      continue;
+    }
+    if (isSidebarThreadWorking(thread)) continue;
     const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
     const lastVisitedAt = resolveThreadLastVisitedAt(
       thread.lastVisitedAt,
@@ -116,7 +154,7 @@ export function countThreadsNeedingYou(
   return count;
 }
 
-/** The unread count for the Dock badge and the rail's Threads dot. */
+/** The count for the Dock badge and the rail's Threads dot. */
 export function useNeedsYouCount(): number {
   const threads = useThreadShells();
   const delegatedUnderParent = useDelegatedUnderParent();

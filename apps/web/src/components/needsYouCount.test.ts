@@ -3,9 +3,15 @@ import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environ
 import { RunId, ThreadId } from "@t3tools/contracts";
 
 import { makeThreadFixture } from "../test-fixtures";
-import { countThreadsNeedingYou, isThreadUnread, yourTurnSince } from "./needsYouCount";
+import {
+  countThreadsNeedingYou,
+  isThreadUnread,
+  threadWaitingOnYou,
+  yourTurnSince,
+} from "./needsYouCount";
+import { resolveThreadRowLine, sidebarThreadState } from "./sidebar/threadGroups";
 
-// Personal build: the sidebar's Unread rule and the Dock badge count.
+// Personal build: the sidebar's Waiting on you and unread rules, and the Dock badge count.
 
 const NOW = "2026-10-15T12:00:00.000Z";
 
@@ -98,6 +104,67 @@ describe("isThreadUnread", () => {
   });
 });
 
+describe("threadWaitingOnYou", () => {
+  const merge = {
+    kind: "merge" as const,
+    reason: "PR #1058 is ready to merge",
+    since: "2026-10-15T10:00:00.000Z",
+  };
+
+  it("keeps what the agent set after you read the thread, until the agent clears it", () => {
+    const thread = finished("2026-10-15T10:00:00.000Z", {
+      waitingOnYou: merge,
+      lastVisitedAt: "2026-10-15T11:00:00.000Z",
+    });
+    expect(isThreadUnread(thread, thread.lastVisitedAt ?? undefined, NOW)).toBe(false);
+    expect(threadWaitingOnYou(thread)).toEqual(merge);
+    expect(sidebarThreadState(thread)).toBe("waiting-on-you");
+    expect(threadWaitingOnYou({ ...thread, waitingOnYou: null })).toBeNull();
+    expect(sidebarThreadState({ ...thread, waitingOnYou: null })).toBeNull();
+  });
+
+  it("counts a pending approval, question, or subagent request on its own, until you answer", () => {
+    const at = { updatedAt: "2026-10-15T11:00:00.000Z" };
+    for (const pending of [
+      { hasPendingApprovals: true },
+      { hasPendingUserInput: true },
+      { pendingSubagentRequest: "approval" as const },
+    ]) {
+      const thread = finished("2026-10-15T10:00:00.000Z", {
+        ...at,
+        ...pending,
+        runtime: runtime("running"),
+        lastVisitedAt: "2026-10-15T11:30:00.000Z",
+      });
+      expect(threadWaitingOnYou(thread)).toMatchObject({ since: at.updatedAt, reason: null });
+      expect(sidebarThreadState(thread)).toBe("waiting-on-you");
+    }
+    const answered = finished("2026-10-15T10:00:00.000Z", { runtime: runtime("running") });
+    expect(threadWaitingOnYou(answered)).toBeNull();
+    expect(sidebarThreadState(answered)).toBe("working");
+  });
+
+  it("outranks Working, and the row says what the agent is waiting for", () => {
+    const thread = finished("2026-10-15T10:00:00.000Z", {
+      waitingOnYou: merge,
+      runtime: runtime("running"),
+    });
+    expect(sidebarThreadState(thread)).toBe("waiting-on-you");
+    const line = resolveThreadRowLine({
+      thread,
+      status: "working",
+      topStatus: { label: "Working", icon: "working", className: "" },
+      hasUnsentDraft: false,
+      draftPrompt: "",
+      fallback: [],
+    });
+    expect(line).toMatchObject({
+      status: { label: "Merge" },
+      details: "PR #1058 is ready to merge",
+    });
+  });
+});
+
 describe("countThreadsNeedingYou", () => {
   const capabilities = () => ({ threadSnooze: true, threadSettlement: true });
 
@@ -134,6 +201,27 @@ describe("countThreadsNeedingYou", () => {
       }),
     ];
     expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toBe(0);
+  });
+
+  it("counts threads waiting on you even once read, but not snoozed ones", () => {
+    const waitingOnYou = {
+      kind: "decision" as const,
+      reason: "Choose how refunds split",
+      since: "2026-10-15T10:00:00.000Z",
+    };
+    const threads = [
+      finished("2026-10-15T10:00:00.000Z", {
+        waitingOnYou,
+        lastVisitedAt: "2026-10-15T11:00:00.000Z",
+      }),
+      finished("2026-10-15T10:00:00.000Z", {
+        id: ThreadId.make("thread-snoozed"),
+        waitingOnYou,
+        snoozedAt: "2026-10-15T11:00:00.000Z",
+        snoozedUntil: "2026-10-16T09:00:00.000Z",
+      }),
+    ];
+    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toBe(1);
   });
 
   it("falls back to the local visited mark on servers without visited tracking", () => {

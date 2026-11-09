@@ -1,7 +1,13 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import {
+  OrchestratorMcpFailure,
+  ThreadWaitingOnYouKind,
+  ThreadWaitingOnYouReason,
+} from "@t3tools/contracts";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 /**
@@ -34,4 +40,41 @@ export const MessageUserTool = Tool.make("message_user", {
   // has to search for this tool first mostly won't.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
-export const MessagesToolkit = Toolkit.make(MessageUserTool);
+// Personal build: the agent marks its own thread as waiting on the user, with
+// a reason the sidebar shows. Pending approvals and questions count without it.
+const WaitingOnUserTool = Tool.make("t3_waiting_on_user", {
+  description:
+    'Mark this thread as waiting on the user, or clear it. It shows under "Waiting on you" at the top of their sidebar with your reason until you clear it; reading the thread does not clear it. Set it when you hand them something only they can do, and clear it once that is resolved. Setting it again replaces the reason.',
+  parameters: Schema.Struct({
+    action: Schema.Literals(["set", "clear"]),
+    kind: Schema.optional(ThreadWaitingOnYouKind).annotate({
+      description:
+        "For set. merge: a PR to merge. decision: a choice or question. review: something to look at or test. credential: a key, login, or secret. other: anything else.",
+    }),
+    reason: Schema.optional(ThreadWaitingOnYouReason).annotate({
+      description:
+        'For set. One short line on what they need to do, like "PR #1058 is ready to merge".',
+    }),
+  }),
+  success: Schema.Struct({
+    waitingOnYou: Schema.NullOr(
+      Schema.Struct({ kind: ThreadWaitingOnYouKind, reason: ThreadWaitingOnYouReason }),
+    ),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    SecureRandom.SecureRandom,
+  ],
+})
+  .annotate(Tool.Title, "Waiting on the user")
+  // It changes only how the user's sidebar shows this thread, so it never asks.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
+
+export const MessagesToolkit = Toolkit.make(MessageUserTool, WaitingOnUserTool);

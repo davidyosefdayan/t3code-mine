@@ -225,6 +225,17 @@ it.effect(
         ["unsettled", { settledOverride: "active" }],
         ["pinned", { pinnedAt: old }],
         ["auto-settle-disabled", { autoSettleDisabledAt: old }],
+        // Personal build: only its agent clears Waiting on you.
+        [
+          "waiting-on-you",
+          {
+            waitingOnYou: {
+              kind: "merge",
+              reason: "PR #1 is ready",
+              since: "2026-01-01T00:00:00Z",
+            },
+          },
+        ],
       ] satisfies ReadonlyArray<readonly [string, Partial<OrchestrationV2AppThread>]>) {
         yield* createRun(yield* createThread(name, overrides));
       }

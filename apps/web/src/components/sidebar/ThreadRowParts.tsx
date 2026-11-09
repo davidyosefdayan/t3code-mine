@@ -49,8 +49,8 @@ export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
 export const activeSurfaceClassName = "bg-row-active";
 export const selectedSurfaceClassName = "bg-row-selected";
 
-/** One title style for every group (New threads, Unread, Pinned, Open,
-    Working, Snoozed, Settled). Clicking it collapses or expands the group. */
+/** One title style for every group (New threads, Waiting on you, Working,
+    Pinned, Open, Snoozed, Settled). Clicking it collapses or expands the group. */
 export function SidebarGroupButton(props: {
   label: string;
   count: number;

@@ -427,7 +427,22 @@ it.effect("rejects an unknown organize target instead of archiving the calling t
   );
 });
 
-// Personal build: the agent's mid-turn messages to the user.
+// Personal build: the agent's mid-turn messages to the user, and Waiting on you.
+const messagesToolkitWith = (dispatched: Array<unknown>) =>
+  McpHttpServer.layerMessagesToolkit.pipe(
+    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+        dispatch: (command) => {
+          dispatched.push(command);
+          return Effect.succeed({ sequence: 1 } as never);
+        },
+      }),
+    ),
+  );
+
 it.effect("shows message_user to thread agents only, always loaded", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -446,12 +461,49 @@ it.effect("shows message_user to thread agents only, always loaded", () =>
     expect(outside.content[0]).toMatchObject({
       text: expect.stringContaining("needs an agent running inside T3 Code"),
     });
-  }).pipe(
-    Effect.provide(
-      McpHttpServer.layerMessagesToolkit.pipe(Layer.provideMerge(McpHttpServer.layerInProcessMcpServer)),
-    ),
-  ),
+  }).pipe(Effect.provide(messagesToolkitWith([]))),
 );
+
+it.effect("sets and clears Waiting on you on the calling thread only", () => {
+  const dispatched: Array<unknown> = [];
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const registered = server.tools.find(({ tool }) => tool.name === "t3_waiting_on_user");
+    expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
+    const call = (
+      args: Record<string, unknown>,
+      invocation: McpInvocationContext.McpInvocationScope = scope,
+    ) =>
+      server
+        .callTool({ name: "t3_waiting_on_user", arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const set = yield* call({ action: "set", kind: "merge", reason: "PR #1058 is ready to merge" });
+    expect(set.structuredContent).toEqual({
+      waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
+    });
+    expect((yield* call({ action: "clear" })).structuredContent).toEqual({ waitingOnYou: null });
+    expect(dispatched).toMatchObject([
+      {
+        type: "thread.waiting-on-you.set",
+        threadId,
+        waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
+      },
+      { type: "thread.waiting-on-you.set", threadId, waitingOnYou: null },
+    ]);
+
+    const missingReason = yield* call({ action: "set", kind: "decision" });
+    expect(missingReason.isError).toBe(true);
+    expect(missingReason.content[0]).toMatchObject({
+      text: expect.stringContaining("set needs `kind` and `reason`"),
+    });
+    const outside = yield* call({ action: "clear" }, { ...scope, thread: undefined });
+    expect(outside.isError).toBe(true);
+    expect(dispatched).toHaveLength(2);
+  }).pipe(Effect.provide(messagesToolkitWith(dispatched)));
+});
 
 it.effect("keeps unexpected handler defects private through the production registration", () =>
   Effect.gen(function* () {

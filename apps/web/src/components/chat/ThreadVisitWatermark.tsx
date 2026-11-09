@@ -25,7 +25,7 @@ const appInViewAtom = Atom.make((get) => {
   return read();
 }).pipe(Atom.withLabel("app-in-view"));
 
-// Personal build: a woken snooze is Unread in the sidebar, so opening the chat
+// Personal build: a woken snooze is unread in the sidebar, so opening the chat
 // reads it, as on mobile. The shell only carries the snooze time, so the wake
 // is derived here, and re-read when a snooze open on screen wakes.
 const wakeAwareVisitShell = Atom.family((key: string) => {
