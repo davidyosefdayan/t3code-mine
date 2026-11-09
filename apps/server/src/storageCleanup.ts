@@ -1160,19 +1160,6 @@ const make = Effect.gen(function* () {
         if (group.some((member) => member.branch !== thread.branch))
           return keep("a subagent thread's branch differs from this worktree's branch");
         if (hasTerminal(worktreePath)) return keep(waitForStop("open terminal"));
-        // Personal build: agents often switch branches in their worktree, for
-        // example to open a pull request. Removal never deletes a branch, so
-        // the rules apply to whichever branch is checked out. Without one
-        // (detached), commits could exist only here, so it is kept.
-        const worktreeBranch = yield* checkedOutBranch(worktreePath);
-        if (typeof worktreeBranch !== "string") return keep("repository or branch changed");
-        const born = yield* git.execute({
-          operation: "StorageCleanup.headCommit",
-          cwd: worktreePath,
-          args: ["rev-parse", "--verify", "--quiet", "HEAD"],
-          allowNonZeroExit: true,
-        });
-        if (born.exitCode !== 0) return keep(`branch ${worktreeBranch} has no commits`);
         if (
           [...group, ...settlementChain.slice(1)].some(
             (member) =>
@@ -1220,6 +1207,19 @@ const make = Effect.gen(function* () {
         if (pathReason !== null) return keep(pathReason);
         if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
           return keep("contains a project checkout");
+        // Personal build: agents often switch branches in their worktree, for
+        // example to open a pull request. Removal never deletes a branch, so
+        // the rules apply to whichever branch is checked out. Without one
+        // (detached), commits could exist only here, so it is kept.
+        const worktreeBranch = yield* checkedOutBranch(worktreePath);
+        if (typeof worktreeBranch !== "string") return keep("repository or branch changed");
+        const born = yield* git.execute({
+          operation: "StorageCleanup.headCommit",
+          cwd: worktreePath,
+          args: ["rev-parse", "--verify", "--quiet", "HEAD"],
+          allowNonZeroExit: true,
+        });
+        if (born.exitCode !== 0) return keep(`branch ${worktreeBranch} has no commits`);
         if (yield* branchChanged(worktreePath, worktreeBranch))
           return keep("repository or branch changed");
         const changes = yield* localChangesReason(worktreePath, settings);

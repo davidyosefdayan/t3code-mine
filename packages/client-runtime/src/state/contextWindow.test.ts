@@ -174,7 +174,12 @@ function sendInput(
       model: selected === codex ? "gpt-5.4" : "claude-opus-4-6",
     },
     providers,
-    settings: { ...DEFAULT_SERVER_SETTINGS, ...overrides.settings },
+    // Personal build: idle compaction defaults to off, so these cases opt in.
+    settings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      idleCompaction: "onReturn",
+      ...overrides.settings,
+    } as ServerSettings,
     text: overrides.text ?? "back again",
     threadIdle: overrides.threadIdle ?? true,
     now: overrides.now ?? returnedAt,

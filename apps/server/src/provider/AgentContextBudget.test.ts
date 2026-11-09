@@ -120,7 +120,15 @@ it.effect("only request_secret asks Claude Code to load it up front", () =>
     const alwaysLoad = mcp.tools
       .filter(({ tool }) => tool._meta?.["anthropic/alwaysLoad"] !== undefined)
       .map(({ tool }) => [tool.name, tool._meta]);
-    expect(alwaysLoad).toEqual([["request_secret", { "anthropic/alwaysLoad": true }]]);
+    // Personal build: the fork's message_user and t3_needs_you load up front too.
+    expect(alwaysLoad).toEqual(
+      expect.arrayContaining([["request_secret", { "anthropic/alwaysLoad": true }]]),
+    );
+    expect(alwaysLoad.map(([name]) => name).toSorted()).toEqual([
+      "message_user",
+      "request_secret",
+      "t3_needs_you",
+    ]);
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );
 

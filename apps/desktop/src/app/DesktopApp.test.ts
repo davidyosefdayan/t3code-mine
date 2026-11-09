@@ -53,6 +53,7 @@ import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 
 import * as BrowserImport from "../preview/BrowserImport/BrowserImport.ts";
 import * as DesktopBackendConfiguration from "../backend/DesktopBackendConfiguration.ts";
+import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopConnectionCatalogStore from "./DesktopConnectionCatalogStore.ts";
@@ -215,6 +216,8 @@ it.effect.each([false, true])(
           Layer.mergeAll(
             Layer.mock(BrowserImport.BrowserImport, {}),
             Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {}),
+            // Personal build: the Dock theme icon handler reads the app's icons.
+            Layer.mock(DesktopAssets.DesktopAssets, {}),
             Layer.mock(DesktopBackendConfiguration.DesktopBackendConfiguration, {}),
             Layer.mock(DesktopCliCommand.DesktopCliCommand, {}),
             Layer.mock(DesktopClientSettings.DesktopClientSettings, {}),

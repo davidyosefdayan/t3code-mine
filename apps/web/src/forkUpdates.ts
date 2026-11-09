@@ -133,7 +133,7 @@ Start by reading FORK.md in this repo: it explains how the fork works, why each 
 This isn't just a rebase that compiles. I want everything upstream added and fixed, and I want to keep what each of our changes is for, which isn't always the same as keeping our code. Before rebasing, go through what changed upstream and talk it through with me, sorted into:
 - Changes that don't touch ours: these just come in. Tell me the highlights.
 - Changes that cover what one of ours was for (a bug we fixed that they fixed too, or something we built that they now have): suggest taking theirs and dropping ours, and tell me which part of ours theirs doesn't cover, so we only carry that.
-- Changes that redesign something we redesigned: I decide. Show me screenshots of their version and ours side by side, and tell me what else theirs fixes.
+- Changes that redesign something we redesigned: I decide. Run their version on localhost with fake data and give me a sign-in link so I can look myself (no screenshots), and tell me what else theirs fixes.
 
 Once I've answered, do the update, build the Mac app, and tell me when to quit the app so the update installs.`;
 }
