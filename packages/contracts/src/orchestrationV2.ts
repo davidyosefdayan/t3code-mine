@@ -499,7 +499,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
-  // Personal build: what the agent handed back to the user (`t3_waiting_on_user`).
+  // Personal build: what the agent handed back to the user (`t3_needs_you`).
   waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -2182,7 +2182,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
-  // Personal build: what the agent handed back to the user (`t3_waiting_on_user`).
+  // Personal build: what the agent handed back to the user (`t3_needs_you`).
   waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),

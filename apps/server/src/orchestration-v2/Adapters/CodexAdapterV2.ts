@@ -1438,11 +1438,11 @@ function codexThreadRuntimeParams(input: {
             "mcp_servers.t3-code": {
               ...t3Server,
               disabled_tools: [CODEX_DIRECT_ONLY_T3_TOOL],
-              // Personal build: messaging the user and Waiting on you change only
+              // Personal build: messaging the user and Needs you change only
               // what the user sees, so they never ask.
               tools: {
                 message_user: { approval_mode: "approve" },
-                t3_waiting_on_user: { approval_mode: "approve" },
+                t3_needs_you: { approval_mode: "approve" },
               },
             },
             // Code Mode runs a blocking wait as a nested call, and the model keeps working

@@ -476,8 +476,8 @@ export function summarizeT3ToolCalls(
     case "message-user":
       label = phrase("Sent", "send", `you ${quantity(selected.length, "message")}`);
       break;
-    case "waiting-on-user":
-      label = phrase("Updated", "update", `Waiting on you ${times}`);
+    case "needs-you":
+      label = phrase("Updated", "update", `Needs you ${times}`);
       break;
     case "capabilities":
       label = phrase("Checked", "check", `orchestration capabilities ${times}`);

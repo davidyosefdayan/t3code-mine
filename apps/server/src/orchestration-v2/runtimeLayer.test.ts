@@ -2674,7 +2674,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         DateTime.toEpochMillis(untaggedShell.updatedAt),
       );
 
-      // Personal build: Waiting on you stays until the agent clears it; reading the thread keeps it.
+      // Personal build: Needs you stays until the agent clears it; reading the thread keeps it.
       const setWaiting = (
         step: string,
         waitingOnYou: { kind: "merge" | "decision"; reason: string } | null,

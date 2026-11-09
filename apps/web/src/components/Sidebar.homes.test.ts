@@ -10,8 +10,8 @@ import {
   type SidebarSection,
 } from "./Sidebar.logic";
 
-// Personal build: Pinned and Open are homes you arrange; Waiting on you and
-// Working sit above them and follow live status.
+// Personal build: Pinned and Open are homes you arrange; Needs you sits
+// above them and follows live status.
 
 describe("sortArrangedThreads", () => {
   const row = (id: string, orderKey: string | null, arrivedAt: string) => ({
@@ -39,7 +39,7 @@ describe("sortArrangedThreads", () => {
   });
 });
 
-describe("resolveSidebarDropTarget with Waiting on you and Working above the pins", () => {
+describe("resolveSidebarDropTarget with Needs you above the pins", () => {
   const thread = (key: string, section: SidebarSection): SidebarListItem => ({
     kind: "thread",
     key,
@@ -49,15 +49,14 @@ describe("resolveSidebarDropTarget with Waiting on you and Working above the pin
   const items: readonly SidebarListItem[] = [
     marker("waiting-on-you-header"),
     thread("u1", "waiting-on-you"),
-    marker("working-header"),
-    thread("w1", "working"),
     marker("pinned-header"),
     thread("p1", "pinned"),
     marker("pinned-divider"),
     marker("active-placeholder"),
     thread("a1", "active"),
     thread("a2", "active"),
-    marker("settled-header"),
+    marker("working-header"),
+    thread("w1", "working"),
   ];
 
   it("lands first in Pinned when dropped on the Pinned title, leaving the states out", () => {
@@ -68,7 +67,7 @@ describe("resolveSidebarDropTarget with Waiting on you and Working above the pin
     });
   });
 
-  it("reorders Open without counting Waiting on you or Working rows", () => {
+  it("reorders Open without counting Needs you or Working rows", () => {
     expect(resolveSidebarDropTarget(items, "a2", "a1")).toEqual({
       section: "active",
       pinnedOrder: ["p1"],
@@ -76,7 +75,7 @@ describe("resolveSidebarDropTarget with Waiting on you and Working above the pin
     });
   });
 
-  it("never drops into Waiting on you or Working", () => {
+  it("never drops into Needs you or Working", () => {
     expect(resolveSidebarDropTarget(items, "a1", "u1")).toBeNull();
     expect(resolveSidebarDropTarget(items, "a1", "w1")).toBeNull();
     expect(resolveSidebarDropVerb("active", "waiting-on-you")).toBeNull();

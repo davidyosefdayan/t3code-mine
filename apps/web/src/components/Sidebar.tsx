@@ -540,7 +540,7 @@ function useSidebarThreads(input: {
               : EMPTY_THREADS,
           };
         });
-  // Personal build: Waiting on you, Working, Pinned, and Open collapse from
+  // Personal build: Needs you, Pinned, Open, and Working collapse from
   // their titles, keeping only the open chat's row.
   const visibleWaitingOnYouThreads = visibleGroupThreads(
     waitingOnYouThreads,
@@ -564,11 +564,11 @@ function useSidebarThreads(input: {
   );
   const orderedThreads = [
     ...waitingOnYouThreads,
-    ...visibleWorkingThreads,
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
+    ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledThreads,
   ];
@@ -576,18 +576,18 @@ function useSidebarThreads(input: {
   // shift-click ranges, keyboard moves, and jump shortcuts follow the screen.
   const drawnThreads = [
     ...visibleWaitingOnYouThreads,
-    ...visibleWorkingThreads,
     ...visiblePinnedThreads,
     ...visibleActiveThreads,
+    ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledThreads,
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
     [waitingOnYouThreads, "waiting-on-you"],
-    [workingThreads, "working"],
     [pinnedThreads, "pinned"],
     [activeThreads, "active"],
+    [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
   ] as const) {
@@ -598,9 +598,9 @@ function useSidebarThreads(input: {
     threads,
     searchableThreads: [
       ...waitingOnYouThreads,
-      ...workingThreads,
       ...pinnedThreads,
       ...activeThreads,
+      ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
     ],
@@ -663,7 +663,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
-  // Personal build: Waiting on you and Working are states any chat joins and
+  // Personal build: Needs you and Working are states any chat joins and
   // leaves, pinned or not (see sidebarThreadState).
   const stateOf = (thread: EnvironmentThreadShell, manuallyMoved = false) => {
     const isWorking = manuallyMoved ? isThreadWorking : inboxObservation.isWorking;
@@ -1761,7 +1761,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
 
   // Working rows can supply chat context, but never preview sidebar movement.
-  // Personal build: nor can Waiting on you rows; both follow live status.
+  // Personal build: nor can Needs you rows; both follow live status.
   const isContextDrag =
     dragState?.contextDrag === true ||
     dragState?.activeSection === "working" ||
@@ -1944,16 +1944,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     ) {
       return [];
     }
-    // Personal build: Waiting on you and Working, then the homes you arrange
-    // (Pinned, Open), then the shelves. Collapsed groups keep only the open chat.
+    // Personal build: Needs you, then the homes you arrange (Pinned, Open),
+    // then Working and the shelves. Collapsed groups keep only the open chat.
     const items: SidebarListItem[] = [];
     if (waitingOnYouThreads.length > 0) {
       items.push({ kind: "marker", marker: "waiting-on-you-header" });
       items.push(...rowsOf(visibleWaitingOnYouThreads, "waiting-on-you"));
-    }
-    if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
-      items.push(...rowsOf(visibleWorkingThreads, "working"));
     }
     items.push({ kind: "marker", marker: "pinned-header" });
     const pinnedRows = rowsOf(visiblePinnedThreads, "pinned");
@@ -1962,6 +1958,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const activeRows = rowsOf(visibleActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
+    if (workingThreads.length > 0) {
+      items.push({ kind: "marker", marker: "working-header" });
+      items.push(...rowsOf(visibleWorkingThreads, "working"));
+    }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
@@ -3347,6 +3347,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             thread={thread}
                             variant={rowVariant}
                             navigationParent={folderRow ?? `shelf:${section}`}
+                            quiet={section === "working"}
                             variantAction={
                               section === "snoozed"
                                 ? "unsnooze"
@@ -3473,7 +3474,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           continue;
                         }
                         switch (item.marker) {
-                          // Personal build: Waiting on you, Pinned, and Open are
+                          // Personal build: Needs you, Pinned, and Open are
                           // titled groups. An empty Pinned or Open keeps
                           // upstream's drag boundary so a drag can still open it.
                           case "waiting-on-you-header":
@@ -3481,7 +3482,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="waiting-on-you-header"
                                 marker="waiting-on-you-header"
-                                label="Waiting on you"
+                                label="Needs you"
                                 count={waitingOnYouThreads.length}
                                 emphasis
                                 toggle={{

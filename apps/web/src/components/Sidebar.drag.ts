@@ -13,9 +13,11 @@ const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
-// Personal build: Working sits above the pins, so only Snoozed and Settled are shelves.
 const isShelfHeader = (item: SidebarListItem | undefined) =>
-  item?.kind === "marker" && (item.marker === "snoozed-header" || item.marker === "settled-header");
+  item?.kind === "marker" &&
+  (item.marker === "working-header" ||
+    item.marker === "snoozed-header" ||
+    item.marker === "settled-header");
 
 export function restrictBelowSidebarLabel(
   { transform, containerNodeRect, draggingNodeRect }: Parameters<Modifier>[0],
@@ -171,20 +173,19 @@ export function createSidebarSortingStrategy(input: {
       if (groups[name].length > 0) projected.push(...groups[name]);
       else marker(`${name}-placeholder`);
     };
-    // Personal build: "Waiting on you" and "Working" sit above the pins and
-    // never take a drop.
+    // Personal build: "Needs you" sits above the pins and never takes a drop.
     if (items.some((item) => item.kind === "marker" && item.marker === "waiting-on-you-header")) {
       marker("waiting-on-you-header");
       projected.push(...groups["waiting-on-you"]);
-    }
-    if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
-      marker("working-header");
-      projected.push(...groups.working);
     }
     marker("pinned-header");
     projected.push(...groups.pinned);
     marker("pinned-divider");
     section("active");
+    if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
+      marker("working-header");
+      projected.push(...groups.working);
+    }
     if (
       groups.snoozed.length > 0 ||
       ((active.section !== "snoozed" || (input.snoozedThreadCount ?? 0) > 1) &&

@@ -427,7 +427,7 @@ it.effect("rejects an unknown organize target instead of archiving the calling t
   );
 });
 
-// Personal build: the agent's mid-turn messages to the user, and Waiting on you.
+// Personal build: the agent's mid-turn messages to the user, and Needs you.
 const messagesToolkitWith = (dispatched: Array<unknown>) =>
   McpHttpServer.layerMessagesToolkit.pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
@@ -464,18 +464,18 @@ it.effect("shows message_user to thread agents only, always loaded", () =>
   }).pipe(Effect.provide(messagesToolkitWith([]))),
 );
 
-it.effect("sets and clears Waiting on you on the calling thread only", () => {
+it.effect("sets and clears Needs you on the calling thread only", () => {
   const dispatched: Array<unknown> = [];
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
-    const registered = server.tools.find(({ tool }) => tool.name === "t3_waiting_on_user");
+    const registered = server.tools.find(({ tool }) => tool.name === "t3_needs_you");
     expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
     const call = (
       args: Record<string, unknown>,
       invocation: McpInvocationContext.McpInvocationScope = scope,
     ) =>
       server
-        .callTool({ name: "t3_waiting_on_user", arguments: args })
+        .callTool({ name: "t3_needs_you", arguments: args })
         .pipe(
           Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
           Effect.provideService(McpSchema.McpServerClient, client),

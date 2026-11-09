@@ -9,7 +9,7 @@ import { MessagesToolkit } from "./tools.ts";
 // handler only confirms it. Only an agent inside a thread has a chat to show it in.
 export const layer = McpToolAccess.toLayer(MessagesToolkit, {
   message_user: McpToolAccess.readsAsCaller(() => Effect.succeed({ shown: true })),
-  t3_waiting_on_user: McpToolAccess.actsAsCaller((input) =>
+  t3_needs_you: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { threads, caller } = yield* loadCaller();
       if (caller === undefined) {

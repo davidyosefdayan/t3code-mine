@@ -37,7 +37,7 @@ function layout(
   const rects = items.map((item) => {
     const height =
       item.kind === "thread"
-        ? (item.section === "snoozed" || item.section === "settled" ? 36 : cardHeight) * scale
+        ? (item.section === "pinned" || item.section === "active" ? cardHeight : 36) * scale
         : item.marker === "pinned-header" || item.marker === "pinned-divider"
           ? 0
           : (item.marker.endsWith("placeholder") ? 0 : 32) * scale;
@@ -510,16 +510,15 @@ describe("sidebar drag projection", () => {
     expect(result.get(sidebarMarkerId("settled-placeholder"))).toEqual({ ...stationary, y: -83 });
   });
 
-  // Personal build: Working sits above the pins and stays put.
-  it("previews a time-ordered inbox drop at its time slot, below the Working group", () => {
+  it("previews a time-ordered inbox drop at its time slot, above the Working shelf", () => {
     const items = [
-      marker("working-header"),
-      thread("w", "working"),
       pinnedHeader,
       thread("p", "pinned"),
       divider,
       thread("a1", "active"),
       thread("a2", "active"),
+      marker("working-header"),
+      thread("w", "working"),
       settledHeader,
       marker("settled-placeholder"),
     ];

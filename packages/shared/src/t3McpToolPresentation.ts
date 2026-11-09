@@ -69,9 +69,9 @@ export type T3McpToolSummaryAction =
   | "device"
   | "html-preview"
   | "html-render"
-  // Personal build: the agent's mid-turn messages to the user, and Waiting on you.
+  // Personal build: the agent's mid-turn messages to the user, and Needs you.
   | "message-user"
-  | "waiting-on-user";
+  | "needs-you";
 
 export interface T3McpToolDefinition {
   readonly displayName: string;
@@ -377,7 +377,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   html_render: tool(["Render", "Rendering", "Rendered", "an HTML page"], "html-render"),
   // Personal build: the agent's mid-turn messages to the user.
   message_user: tool(["Message", "Messaging", "Messaged", "you"], "message-user"),
-  t3_waiting_on_user: tool(["Update", "Updating", "Updated", "Waiting on you"], "waiting-on-user"),
+  t3_needs_you: tool(["Update", "Updating", "Updated", "Needs you"], "needs-you"),
 };
 
 export const T3_MCP_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(T3_MCP_TOOLS));

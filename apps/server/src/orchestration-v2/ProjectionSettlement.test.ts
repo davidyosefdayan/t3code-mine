@@ -225,7 +225,7 @@ it.effect(
         ["unsettled", { settledOverride: "active" }],
         ["pinned", { pinnedAt: old }],
         ["auto-settle-disabled", { autoSettleDisabledAt: old }],
-        // Personal build: only its agent clears Waiting on you.
+        // Personal build: only its agent clears Needs you.
         [
           "waiting-on-you",
           {

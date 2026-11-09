@@ -4,7 +4,7 @@ import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * Personal build: what an agent handed back to the user, set and cleared by
- * the agent through `t3_waiting_on_user`. Reading the thread never clears it.
+ * the agent through `t3_needs_you`. Reading the thread never clears it.
  */
 export const ThreadWaitingOnYouKind = Schema.Literals([
   "merge",

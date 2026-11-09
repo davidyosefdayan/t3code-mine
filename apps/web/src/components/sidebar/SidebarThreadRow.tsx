@@ -384,6 +384,8 @@ type SidebarThreadRowProps = {
   // variants belong to upstream's boring sidebar (Labs, hidden here).
   variant: "card" | "folder" | "folder-multiline";
   navigationParent?: string | undefined;
+  // Personal build: Working rows step back until hovered or open.
+  quiet?: boolean | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -922,7 +924,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {accessibleTitle}
           {/* Personal build: three levels: bold title and time; the reply or
               status; gray details. */}
-          <div className={rowContentClassName}>
+          <div
+            className={cn(
+              rowContentClassName,
+              props.quiet &&
+                !props.isActive &&
+                !isSelected &&
+                "opacity-60 group-hover/sidebar-row:opacity-100",
+            )}
+          >
             <div className="flex h-5 min-w-0 items-center gap-2">
               {title}
               {/* Personal build: shows while this chat is being read aloud. */}
@@ -994,13 +1004,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               </span>
             ) : null}
             {/* Pull requests live in the hover card, not on the row. */}
-            {/* Personal build: rows without a reply preview (settled, archived)
-                keep the line empty so every row is the same height. */}
-            <ThreadRowSecondLine
-              status={rowLine.status}
-              details={rowLine.details}
-              trailing={terminalStatusIcon}
-            />
+            {/* Personal build: a row without a reply preview keeps the line
+                empty so rows match, except on the Settled shelf, where the
+                server sends no previews and the blank line read as a gap. */}
+            {variantAction === "unsettle" &&
+            rowLine.status === null &&
+            rowLine.details === "" &&
+            terminalProcessCount === 0 ? null : (
+              <ThreadRowSecondLine
+                status={rowLine.status}
+                details={rowLine.details}
+                trailing={terminalStatusIcon}
+              />
+            )}
             <ThreadRowMetaLine
               thread={thread}
               project={props.project}

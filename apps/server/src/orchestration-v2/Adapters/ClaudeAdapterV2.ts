@@ -2007,10 +2007,10 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_environment_links",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
-  // Personal build: messaging the user and Waiting on you change only what
+  // Personal build: messaging the user and Needs you change only what
   // the user sees, so they never ask.
   "mcp__t3-code__message_user",
-  "mcp__t3-code__t3_waiting_on_user",
+  "mcp__t3-code__t3_needs_you",
 ];
 
 // T3 waits can block for an hour; exceed Claude's default 60 s timeout.

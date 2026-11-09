@@ -17,7 +17,7 @@ import {
   resolveThreadLastVisitedAt,
 } from "./Sidebar.logic";
 
-// Personal build: the sidebar's "Waiting on you" and unread rules, and the
+// Personal build: the sidebar's "Needs you" and unread rules, and the
 // Dock badge count. Unread means it became your turn and you haven't looked:
 // a finished turn, an approval or question, a failure, or a woken snooze.
 // Reading the chat (opening it, or Mark as read) clears it.
@@ -88,7 +88,7 @@ export function isYourTurnUnseen(
 
 /** Personal build: what a thread is waiting on you for. An approval,
     question, or guest request counts on its own and clears when you answer;
-    anything else is what the agent set with `t3_waiting_on_user`, until it
+    anything else is what the agent set with `t3_needs_you`, until it
     clears it. Reading the thread clears neither. */
 export type WaitingOnYouKind = ThreadWaitingOnYouKind | "approval" | "input" | "request";
 
@@ -112,7 +112,7 @@ export function threadWaitingOnYou(thread: WaitingOnYouInput): WaitingOnYouState
 /** Row labels for what an agent set. Approvals, questions, and requests
     keep the row's own status labels. */
 export const WAITING_ON_YOU_LABELS: Record<ThreadWaitingOnYouKind, string> = {
-  merge: "Merge",
+  merge: "Merge ready",
   decision: "Decision",
   review: "Review",
   credential: "Credential",

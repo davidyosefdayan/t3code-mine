@@ -11,7 +11,7 @@ import {
 } from "./needsYouCount";
 import { resolveThreadRowLine, sidebarThreadState } from "./sidebar/threadGroups";
 
-// Personal build: the sidebar's Waiting on you and unread rules, and the Dock badge count.
+// Personal build: the sidebar's Needs you and unread rules, and the Dock badge count.
 
 const NOW = "2026-10-15T12:00:00.000Z";
 
@@ -159,7 +159,7 @@ describe("threadWaitingOnYou", () => {
       fallback: [],
     });
     expect(line).toMatchObject({
-      status: { label: "Merge" },
+      status: { label: "Merge ready" },
       details: "PR #1058 is ready to merge",
     });
   });

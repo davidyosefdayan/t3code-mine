@@ -40,11 +40,11 @@ export const MessageUserTool = Tool.make("message_user", {
   // has to search for this tool first mostly won't.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
-// Personal build: the agent marks its own thread as waiting on the user, with
-// a reason the sidebar shows. Pending approvals and questions count without it.
-const WaitingOnUserTool = Tool.make("t3_waiting_on_user", {
+// Personal build: the agent puts its own thread in "Needs you", with a reason
+// the sidebar shows, when the user or a skill asks. Pending prompts count without it.
+const NeedsYouTool = Tool.make("t3_needs_you", {
   description:
-    'Mark this thread as waiting on the user, or clear it. It shows under "Waiting on you" at the top of their sidebar with your reason until you clear it; reading the thread does not clear it. Set it when you hand them something only they can do, and clear it once that is resolved. Setting it again replaces the reason.',
+    "Put this thread in the user's \"Needs you\" section with a short reason, or take it out. Use it only when the user or a skill tells you to, such as when a PR is ready to merge; don't use it on your own. It stays until you clear it, and reading the thread doesn't clear it. Pending approvals and questions show there without this.",
   parameters: Schema.Struct({
     action: Schema.Literals(["set", "clear"]),
     kind: Schema.optional(ThreadWaitingOnYouKind).annotate({
@@ -69,7 +69,7 @@ const WaitingOnUserTool = Tool.make("t3_waiting_on_user", {
     SecureRandom.SecureRandom,
   ],
 })
-  .annotate(Tool.Title, "Waiting on the user")
+  .annotate(Tool.Title, "Needs you")
   // It changes only how the user's sidebar shows this thread, so it never asks.
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
@@ -77,4 +77,4 @@ const WaitingOnUserTool = Tool.make("t3_waiting_on_user", {
   .annotate(Tool.OpenWorld, false)
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
-export const MessagesToolkit = Toolkit.make(MessageUserTool, WaitingOnUserTool);
+export const MessagesToolkit = Toolkit.make(MessageUserTool, NeedsYouTool);

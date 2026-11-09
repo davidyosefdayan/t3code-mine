@@ -1,5 +1,5 @@
-// Personal build: the thread list's groups (Waiting on you, Working, Pinned,
-// Open, Snoozed, Settled) and what each row's second line says. Sidebar.tsx
+// Personal build: the thread list's groups (Needs you, Pinned, Open,
+// Working, Snoozed, Settled) and what each row's second line says. Sidebar.tsx
 // keeps upstream's partition and calls into these.
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -63,10 +63,10 @@ export function visibleGroupThreads(
   });
 }
 
-/** Pinned and Open are homes you arrange; Waiting on you and Working are
-    states a chat joins and leaves, pinned or not. Waiting on you outranks
-    Working, so a chat that needs you stays in view while its agent keeps
-    going. Unread is a dot on the row, not a group. */
+/** Pinned and Open are homes you arrange; Needs you and Working are
+    states a chat joins and leaves, pinned or not. Needs you outranks
+    Working, so a chat that needs you never hides under Working. Unread is a
+    dot on the row, not a group. */
 export function sidebarThreadState(
   thread: EnvironmentThreadShell,
   isWorking: (thread: EnvironmentThreadShell) => boolean = isSidebarThreadWorking,
@@ -93,7 +93,7 @@ export function sortOpenHome<T extends EnvironmentThreadShell>(threads: readonly
   );
 }
 
-/** Waiting on you is a queue, oldest at the top, by when each chat started
+/** Needs you is a queue, oldest at the top, by when each chat started
     waiting. */
 export function sortWaitingOnYouBySince<T extends EnvironmentThreadShell>(
   threads: readonly T[],

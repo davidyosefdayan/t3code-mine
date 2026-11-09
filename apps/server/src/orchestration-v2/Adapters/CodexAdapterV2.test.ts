@@ -1706,7 +1706,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               disabled_tools: ["t3_thread_wait"],
               tools: {
                 message_user: { approval_mode: "approve" },
-                t3_waiting_on_user: { approval_mode: "approve" },
+                t3_needs_you: { approval_mode: "approve" },
               },
             },
             "mcp_servers.t3-code-direct": {

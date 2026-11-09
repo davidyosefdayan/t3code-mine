@@ -118,8 +118,8 @@ export function sidebarShelfId(marker: SidebarListMarker | undefined): string {
   return marker.replace(/-header$/, "");
 }
 
-// Personal build: one title style for every group (New threads, Waiting on
-// you, Working, Pinned, Open, Snoozed, Settled); clicking it collapses the group.
+// Personal build: one title style for every group (New threads, Needs you,
+// Pinned, Open, Working, Snoozed, Settled); clicking it collapses the group.
 export function SidebarSectionHeader(props: {
   // The group's place in the drag list, so drops can tell which group they
   // land in. The New threads title sits above the list and has none.
