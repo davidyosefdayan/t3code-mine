@@ -4,6 +4,7 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useSyncExternalStore } from "react";
 import {
+  getThemeDefinition,
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
   invalidateCustomThemes,
@@ -25,7 +26,7 @@ import {
   type ThemeHalves,
   type ThemePreferenceMode,
 } from "../themePalette";
-import { applyStoredPalette } from "../palette";
+import { migrateStoredPalette, syncDockIcon } from "../palette";
 
 type Theme = ThemePreference;
 type ThemeSnapshot = {
@@ -327,28 +328,6 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  // Personal build: when a color palette (palette.ts) is active it replaces
-  // T3 Code's themes, so appearance comes only from Light / Dark / System and
-  // no stock theme colors apply (a light-only theme used to force light at
-  // night). Without a palette the stock theme path below runs unchanged.
-  if (document.documentElement.dataset?.palette) {
-    const paletteAppearance =
-      appearanceMode === "dark" || (appearanceMode !== "light" && getSystemDark())
-        ? "dark"
-        : "light";
-    applyThemePalette("system", paletteAppearance);
-    document.documentElement.classList.toggle("dark", paletteAppearance === "dark");
-    lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
-    syncBrowserChromeTheme();
-    syncDesktopTheme(theme, followSystem, appearanceMode);
-    if (suppressTransitions) {
-      void document.documentElement.offsetHeight;
-      requestAnimationFrame(() => {
-        document.documentElement.classList.remove("no-transitions");
-      });
-    }
-    return;
-  }
   const resolvedAppearance = resolveThemeAppearance(
     theme,
     systemDark,
@@ -357,6 +336,11 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     themeHalves,
   );
   applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
+  // Personal build: the Dock icon follows the theme.
+  const dockTheme = getThemeDefinition(resolveThemeHalf(theme, themeHalves, resolvedAppearance));
+  syncDockIcon(
+    resolvedAppearance === "dark" ? (dockTheme?.iconDark ?? dockTheme?.icon) : dockTheme?.icon,
+  );
   document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
   syncBrowserChromeTheme();
@@ -415,9 +399,8 @@ function syncDesktopTheme(
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined") {
-  // Personal build: the color palette first, so this first apply (the only one
-  // at startup) takes the palette path instead of the stock theme.
-  applyStoredPalette();
+  // Personal build: carry an old palette pick over to the theme before the first apply.
+  migrateStoredPalette();
   applyTheme(getStored());
 }
 

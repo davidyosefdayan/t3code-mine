@@ -1,24 +1,16 @@
-import type { ThemeColors } from "../../palette";
+import type { ThemeColors } from "../../themePalette";
 
 // A to-scale miniature of the app (top bar, thin rail, rounded panel with the
 // thread list and the chat) in one theme mode's colors, for the appearance
-// picker. Proportions follow a 1280x800 window; surfaces follow index.css.
-const CANVAS = { light: "#ffffff", dark: "#181818" } as const;
-const RAISED = { light: "#ffffff", dark: "#222222" } as const;
+// picker. Proportions follow a 1280x800 window. Themes without rail colors use
+// their sidebar, as the app does.
 const LINE = { light: "rgb(0 0 0 / 0.09)", dark: "rgb(255 255 255 / 0.08)" } as const;
-const TEXT = { light: "rgb(0 0 0 / 0.55)", dark: "rgb(255 255 255 / 0.6)" } as const;
-const FAINT = { light: "rgb(0 0 0 / 0.16)", dark: "rgb(255 255 255 / 0.18)" } as const;
 const ON_FRAME = "rgb(255 255 255 / 0.5)";
 const ON_LIGHT_FRAME = "rgb(0 0 0 / 0.3)";
 
-function listColor(colors: ThemeColors, mode: "light" | "dark") {
-  return mode === "dark"
-    ? `oklch(from ${colors.shell} 0.2 calc(c * 0.5) h)`
-    : `color-mix(in oklab, ${colors.shell} 22%, ${CANVAS.light})`;
-}
-
-function isDarkHex(hex: string) {
-  const value = Number.parseInt(hex.slice(1), 16);
+function isDarkHex(color: string) {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return false;
+  const value = Number.parseInt(color.slice(1), 16);
   const r = (value >> 16) & 255;
   const g = (value >> 8) & 255;
   const b = value & 255;
@@ -34,7 +26,14 @@ export function ThemeLayoutPreview({
   mode: "light" | "dark";
   clip?: "left" | "right";
 }) {
-  const frameInk = isDarkHex(colors.shell) ? ON_FRAME : ON_LIGHT_FRAME;
+  // Same fallback as index.css: a step darker than the sidebar.
+  const rail =
+    colors.rail ??
+    `color-mix(in oklab, ${colors.sidebar} ${mode === "dark" ? 72 : 94}%, #000)`;
+  const railControl = colors.railControl ?? colors.sidebarControlSurface;
+  const frameInk = isDarkHex(colors.rail ?? colors.sidebar) || mode === "dark" ? ON_FRAME : ON_LIGHT_FRAME;
+  const text = `color-mix(in oklab, ${colors.text} 55%, transparent)`;
+  const faint = `color-mix(in oklab, ${colors.text} 18%, transparent)`;
   const bar = (width: string, color: string, height = 2) => (
     <span
       className="block shrink-0 rounded-full"
@@ -46,7 +45,7 @@ export function ThemeLayoutPreview({
       aria-hidden
       className="absolute inset-0 flex flex-col"
       style={{
-        backgroundColor: colors.shell,
+        backgroundColor: rail,
         clipPath:
           clip === "left"
             ? "polygon(0 0, 100% 0, 0 100%)"
@@ -63,7 +62,7 @@ export function ThemeLayoutPreview({
         {bar("6%", frameInk)}
         <span
           className="ms-auto rounded-xs"
-          style={{ height: 6, width: "45%", backgroundColor: colors.chip }}
+          style={{ height: 6, width: "45%", backgroundColor: railControl }}
         />
       </span>
       <span className="flex min-h-0 flex-1">
@@ -74,7 +73,7 @@ export function ThemeLayoutPreview({
         >
           <span
             className="rounded-xs"
-            style={{ width: 7, height: 7, backgroundColor: colors.chip }}
+            style={{ width: 7, height: 7, backgroundColor: railControl }}
           />
           {[0, 1, 2].map((dot) => (
             <span key={dot} className="size-1 rounded-xs" style={{ backgroundColor: frameInk }} />
@@ -87,7 +86,7 @@ export function ThemeLayoutPreview({
           style={{
             marginBottom: "1.5%",
             marginInlineEnd: "1%",
-            backgroundColor: CANVAS[mode],
+            backgroundColor: colors.canvas,
             boxShadow: `inset 0 0 0 0.5px ${LINE[mode]}`,
           }}
         >
@@ -96,11 +95,11 @@ export function ThemeLayoutPreview({
             style={{
               width: "32%",
               paddingInline: "3%",
-              backgroundColor: listColor(colors, mode),
+              backgroundColor: colors.sidebar,
               boxShadow: `inset -0.5px 0 0 ${LINE[mode]}`,
             }}
           >
-            {bar("40%", TEXT[mode], 3)}
+            {bar("40%", text, 3)}
             <span
               className="mt-px block shrink-0 rounded-xs"
               style={{ height: 6, backgroundColor: LINE[mode] }}
@@ -111,8 +110,8 @@ export function ThemeLayoutPreview({
                 className="flex flex-col gap-0.5 pt-0.75"
                 style={{ borderTop: index === 0 ? undefined : `0.5px solid ${LINE[mode]}` }}
               >
-                {bar(`${width}%`, TEXT[mode])}
-                {bar(`${width + 12}%`, FAINT[mode])}
+                {bar(`${width}%`, text)}
+                {bar(`${width + 12}%`, faint)}
               </span>
             ))}
           </span>
@@ -123,26 +122,26 @@ export function ThemeLayoutPreview({
           >
             <span
               className="ms-auto block rounded-xs"
-              style={{ height: 9, width: "46%", backgroundColor: colors.accent }}
+              style={{ height: 9, width: "46%", backgroundColor: colors.messageAction }}
             />
             <span
               className="flex flex-col gap-0.5 rounded-xs p-0.75"
               style={{
                 width: "78%",
-                backgroundColor: `color-mix(in oklab, ${TEXT[mode]} 14%, ${CANVAS[mode]})`,
+                backgroundColor: `color-mix(in oklab, ${colors.text} 8%, ${colors.canvas})`,
               }}
             >
-              {bar("92%", FAINT[mode])}
-              {bar("70%", FAINT[mode])}
+              {bar("92%", faint)}
+              {bar("70%", faint)}
             </span>
             <span
               className="mt-auto flex h-4 items-end justify-end rounded-sm p-0.5"
               style={{
-                backgroundColor: RAISED[mode],
+                backgroundColor: colors.surfaceRaised,
                 boxShadow: `inset 0 0 0 0.5px ${LINE[mode]}`,
               }}
             >
-              <span className="size-1.5 rounded-full" style={{ backgroundColor: colors.accent }} />
+              <span className="size-1.5 rounded-full" style={{ backgroundColor: colors.messageAction }} />
             </span>
           </span>
         </span>

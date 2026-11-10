@@ -1,10 +1,5 @@
-import { useSyncExternalStore } from "react";
-
-// Color themes (personal build). A theme is one color family in a light and a
-// dark version; Light / Dark / System picks which one shows. Every color used
-// for a theme lives here: the stylesheet only holds rules shared by all themes,
-// and this module generates each theme's variables, so previews, the picker,
-// and the app always agree.
+// Personal build: the built-in themes' seed colors, one set per appearance.
+// mineThemes.ts derives each theme's full colors from these.
 
 export interface ThemeColors {
   /** Frame around the app: the rail and the margin around the panel. */
@@ -237,7 +232,6 @@ export const COLOR_THEMES = [
   }),
 ] as const satisfies ReadonlyArray<ColorTheme>;
 
-export type PaletteId = (typeof COLOR_THEMES)[number]["id"];
 
 function relativeLuminance(hex: string): number {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
@@ -254,111 +248,37 @@ export function isDarkColor(hex: string): boolean {
   return relativeLuminance(hex) < 0.18;
 }
 
-// Light-on-dark overrides for a deep frame: text, icons, and row washes.
-// Muted text and icons are white mixed into the frame, not translucent white:
-// a translucent stroke draws darker where an icon's lines overlap.
-const onDarkFrame = (shell: string) => {
-  const muted = `color-mix(in srgb, #ffffff 62%, ${shell})`;
-  return `
-  --contrast-sidebar-foreground: #ffffff;
-  --contrast-sidebar-muted-foreground: ${muted};
-  --contrast-foreground: #ffffff;
-  --contrast-muted-foreground: ${muted};
-  --contrast-icon-muted: ${muted};
-  --sidebar-icon-color: ${muted};
-  --foreground: #ffffff;
-  --muted-foreground: ${muted};
-  --pal-row-hover: rgb(255 255 255 / 0.08);
-  --pal-row-active: rgb(255 255 255 / 0.17);`;
-};
+const LEGACY_PALETTE_KEY = "t3code:palette";
+const MIGRATED_KEY = "t3code:palette-migrated";
+const THEME_KEY = "t3code:theme";
+const APPEARANCE_MODE_KEY = "t3code:theme-appearance-mode";
 
-function themeRules(theme: ColorTheme): string {
-  // One step more specific than the stock theme rule (html[data-theme-id]
-  // :not(...)), so themes win regardless of stylesheet load order.
-  const root = (dark: boolean) =>
-    `html:root${dark ? ".dark" : ""}[data-palette="${theme.id}"]:not([data-palette=""])`;
-  return (["light", "dark"] as const)
-    .map((mode) => {
-      const colors = theme[mode];
-      const selector = root(mode === "dark");
-      const onAccent = isDarkColor(colors.accent) ? "#ffffff" : colors.shell;
-      const base = `${selector} {
-  --pal-shell: ${colors.shell};
-  --pal-chip: ${colors.chip};
-  --primary: ${colors.accent};
-  --primary-foreground: ${onAccent};
-  --message-action: ${colors.accent};
-  --message-action-foreground: ${onAccent};
-  --ring: ${colors.accent};
-  --success: ${colors.success};
-  --success-foreground: ${colors.success};
-  --warning: ${colors.warning};
-  --warning-foreground: ${colors.warning};
-  --error: ${colors.error};
-  --error-foreground: ${colors.error};
-  --info: ${colors.info};
-  --info-foreground: ${colors.info};
-}`;
-      // A dark frame in light mode needs light-on-dark rail controls.
-      return mode === "light" && isDarkColor(colors.shell)
-        ? `${base}\n${selector} [data-app-rail],\n${selector} [data-app-topbar] {${onDarkFrame(colors.shell)}\n}`
-        : base;
-    })
-    .join("\n");
-}
-
-function installThemeStyles(): void {
-  if (typeof document === "undefined" || document.getElementById("color-themes")) return;
-  const style = document.createElement("style");
-  style.id = "color-themes";
-  style.textContent = COLOR_THEMES.map(themeRules).join("\n");
-  document.head.append(style);
-}
-
-const STORAGE_KEY = "t3code:palette";
-const DEFAULT_PALETTE: PaletteId = "paper";
-const listeners = new Set<() => void>();
-
-function readPalette(): PaletteId {
+// The themes used to be picked here (t3code:palette) on top of a stock theme;
+// they are now built-in themes (mineThemes.ts). Carry the pick over once.
+export function migrateStoredPalette(): void {
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    const theme = COLOR_THEMES.find((candidate) => candidate.id === stored);
-    if (theme) return theme.id;
+    const storage = window.localStorage;
+    if (storage.getItem(MIGRATED_KEY) !== null) return;
+    const palette = storage.getItem(LEGACY_PALETTE_KEY);
+    const theme = storage.getItem(THEME_KEY);
+    const id = COLOR_THEMES.find((candidate) => candidate.id === palette)?.id ?? "paper";
+    if (storage.getItem(APPEARANCE_MODE_KEY) === null) {
+      storage.setItem(APPEARANCE_MODE_KEY, theme === "light" || theme === "dark" ? theme : "system");
+    }
+    storage.setItem(THEME_KEY, id);
+    storage.setItem(MIGRATED_KEY, "1");
   } catch {
-    // Storage can be unavailable; fall back to the default.
+    // Storage can be unavailable; the stock default applies.
   }
-  return DEFAULT_PALETTE;
 }
 
-function syncDockIcon(id: PaletteId): void {
-  void window.desktopBridge?.setDockPaletteIcon?.(id).catch(() => {});
-}
+let lastDockIcon: string | null = null;
 
-export function applyStoredPalette(): void {
-  installThemeStyles();
-  const palette = readPalette();
-  document.documentElement.dataset.palette = palette;
-  syncDockIcon(palette);
-}
-
-export function setPalette(id: PaletteId): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, id);
-  } catch {
-    // Still apply it for this session.
-  }
-  document.documentElement.dataset.palette = id;
-  syncDockIcon(id);
-  for (const listener of listeners) listener();
-}
-
-export function usePalette(): PaletteId {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    readPalette,
-    () => DEFAULT_PALETTE,
-  );
+/** The Dock shows the theme's icon for the current appearance, or the app's own icon. */
+export function syncDockIcon(icon: string | undefined): void {
+  const match = icon ? /^\/palette-icons\/([a-z0-9]+)\.png$/.exec(icon) : null;
+  const next = match ? match[1]! : icon?.startsWith("data:image/png;") ? icon : "default";
+  if (lastDockIcon === next) return;
+  lastDockIcon = next;
+  void window.desktopBridge?.setDockPaletteIcon?.(next).catch(() => {});
 }

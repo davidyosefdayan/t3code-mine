@@ -17,8 +17,10 @@ import {
   T3_CODE_DARK_THEME_COLORS,
   RESERVED_THEME_IDS,
   THEME_COLOR_ROLES,
+  THEME_RAIL_ROLES,
   type ThemeAppearance,
   type ThemeColorRole,
+  type ThemeRailRole,
   type ThemeColors,
   type ThemeDefinition,
   type ThemeVariants,
@@ -29,6 +31,7 @@ import {
   type ContextChipAccentKind,
 } from "./lib/contextChipAccents";
 
+import { MINE_THEMES } from "./mineThemes";
 import { appAtomRegistry, subscribeAtomChanges } from "./rpc/atomRegistry";
 import { themeServerEnvironmentThemesAtom } from "./state/server";
 
@@ -51,8 +54,14 @@ const LEGACY_T3_CHAT_DARK_THEME_ID = "t3-chat-dark";
 export const ThemePreference = Schema.String;
 export type ThemePreference = typeof ThemePreference.Type;
 
-const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set(THEME_COLOR_ROLES);
-export type ThemeColorOverrides = Readonly<Partial<Record<ThemeColorRole, string>>>;
+// Personal build: the fork's built-in theme ids are reserved like upstream's.
+const RESERVED_IDS: ReadonlySet<string> = new Set([
+  ...RESERVED_THEME_IDS,
+  ...MINE_THEMES.map((theme) => theme.id),
+]);
+const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set([...THEME_COLOR_ROLES, ...THEME_RAIL_ROLES]);
+type AnyThemeColorRole = ThemeColorRole | ThemeRailRole;
+export type ThemeColorOverrides = Readonly<Partial<Record<AnyThemeColorRole, string>>>;
 export type ThemeVariantOverrides = Readonly<Partial<Record<ThemeAppearance, ThemeColorOverrides>>>;
 export type ThemePreferenceMode = ThemeAppearance | "system";
 export type ThemeCollection = Readonly<{ id: string; label: string }>;
@@ -65,6 +74,8 @@ export type ThemeFile = Readonly<{
   variants?: ThemeVariantOverrides;
   collection?: ThemeCollection;
   managed?: boolean;
+  icon?: string;
+  iconDark?: string;
 }>;
 
 const customThemeListeners = new Set<() => void>();
@@ -131,12 +142,12 @@ function parseThemeCollection(value: unknown): ThemeCollection | undefined {
 
 function lenientThemeColorOverrides(
   value: Readonly<Record<string, unknown>>,
-): Partial<Record<ThemeColorRole, string>> {
-  const overrides: Partial<Record<ThemeColorRole, string>> = {};
+): Partial<Record<AnyThemeColorRole, string>> {
+  const overrides: Partial<Record<AnyThemeColorRole, string>> = {};
   for (const [role, color] of Object.entries(value)) {
     const normalized = toCanonicalThemeColor(color);
     if (THEME_COLOR_ROLE_SET.has(role) && normalized) {
-      overrides[role as ThemeColorRole] = normalized;
+      overrides[role as AnyThemeColorRole] = normalized;
     }
   }
   return overrides;
@@ -166,9 +177,20 @@ function parseStoredThemeVariants(
   return Object.keys(variants).length > 0 ? variants : undefined;
 }
 
+// Personal build: a theme icon is a small image data URL (or a bundled app path).
+const MAX_THEME_ICON_LENGTH = 400_000;
+function isThemeIcon(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_THEME_ICON_LENGTH &&
+    (/^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(value) ||
+      /^\/palette-icons\/[a-z0-9-]+\.png$/.test(value))
+  );
+}
+
 function parseStoredTheme(value: unknown): ThemeDefinition | null {
   if (!isRecord(value)) return null;
-  if (!isThemeId(value.id) || RESERVED_THEME_IDS.has(value.id)) return null;
+  if (!isThemeId(value.id) || RESERVED_IDS.has(value.id)) return null;
   if (!isThemeLabel(value.label) || !isThemeAppearance(value.appearance)) return null;
   const colors = parseStoredThemeColors(value.colors, value.appearance);
   if (!colors) return null;
@@ -184,6 +206,8 @@ function parseStoredTheme(value: unknown): ThemeDefinition | null {
     ...(variants ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
+    ...(isThemeIcon(value.icon) ? { icon: value.icon } : {}),
+    ...(isThemeIcon(value.iconDark) ? { iconDark: value.iconDark } : {}),
   };
 }
 
@@ -334,7 +358,7 @@ function getEnvironmentThemes(): ReadonlyArray<ThemeDefinition> {
 }
 
 export function isReservedThemeId(themeId: string): boolean {
-  return RESERVED_THEME_IDS.has(themeId);
+  return RESERVED_IDS.has(themeId);
 }
 
 export function getStoredCustomThemeCollection(
@@ -505,7 +529,7 @@ function themeRgbToThemeColor(color: ThemeRgbColor): string {
 }
 
 function decodeThemeColors(colors: ThemeColors): ThemeColors {
-  return Object.fromEntries(
+  const core = Object.fromEntries(
     THEME_COLOR_ROLES.map((role) => {
       const color = toCanonicalThemeColor(colors[role]);
       if (!color) {
@@ -516,6 +540,13 @@ function decodeThemeColors(colors: ThemeColors): ThemeColors {
       return [role, color];
     }),
   ) as Record<ThemeColorRole, string>;
+  // Personal build: the optional rail roles are kept when present.
+  const extras: Partial<Record<ThemeRailRole, string>> = {};
+  for (const role of THEME_RAIL_ROLES) {
+    const color = colors[role] === undefined ? null : toCanonicalThemeColor(colors[role]);
+    if (color) extras[role] = color;
+  }
+  return { ...core, ...extras };
 }
 
 function canonicalizeThemeDefinition(theme: ThemeDefinition): ThemeDefinition {
@@ -1184,7 +1215,11 @@ export function updateThemeColorFamily(
   }
 }
 
-const BUILT_IN_THEME_DEFINITIONS: ReadonlyArray<ThemeDefinition> = BUILT_IN_THEMES;
+// Personal build: the fork's themes come first.
+const BUILT_IN_THEME_DEFINITIONS: ReadonlyArray<ThemeDefinition> = [
+  ...MINE_THEMES,
+  ...BUILT_IN_THEMES,
+];
 
 export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | null {
   const themeId = themeIdFromPreference(theme);
@@ -1319,7 +1354,7 @@ function storedThemeHasCollectionId(storedTheme: unknown, collectionId: string):
 }
 
 export function installCustomTheme(theme: ThemeDefinition): ThemeDefinition {
-  if (RESERVED_THEME_IDS.has(theme.id)) {
+  if (RESERVED_IDS.has(theme.id)) {
     throw new Error(`The theme id "${theme.id}" is reserved.`);
   }
   const library = getWritableCustomThemeLibrary();
@@ -1336,7 +1371,7 @@ export function installCustomTheme(theme: ThemeDefinition): ThemeDefinition {
 }
 
 export function updateCustomTheme(theme: ThemeDefinition): ThemeDefinition {
-  if (RESERVED_THEME_IDS.has(theme.id)) {
+  if (RESERVED_IDS.has(theme.id)) {
     throw new Error(`The theme id "${theme.id}" is reserved.`);
   }
 
@@ -1400,7 +1435,7 @@ export function replaceCustomThemeCollection(
     }
   }
   const conflictingTheme = replacement.find(
-    (theme) => RESERVED_THEME_IDS.has(theme.id) || occupiedIds.has(theme.id),
+    (theme) => RESERVED_IDS.has(theme.id) || occupiedIds.has(theme.id),
   );
   if (conflictingTheme) {
     throw new Error(`A theme named "${conflictingTheme.label}" is already installed.`);
@@ -1446,7 +1481,7 @@ export function removeCustomThemes(themeIds: ReadonlyArray<string>): void {
 function parseThemeColorOverrides(value: unknown): ThemeColorOverrides {
   if (!isRecord(value)) throw new Error("Theme colors must be objects.");
 
-  const overrides: Partial<Record<ThemeColorRole, string>> = {};
+  const overrides: Partial<Record<AnyThemeColorRole, string>> = {};
   for (const [role, color] of Object.entries(value)) {
     if (!THEME_COLOR_ROLE_SET.has(role)) {
       throw new Error(`"${role}" is not a supported theme color role.`);
@@ -1457,7 +1492,7 @@ function parseThemeColorOverrides(value: unknown): ThemeColorOverrides {
         `The color for "${role}" must be a literal CSS color such as oklch(0.62 0.2 280).`,
       );
     }
-    overrides[role as ThemeColorRole] = normalized;
+    overrides[role as AnyThemeColorRole] = normalized;
   }
   if (Object.keys(overrides).length === 0) {
     throw new Error("Add at least one color role to the theme file.");
@@ -1486,7 +1521,7 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
   if (!isThemeId(id)) {
     throw new Error("Theme ids may only contain lowercase letters, numbers, and hyphens.");
   }
-  if (RESERVED_THEME_IDS.has(id)) {
+  if (RESERVED_IDS.has(id)) {
     throw new Error(`The theme id "${id}" is reserved.`);
   }
 
@@ -1523,6 +1558,8 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     ...(Object.keys(variants).length > 0 ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
+    ...(isThemeIcon(value.icon) ? { icon: value.icon } : {}),
+    ...(isThemeIcon(value.iconDark) ? { iconDark: value.iconDark } : {}),
   };
 }
 
@@ -1537,11 +1574,19 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     ...(canonicalTheme.variants ? { variants: canonicalTheme.variants } : {}),
     ...(canonicalTheme.collection ? { collection: canonicalTheme.collection } : {}),
     ...(canonicalTheme.managed ? { managed: true } : {}),
+    ...(canonicalTheme.icon ? { icon: canonicalTheme.icon } : {}),
+    ...(canonicalTheme.iconDark ? { iconDark: canonicalTheme.iconDark } : {}),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
 
-const APP_THEME_VARIABLES: Readonly<Record<ThemeColorRole, string>> = {
+const APP_THEME_VARIABLES: Readonly<Record<AnyThemeColorRole, string>> = {
+  rail: "--app-theme-rail",
+  railControl: "--app-theme-rail-control",
+  railForeground: "--app-theme-rail-foreground",
+  railMutedForeground: "--app-theme-rail-muted-foreground",
+  success: "--app-theme-success",
+  info: "--app-theme-info",
   canvas: "--app-theme-canvas",
   chrome: "--app-theme-chrome",
   toolbar: "--app-theme-toolbar",
@@ -1605,6 +1650,21 @@ const APP_THEME_VARIABLES: Readonly<Record<ThemeColorRole, string>> = {
   terminalScrollbarHover: "--app-theme-terminal-scrollbar-hover",
 };
 
+// Rail roles are optional, so a theme without them must clear the previous theme's.
+function setAppThemeVariables(root: HTMLElement, colors: ThemeColors): void {
+  // Personal build: a dark rail in light mode needs light-on-dark controls.
+  if (colors.railForeground) root.dataset.railInk = "light";
+  else delete root.dataset.railInk;
+  for (const role of [...THEME_COLOR_ROLES, ...THEME_RAIL_ROLES]) {
+    const value = colors[role];
+    if (value !== undefined && isThemeColor(value)) {
+      root.style.setProperty(APP_THEME_VARIABLES[role], value);
+    } else {
+      root.style.removeProperty(APP_THEME_VARIABLES[role]);
+    }
+  }
+}
+
 export function getThemeColorVariable(role: ThemeColorRole): string {
   return APP_THEME_VARIABLES[role];
 }
@@ -1619,9 +1679,7 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
 
   root.dataset.themeId = THEME_PREVIEW_ID;
   root.classList.toggle("dark", appearance === "dark");
-  for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
-    if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
-  }
+  setAppThemeVariables(root, colors);
   applyContextChipVariables(root, colors);
   setThemePreviewAppearance(appearance);
 }
@@ -1639,14 +1697,13 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     root.dataset.themeId = palette.id;
     const mode = appearance ?? legacyThemeMode(theme) ?? palette.appearance;
     const colors = getThemeColorsForMode(palette, mode) ?? palette.colors;
-    for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
-      root.style.setProperty(APP_THEME_VARIABLES[role], value);
-    }
+    setAppThemeVariables(root, colors);
     applyContextChipVariables(root, colors);
     return;
   }
 
   delete root.dataset.themeId;
+  delete root.dataset.railInk;
   for (const variable of Object.values(APP_THEME_VARIABLES)) {
     root.style.removeProperty(variable);
   }

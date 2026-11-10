@@ -293,9 +293,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   /* Personal build: theme surfaces (palette.ts). The frame around the app (rail,
      top bar, margin around the panel), the page sidebar inside the panel, the
      soft filled chip, and row washes. */
-  --color-sidebar-shell: var(--pal-shell, var(--sidebar));
-  --color-sidebar-list: var(--pal-list, var(--background));
-  --color-chip: var(--pal-chip, color-mix(in oklab, var(--foreground) 6%, transparent));
+  --color-sidebar-shell: var(--app-theme-rail, var(--derived-rail));
+  --color-sidebar-list: var(--app-theme-sidebar, var(--background));
+  --color-chip: var(
+    --pal-chip,
+    var(--app-theme-rail-control, color-mix(in oklab, var(--foreground) 6%, transparent))
+  );
   --color-row-hover: var(--pal-row-hover);
   --color-row-active: var(--pal-row-active);
   --color-row-selected: var(--pal-row-selected);
@@ -2659,10 +2662,17 @@ code {
   outline-offset: -2px;
 }
 
-/* Personal build: theme surfaces shared by every theme (palette.ts holds each
-   theme's colors). Row surfaces: hover wash, open row, selection. The open row's
-   white barely lifts off a near-white list, so it also gets a hairline in the
-   sidebar's divider color. */
+/* Personal build: themes without their own rail color get one a step darker
+   than their sidebar, so the rail and the thread list never merge. */
+:root {
+  --derived-rail: color-mix(in oklab, var(--sidebar) 94%, #000);
+}
+:root.dark {
+  --derived-rail: color-mix(in oklab, var(--sidebar) 72%, #000);
+}
+
+/* Personal build: thread rows and rail surfaces. The open row's white barely lifts
+   off a near-white list, so it also gets a hairline in the sidebar's divider color. */
 :root {
   --pal-row-hover: rgb(255 255 255 / 0.55);
   --pal-row-active: #ffffff;
@@ -2676,57 +2686,44 @@ code {
   --pal-row-selected: rgb(255 255 255 / 0.08);
 }
 
-/* Content panel surfaces follow the theme: hover washes, message bubbles, and
-   header buttons are a soft tint of the theme's accent instead of the stock
-   gray/blue, so the whole app reads as one theme. */
-html[data-palette]:not([data-palette=""]) {
-  --pal-soft: color-mix(in oklab, var(--primary) 8%, var(--background));
-  --pal-soft-hover: color-mix(in oklab, var(--primary) 14%, var(--background));
-  --pal-list: color-mix(in oklab, var(--pal-shell) 22%, var(--background));
+/* With a theme on, header chips are the theme's toolbar control colors, the
+   success and info hues come from the theme when it sets them, and the answer
+   bubble is a neutral lift of the canvas in the dark. */
+html[data-theme-id]:not([data-theme-id=""]) {
+  --pal-soft: var(--toolbar-control);
+  --pal-soft-hover: var(--toolbar-control-hover);
+  --success: var(--app-theme-success, var(--color-emerald-500));
+  --success-foreground: var(--app-theme-success, var(--color-emerald-700));
+  --info: var(--app-theme-info, var(--color-blue-500));
+  --info-foreground: var(--app-theme-info, var(--color-blue-700));
 }
-/* Dark mode mirrors light: the chat canvas is neutral (white in light, ChatGPT-style
-   #181818 in dark, never true black, which glares), raised surfaces step lighter, and
-   only the rail and the list carry the theme: the list is the rail's hue, darkened, at
-   half its saturation, like Slack's sidebar. Text is off-white. */
-html.dark[data-palette]:not([data-palette=""]) {
-  --pal-list: oklch(from var(--pal-shell) 0.2 calc(c * 0.5) h);
-  --background: #181818;
-  --surface-raised: #222222;
-  --card: var(--surface-raised);
-  --popover: #262626;
-  --foreground: #ececec;
-  --card-foreground: var(--foreground);
-  --popover-foreground: var(--foreground);
-  --muted-foreground: #a0a0a0;
-  --pal-soft: color-mix(in oklab, var(--primary) 16%, var(--background));
-  --pal-soft-hover: color-mix(in oklab, var(--primary) 26%, var(--background));
-  --accent: var(--pal-soft-hover);
-  --toolbar-control-hover: var(--pal-soft-hover);
-  --message-surface: color-mix(in oklab, var(--primary) 11%, var(--background));
+html.dark[data-theme-id]:not([data-theme-id=""]) {
+  --success-foreground: var(--app-theme-success, var(--color-emerald-400));
+  --info-foreground: var(--app-theme-info, var(--color-blue-400));
   --pal-agent-bubble: color-mix(in oklab, var(--foreground) 8%, var(--background));
 }
-/* The sidebar's stock dark tokens are true black; give it the list's tone. */
-html.dark[data-palette]:not([data-palette=""]) [data-app-sidebar] {
-  --background: var(--pal-list);
-  --card: var(--pal-list);
-  --foreground: #ececec;
-  --muted: color-mix(in oklab, #ffffff 3%, var(--pal-list));
-  --accent: color-mix(in oklab, #ffffff 7%, var(--pal-list));
+
+/* The page sidebar sits inside the rounded content panel: chips are soft panel
+   tints, and thread rows use the theme's sidebar row colors. */
+html[data-theme-id]:not([data-theme-id=""]) [data-slot="sidebar"] {
+  --pal-chip: color-mix(in oklab, var(--foreground) 6%, transparent);
+  --pal-row-hover: var(--sidebar-row-hover);
+  --pal-row-active: var(--sidebar-row-active);
+  --pal-row-selected: var(--sidebar-row-selected);
 }
 
-/* The page sidebar sits inside the rounded content panel, so its chips and row
-   washes are soft panel tints rather than shell ones. */
-html[data-palette]:not([data-palette=""]) [data-slot="sidebar"] {
-  --pal-chip: color-mix(in oklab, var(--foreground) 6%, transparent);
-  --pal-row-hover: color-mix(in oklab, var(--foreground) 6%, transparent);
-  --pal-row-active: var(--background);
-  --pal-row-selected: color-mix(in oklab, var(--background) 60%, transparent);
-}
-/* In the dark the panel color is near black and vanishes on the list, so open and
-   selected rows lighten it instead. */
-html.dark[data-palette]:not([data-palette=""]) [data-slot="sidebar"] {
-  --pal-row-active: color-mix(in oklab, var(--foreground) 13%, transparent);
-  --pal-row-selected: color-mix(in oklab, var(--foreground) 9%, transparent);
+/* A dark rail in light mode (the deep themes) takes light-on-dark controls. */
+html[data-rail-ink="light"]:not(.dark) :is([data-app-rail], [data-app-topbar]) {
+  --contrast-sidebar-foreground: var(--app-theme-rail-foreground);
+  --contrast-sidebar-muted-foreground: var(--app-theme-rail-muted-foreground);
+  --contrast-foreground: var(--app-theme-rail-foreground);
+  --contrast-muted-foreground: var(--app-theme-rail-muted-foreground);
+  --contrast-icon-muted: var(--app-theme-rail-muted-foreground);
+  --sidebar-icon-color: var(--app-theme-rail-muted-foreground);
+  --foreground: var(--app-theme-rail-foreground);
+  --muted-foreground: var(--app-theme-rail-muted-foreground);
+  --pal-row-hover: rgb(255 255 255 / 0.08);
+  --pal-row-active: rgb(255 255 255 / 0.17);
 }
 
 /* Sidebar notices (undo, provider updates): one flat, borderless style, sitting as
@@ -2741,49 +2738,49 @@ html.dark[data-palette]:not([data-palette=""]) [data-slot="sidebar"] {
 /* Header buttons (Open, Commit & PR...): flat, borderless chips. A button wrapped
    in a popover trigger (the disabled git action with its reason) takes the
    trigger's data-slot, so it is matched separately. */
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="button"],
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="menu-trigger"],
-html[data-palette]:not([data-palette=""]) [data-chat-header] button[data-slot="popover-trigger"],
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-toolbar-control] {
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"],
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"],
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] button[data-slot="popover-trigger"],
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control] {
   background-color: var(--pal-soft);
   border-color: transparent;
   box-shadow: none;
 }
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="button"]:hover,
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="menu-trigger"]:hover,
-html[data-palette]:not([data-palette=""])
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"]:hover,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"]:hover,
+html[data-theme-id]:not([data-theme-id=""])
   [data-chat-header]
   button[data-slot="popover-trigger"]:hover,
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-toolbar-control]:hover {
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control]:hover {
   background-color: var(--pal-soft-hover);
 }
 /* A disabled chip stays hoverable so it can explain why, but must not light up or
    press like a live button. */
-html[data-palette]:not([data-palette=""]) [data-chat-header] button[aria-disabled="true"]:hover {
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] button[aria-disabled="true"]:hover {
   background-color: var(--pal-soft);
 }
-html[data-palette]:not([data-palette=""]) [data-chat-header] button[aria-disabled="true"]:active {
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] button[aria-disabled="true"]:active {
   scale: none;
 }
 /* One flat surface per chip: no bevel highlight on either half of a split button. */
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="button"]::before,
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-slot="menu-trigger"]::before,
-html[data-palette]:not([data-palette=""])
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"]::before,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"]::before,
+html[data-theme-id]:not([data-theme-id=""])
   [data-chat-header]
   button[data-slot="popover-trigger"]::before,
-html[data-palette]:not([data-palette=""]) [data-chat-header] [data-toolbar-control]::before {
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control]::before {
   display: none;
 }
 
 /* Split buttons in the header: the 1px gap takes the button tint, with a short,
    soft divider drawn in its middle. */
-html[data-palette]:not([data-palette=""])
+html[data-theme-id]:not([data-theme-id=""])
   [data-chat-header]
   [data-slot="group"]
   > [data-slot="separator"] {
   background-color: var(--pal-soft);
 }
-html[data-palette]:not([data-palette=""])
+html[data-theme-id]:not([data-theme-id=""])
   [data-chat-header]
   [data-slot="group"]
   > [data-slot="separator"]::before {

@@ -92,7 +92,20 @@ export const THEME_COLOR_ROLES = [
 ] as const;
 
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number];
-export type ThemeColors = Readonly<Record<ThemeColorRole, string>>;
+// Personal build: optional roles. The rail (and top bar) around the rounded panel,
+// and the success and info hues. Themes without them keep the stock colors.
+export const THEME_RAIL_ROLES = [
+  "rail",
+  "railControl",
+  "railForeground",
+  "railMutedForeground",
+  "success",
+  "info",
+] as const;
+export type ThemeRailRole = (typeof THEME_RAIL_ROLES)[number];
+export type ThemeColors = Readonly<
+  Record<ThemeColorRole, string> & Partial<Record<ThemeRailRole, string>>
+>;
 export type ThemeVariants = Readonly<Partial<Record<ThemeAppearance, ThemeColors>>>;
 export type ThemeDefinition = Readonly<{
   id: string;
@@ -103,6 +116,10 @@ export type ThemeDefinition = Readonly<{
   collection?: Readonly<{ id: string; label: string }>;
   sidebarArtwork?: boolean;
   managed?: boolean;
+  /** Personal build: the theme's icon (an app path or an image data URL), shown on its tile and in the Dock. */
+  icon?: string;
+  /** Personal build: the icon in dark mode; the light icon when left out. */
+  iconDark?: string;
 }>;
 
 export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {

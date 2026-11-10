@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
@@ -19,7 +19,9 @@ import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { AppearanceModePicker, ColorThemePicker } from "./PaletteThemePicker";
+import { useCustomThemes } from "../../hooks/useCustomThemes";
+import { useTheme } from "../../hooks/useTheme";
+import { ThemeLibrary } from "./ThemeSettings";
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -80,6 +82,18 @@ const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
 };
 
 export function AppearanceSettingsPanel() {
+  const {
+    appearanceMode,
+    refreshTheme,
+    resolvedTheme,
+    setAppearanceMode,
+    setTheme,
+    setThemeHalf,
+    theme,
+    themeHalves,
+  } = useTheme();
+  const customThemes = useCustomThemes();
+  const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const environmentStageLabel = useEnvironmentStageLabel();
@@ -121,15 +135,22 @@ export function AppearanceSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {/* Personal build: the fork's own themes (palette.ts) replace the theme library. */}
-      <SettingsSection id="appearance" title="Appearance" variant="plain">
+      <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
         <div id={searchableSetting("theme").id}>
-          <AppearanceModePicker />
+          <ThemeLibrary
+            appearanceMode={appearanceMode}
+            customThemes={customThemes}
+            initialAppearance={resolvedTheme}
+            refreshTheme={refreshTheme}
+            isImportOpen={isImportThemeOpen}
+            setAppearanceMode={setAppearanceMode}
+            setTheme={setTheme}
+            setThemeHalf={setThemeHalf}
+            theme={theme}
+            themeHalves={themeHalves}
+            onImportOpenChange={setIsImportThemeOpen}
+          />
         </div>
-      </SettingsSection>
-
-      <SettingsSection id="appearance-theme" title="Theme" variant="plain">
-        <ColorThemePicker />
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">

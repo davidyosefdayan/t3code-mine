@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - small synchronous lookup inside an IPC handler.
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
@@ -13,11 +14,34 @@ import * as DesktopAssets from "../../app/DesktopAssets.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import { SET_DOCK_PALETTE_ICON_CHANNEL } from "../channels.ts";
 
-// Personal build: the app icon follows the selected color palette: the Dock on
-// macOS, each window's icon (what the taskbar shows) on Windows and Linux.
-// Icons are bundled as resources/palette-icons/<palette>.png; a palette
-// without one falls back to the app's own icon.
-const PaletteId = Schema.String.check(Schema.isPattern(/^[a-z]{1,32}$/));
+// Personal build: the app icon follows the selected theme: the Dock on macOS,
+// each window's icon (what the taskbar shows) on Windows and Linux. Built-in
+// icons are bundled as resources/palette-icons/<id>.png, a custom theme sends
+// its icon as a PNG data URL, and anything else falls back to the app's icon.
+const PaletteId = Schema.String.check(Schema.isPattern(/^[a-z0-9]{1,32}$/));
+const IconDataUrl = Schema.String.check(
+  Schema.isPattern(/^data:image\/png;base64,[A-Za-z0-9+/=]{1,600000}$/),
+);
+const DockIcon = Schema.Union([PaletteId, IconDataUrl]);
+
+// A custom icon is written to disk so the bundle (Finder) icon can use it too.
+function resolveIconPath(icon: string): string {
+  if (!icon.startsWith("data:")) {
+    return NodePath.join(process.resourcesPath, "palette-icons", `${icon}.png`);
+  }
+  // Named by content, since the bundle icon is only re-applied when the path changes.
+  const bytes = Buffer.from(icon.slice(icon.indexOf(",") + 1), "base64");
+  const hash = NodeCrypto.createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+  const directory = Electron.app.getPath("userData");
+  const path = NodePath.join(directory, `theme-dock-icon-${hash}.png`);
+  if (!NodeFS.existsSync(path)) {
+    for (const name of NodeFS.readdirSync(directory)) {
+      if (name.startsWith("theme-dock-icon-")) NodeFS.rmSync(NodePath.join(directory, name));
+    }
+    NodeFS.writeFileSync(path, bytes);
+  }
+  return path;
+}
 
 export const installDockPaletteIcon = Effect.fn("desktop.ipc.installDockPaletteIcon")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
@@ -33,11 +57,11 @@ export const installDockPaletteIcon = Effect.fn("desktop.ipc.installDockPaletteI
   yield* ipc.handle(
     DesktopIpc.makeIpcMethod({
       channel: SET_DOCK_PALETTE_ICON_CHANNEL,
-      payload: PaletteId,
+      payload: DockIcon,
       result: Schema.Void,
       handler: (palette) =>
         Effect.sync(() => {
-          const iconPath = NodePath.join(process.resourcesPath, "palette-icons", `${palette}.png`);
+          const iconPath = resolveIconPath(palette);
           if (platform !== "darwin") {
             const fallbackPath = Option.getOrNull(
               platform === "win32" ? iconPaths.ico : iconPaths.png,
