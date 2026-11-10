@@ -252,16 +252,36 @@ describe("deriveChatTimelineRows", () => {
     expect(shape(rows)).toEqual(["user: ask", "live: Thinking", "typing"]);
   });
 
-  it("stacks a steer under your message once the work between them folds into the line", () => {
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("build", 1, runA, "make build", true),
-        user("more", 2, runA, "steer"),
-      ],
-      { working: runA },
-    );
-    expect(shape(rows)).toEqual(["user: ask", "user: more", "live: Running make", "typing"]);
+  it("keeps a steer where you sent it, after the work it interrupted", () => {
+    const items = [
+      user("ask", 0, runA),
+      command("build", 1, runA, "make build"),
+      user("more", 4, runA, "steer"),
+      command("tests", 5, runA, "vp test run", true),
+    ];
+    const rows = rowsFor(items, { working: runA });
+    expect(shape(rows)).toEqual([
+      "user: ask",
+      "line: Worked for 4s",
+      "user: more",
+      "live: Running vp",
+      "typing",
+    ]);
+    const live = rows.find((row) => row.kind === "chat-work")!;
+    expect(live).toMatchObject({ stepCount: 1 });
+    // Opened, the work before the steer sits on its own line's rail.
+    const fold = rows.find((row) => row.kind === "turn-fold")!;
+    if (fold.kind !== "turn-fold") throw new Error("expected a fold");
+    const opened = shape(rowsFor(items, { working: runA, expandedRuns: [fold.runId] }));
+    expect(opened.indexOf("user: more")).toBeGreaterThan(opened.indexOf("line: Worked for 4s") + 1);
+    expect(opened[opened.indexOf("user: more") - 1]?.startsWith("  ")).toBe(true);
+  });
+
+  it("stacks a steer sent before any work under your message", () => {
+    const rows = rowsFor([user("ask", 0, runA), user("more", 1, runA, "steer")], {
+      working: runA,
+    });
+    expect(shape(rows)).toEqual(["user: ask", "user: more", "live: Thinking", "typing"]);
     expect(rows.slice(0, 2)).toMatchObject([
       { kind: "message", groupedWithNext: true },
       { kind: "message", groupedWithPrevious: true },

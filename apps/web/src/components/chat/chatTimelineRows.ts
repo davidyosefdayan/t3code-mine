@@ -3,9 +3,9 @@
 // messages, a turn's last text is its answer bubble, and a working turn folds into one
 // live line (the sidebar's words, liveWorkLine.ts) above a typing bubble.
 import { workEntryMessageToUserText } from "@t3tools/client-runtime/work-log/presentation";
-import { MessageId, type RunId } from "@t3tools/contracts";
+import { MessageId, RunId } from "@t3tools/contracts";
 
-import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
+import { formatDuration, type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import {
   deriveActiveVisualResponseRunIds,
   deriveMessagesTimelineRows,
@@ -190,8 +190,33 @@ export function deriveChatTimelineRows(rawInput: ChatTimelineRowsInput): Row[] {
   const liveStart = input.isWorking ? upstreamRows.findIndex((row) => row.kind === "working") : -1;
 
   const rows: Row[] = [];
-  const lineRows: Row[] = [];
+  let lineRows: Row[] = [];
   let stepCount = 0;
+  // A steer splits the live turn: the work before it closes into its own line above
+  // it, so the steer stays where it was sent and the live line covers what follows.
+  let segmentStart = input.activeTurnStartedAt ?? null;
+  let firstSegment = true;
+  const closeSegmentBefore = (steer: Extract<Row, { kind: "message" }>) => {
+    if (lineRows.length === 0) return;
+    const runId = RunId.make(`${chatLiveLineId(input)}:before:${steer.message.id}`);
+    const start = segmentStart ?? lineRows[0]?.createdAt ?? steer.message.createdAt;
+    const elapsedMs = Date.parse(steer.message.createdAt) - Date.parse(start);
+    const verb = firstSegment ? "Worked" : "Continued";
+    const expanded = input.expandedRunIds?.has(runId) ?? false;
+    rows.push({
+      kind: "turn-fold",
+      id: `turn-fold:${runId}`,
+      createdAt: start,
+      runId,
+      label: Number.isFinite(elapsedMs) ? `${verb} for ${formatDuration(elapsedMs)}` : verb,
+      expanded,
+    });
+    if (expanded) rows.push(...lineRows.map((row) => ({ ...row, chatStep: true })));
+    lineRows = [];
+    stepCount = 0;
+    firstSegment = false;
+    segmentStart = steer.message.createdAt;
+  };
   // A compaction writes no answer: the line names it, and the typing bubble steps aside.
   let lineCompacting = false;
   let compacting = false;
@@ -204,6 +229,10 @@ export function deriveChatTimelineRows(rawInput: ChatTimelineRowsInput): Row[] {
       continue;
     }
     if (inLiveTurn && row.kind === "context-compaction" && row.active) compacting = true;
+    if (row.kind === "message" && row.message.role === "user") {
+      if (inLiveTurn) closeSegmentBefore(row);
+      else segmentStart = input.activeTurnStartedAt ?? row.message.createdAt;
+    }
     if (row.kind === "message" && row.message.role === "assistant") {
       if (isMessageToUser(row)) {
         rows.push(asBubble(row, "to-user"));
