@@ -435,7 +435,7 @@ function ThreadRowProviderStack(props: {
               current && shouldShowInstanceBadge(entry, props.providerEntryByInstanceId.values())
             }
             size="compact"
-            iconClassName={current ? "opacity-60 grayscale" : "size-3 opacity-35 grayscale"}
+            iconClassName={current ? "opacity-60" : "size-3 opacity-35 grayscale"}
           />
         );
       })}
@@ -482,6 +482,7 @@ export function ThreadRowMetaLine(props: {
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
+  pullRequestBadge?: ReactNode;
 }) {
   return (
     <RowMetaLine
@@ -489,10 +490,13 @@ export function ThreadRowMetaLine(props: {
       projectDisplayName={props.projectDisplayName}
       branch={props.thread.branch}
       trailing={
-        <ThreadRowProviderStack
-          thread={props.thread}
-          providerEntryByInstanceId={props.providerEntryByInstanceId}
-        />
+        <>
+          {props.pullRequestBadge}
+          <ThreadRowProviderStack
+            thread={props.thread}
+            providerEntryByInstanceId={props.providerEntryByInstanceId}
+          />
+        </>
       }
     />
   );
@@ -556,7 +560,7 @@ export function DraftRowBody(props: {
                 acpRegistryAgentId={providerEntry.acpRegistryAgentId}
                 acpRegistryIconUrl={providerEntry.acpRegistryIconUrl}
                 size="compact"
-                iconClassName="opacity-60 grayscale"
+                iconClassName="opacity-60"
               />
             </span>
           ) : null

@@ -14,7 +14,17 @@ import {
 import { isYourTurnUnseen, threadWaitingOnYou, yourTurnSince } from "../needsYouCount";
 import { resolveThreadRowLine } from "./threadGroups";
 import { ReadAloudThreadIndicator } from "./ReadAloudThreadIndicator";
-import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
+import {
+  ThreadPullRequestBadgeControl,
+  ThreadTerminalStatusButton,
+  prStatusIndicator,
+  resolveThreadPullRequestBadge,
+  useLinkedThreadPullRequest,
+} from "../ThreadStatusIndicators";
+import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { useOpenPrLink } from "../../lib/openPullRequestLink";
+import { InlineButton } from "../ui/button";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -541,6 +551,50 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     JSON.stringify([thread.environmentId, gitCwd]),
     gitStatus.data,
   );
+  // Personal build: upstream's pull request badge, on the row's bottom line
+  // beside the model logo. Several PRs collapse into one count or stack badge.
+  const linkedPullRequestStatus = useLinkedThreadPullRequest(
+    thread.environmentId,
+    thread.linkedPullRequest,
+    leaseLiveStatus,
+    thread.pullRequests,
+    thread.branchPullRequest,
+  );
+  const pr = linkedPullRequestStatus?.pr ?? null;
+  const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const currentLinkedPr = supportsMultiplePullRequests
+    ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
+    : null;
+  const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
+  const openPrLink = useOpenPrLink();
+  const handlePrClick = (event: ReactMouseEvent<HTMLElement>, targetUrl?: string) => {
+    const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
+    if (!url) return;
+    const showInRightPanel = targetUrl !== undefined || props.openPullRequestsInRightPanel;
+    const openedInRightPanel = openPrLink(event, url, showInRightPanel ? threadRef : undefined);
+    if (openedInRightPanel && showInRightPanel && !props.isRouteThread) {
+      onThreadActivate(threadRef);
+    }
+  };
+  const prBadgeShape = supportsMultiplePullRequests
+    ? resolveThreadPullRequestBadge(thread.pullRequests)
+    : null;
+  const prBadge =
+    prBadgeShape?.kind === "stack" || pr || currentLinkedPr ? (
+      <ThreadPullRequestBadgeControl
+        render={<InlineButton />}
+        badge={prBadgeShape}
+        pullRequests={thread.pullRequests}
+        number={pr?.number ?? currentLinkedPr?.number}
+        url={pr?.url ?? currentLinkedPr?.url}
+        status={prStatus}
+        onOpenList={() => {
+          useRightPanelStore.getState().open(threadRef, "pull-requests");
+          if (!props.isRouteThread) onThreadActivate(threadRef);
+        }}
+        onOpenPullRequest={handlePrClick}
+      />
+    ) : null;
 
   const status = resolveSidebarThreadStatus(thread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
@@ -1023,6 +1077,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               project={props.project}
               projectDisplayName={props.projectDisplayName}
               providerEntryByInstanceId={props.providerEntryByInstanceId}
+              pullRequestBadge={prBadge}
             />
           </div>
         </TooltipTrigger>
