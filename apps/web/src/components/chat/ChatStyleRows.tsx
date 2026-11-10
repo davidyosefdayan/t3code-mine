@@ -1,7 +1,7 @@
 // Personal build: the chat-style timeline's own looks (see chatTimelineRows.ts).
 // Presentational only; MessagesTimeline reads its row context and passes it in.
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 
@@ -21,25 +21,15 @@ export const AGENT_BUBBLE_CLASS_NAME =
 export const CHAT_RAIL_CLASS_NAME =
   "relative ms-2 ps-3.5 before:absolute before:-top-px before:-bottom-px before:start-0 before:w-0.5 before:bg-border";
 
-let shownTypingBubbles = 0;
-
-function countTypingBubble(element: HTMLElement | null) {
-  if (element === null) return;
-  shownTypingBubbles += 1;
-  const stopAnimation = observeVisibleAnimation(element);
-  return () => {
-    shownTypingBubbles -= 1;
-    stopAnimation?.();
-  };
-}
-
-/**
- * True for an answer bubble that mounts in the same update that removes the
- * typing bubble, so it fades in where the typing bubble stood.
- */
-export function useAnswerReplacesTyping(isLatestRunAnswer: boolean): boolean {
-  const [enter] = useState(() => isLatestRunAnswer && shownTypingBubbles > 0);
-  return enter;
+/** Typing dots. The steps() timing keeps them to a few repaints a cycle; they pause off screen. */
+function TypingDots() {
+  return (
+    <span ref={observeVisibleAnimation} className="flex shrink-0 items-center gap-1" aria-hidden>
+      <span className="chat-typing-dot" />
+      <span className="chat-typing-dot" />
+      <span className="chat-typing-dot" />
+    </span>
+  );
 }
 
 /** While the agent works, a typing bubble sits where its answer will appear. */
@@ -47,14 +37,11 @@ export function ChatTypingTimelineRow({ hidden }: { hidden: boolean }) {
   if (hidden) return null;
   return (
     <div
-      ref={countTypingBubble}
-      className="chat-typing-bubble ms-2 mt-1 mb-1 flex w-fit items-center gap-1.5 rounded-3xl bg-agent-bubble px-4 py-3"
+      className="mt-1 flex w-fit items-center rounded-2xl rounded-bl-md bg-agent-bubble px-4 py-3"
       role="status"
       aria-label="The agent is working"
     >
-      <span className="chat-typing-dot" />
-      <span className="chat-typing-dot" />
-      <span className="chat-typing-dot" />
+      <TypingDots />
     </div>
   );
 }

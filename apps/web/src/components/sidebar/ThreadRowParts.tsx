@@ -43,7 +43,7 @@ type ProviderBadgeEntry = Pick<
 >;
 
 // Flat, Arc-like surfaces. List rows have no fill at rest and the open row is
-// solid with a hairline in the theme's tint, so it stands out on a light list.
+// solid with a hairline in the divider color, so it stands out on a light list.
 // Unsent work reads as a "Draft" label on the row's second line rather than a
 // tint, which looked like a selection.
 export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";

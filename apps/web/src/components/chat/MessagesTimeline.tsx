@@ -1536,6 +1536,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         // Personal build: chat-style rows (chatTimelineRows.ts).
         row.kind === "chat-work" ? "pb-1" : null,
         row.kind === "chat-typing" ? "pb-4" : null,
+        // A bubble keeps clear of an opened work line's rail above it.
+        row.kind === "message" && (row.chat === "answer" || row.chat === "to-user")
+          ? "pt-2"
+          : null,
         row.chatStep && CHAT_RAIL_CLASS_NAME,
       )}
       data-timeline-row-id={row.id}
