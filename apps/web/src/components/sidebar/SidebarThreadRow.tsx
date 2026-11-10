@@ -895,9 +895,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         // Matches the row's height. A larger placeholder makes every remounted
         // list collapse a few pixels per row.
         // Personal build: no gap between rows; hairlines in `index.css` separate them.
-        "relative list-none [content-visibility:auto]",
-        "[contain-intrinsic-size:auto_74px]",
-        sortable?.isDragging && "relative z-20",
+        "relative list-none [contain-intrinsic-size:auto_74px]",
+        // content-visibility clips paint to the row's square box, which cut the
+        // dragged card's shadow into specks at its rounded bottom corners.
+        sortable?.isDragging ? "z-20" : "[content-visibility:auto]",
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
