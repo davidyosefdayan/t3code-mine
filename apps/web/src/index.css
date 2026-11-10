@@ -299,6 +299,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-row-hover: var(--pal-row-hover);
   --color-row-active: var(--pal-row-active);
   --color-row-selected: var(--pal-row-selected);
+  --color-row-active-border: var(--pal-row-active-border);
+  --color-row-selected-border: var(--pal-row-selected-border);
   --color-agent-bubble: var(--pal-agent-bubble, var(--accent));
   --color-sidebar-foreground: var(--contrast-sidebar-foreground);
   --color-sidebar-muted-foreground: var(--contrast-sidebar-muted-foreground);
@@ -2727,16 +2729,21 @@ code {
 }
 
 /* Personal build: theme surfaces shared by every theme (palette.ts holds each
-   theme's colors). Row surfaces: hover wash, open row, selection. */
+   theme's colors). Row surfaces: hover wash, open row, selection. The open row's
+   white barely lifts off a near-white list, so it also gets a hairline in the theme's tint. */
 :root {
   --pal-row-hover: rgb(255 255 255 / 0.55);
   --pal-row-active: #ffffff;
   --pal-row-selected: rgb(255 255 255 / 0.6);
+  --pal-row-active-border: color-mix(in oklab, var(--primary) 38%, transparent);
+  --pal-row-selected-border: color-mix(in oklab, var(--primary) 20%, transparent);
 }
 :root.dark {
   --pal-row-hover: rgb(255 255 255 / 0.06);
   --pal-row-active: rgb(255 255 255 / 0.12);
   --pal-row-selected: rgb(255 255 255 / 0.08);
+  --pal-row-active-border: color-mix(in oklab, var(--primary) 45%, transparent);
+  --pal-row-selected-border: color-mix(in oklab, var(--primary) 25%, transparent);
 }
 
 /* Content panel surfaces follow the theme: hover washes, message bubbles, and

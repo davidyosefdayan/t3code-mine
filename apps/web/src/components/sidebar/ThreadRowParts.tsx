@@ -43,11 +43,13 @@ type ProviderBadgeEntry = Pick<
 >;
 
 // Flat, Arc-like surfaces. List rows have no fill at rest and the open row is
-// solid. Unsent work reads as a "Draft" label on the row's second line rather
-// than a tint, which looked like a selection.
+// solid with a hairline in the theme's tint, so it stands out on a light list.
+// Unsent work reads as a "Draft" label on the row's second line rather than a
+// tint, which looked like a selection.
 export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
-export const activeSurfaceClassName = "bg-row-active";
-export const selectedSurfaceClassName = "bg-row-selected";
+export const activeSurfaceClassName = "bg-row-active ring-1 ring-inset ring-row-active-border";
+export const selectedSurfaceClassName =
+  "bg-row-selected ring-1 ring-inset ring-row-selected-border";
 
 /** One title style for every group (New threads, Needs you, Pinned, Open,
     Working, Snoozed, Settled). Clicking it collapses or expands the group. */
