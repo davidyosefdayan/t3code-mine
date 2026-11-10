@@ -20,6 +20,8 @@ import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/contex
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { Button } from "../ui/button";
+import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -83,7 +85,14 @@ export function ThreadDetailsUsage({
 }
 
 /** The thread's context window. The bar fills as context is used; the tick marks auto-compaction. */
-export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowSnapshot }) {
+export function ThreadDetailsContext({
+  usage,
+  onCompact,
+}: {
+  readonly usage: ContextWindowSnapshot;
+  /** Personal build: compacting from the card; omitted where the thread can't compact. */
+  readonly onCompact?: (() => void) | undefined;
+}) {
   const maxTokens = usage.maxTokens != null && usage.maxTokens > 0 ? usage.maxTokens : null;
   const used =
     maxTokens !== null && usage.usedPercentage !== null
@@ -132,6 +141,44 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
               ) : null}
             </>
           }
+          // Personal build: clicking the row opens these details with a way to compact now.
+          {...(onCompact
+            ? {
+                details: (
+                  <div className="flex w-60 flex-col gap-1 text-xs">
+                    <span className="font-medium text-foreground">
+                      {used !== null ? `${used}% of the context used` : `${usedTokens} tokens used`}
+                    </span>
+                    {maxTokens !== null ? (
+                      <span className="text-muted-foreground">
+                        {usage.usedTokens.toLocaleString("en-US")} of{" "}
+                        {maxTokens.toLocaleString("en-US")} tokens
+                      </span>
+                    ) : null}
+                    {threshold !== null && threshold > 0 ? (
+                      <span className="text-muted-foreground">
+                        {formatContextWindowCompactionMessage(threshold)}
+                      </span>
+                    ) : null}
+                    <span className="mt-1 text-muted-foreground">
+                      Compacting summarizes the conversation so far to free up context.
+                    </span>
+                    <PopoverClose
+                      render={
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          className="mt-2 self-start"
+                          onClick={onCompact}
+                        />
+                      }
+                    >
+                      Compact now
+                    </PopoverClose>
+                  </div>
+                ),
+              }
+            : {})}
         />
       </div>
     </ThreadDetailsSection>
@@ -184,6 +231,7 @@ function UsageRow({
   ariaValue = value,
   tooltip,
   muted = false,
+  details,
 }: {
   readonly label: string;
   /** Bar fill from 0 to 100. Null hides the bar. */
@@ -195,66 +243,118 @@ function UsageRow({
   readonly ariaValue?: string;
   readonly tooltip: ReactNode;
   readonly muted?: boolean;
+  /** Personal build: a click-to-open panel in place of the hover tooltip. */
+  readonly details?: ReactNode;
 }) {
+  const rowClassName = cn(
+    "col-span-3 grid h-6 grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]",
+    details ? "cursor-pointer text-start" : "cursor-default",
+  );
+  const content = (
+    <UsageRowContent
+      label={label}
+      fill={fill}
+      tone={tone}
+      tick={tick}
+      value={value}
+      muted={muted}
+    />
+  );
+  if (details) {
+    return (
+      <Popover>
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`${label}: ${ariaValue}. Show details`}
+              className={rowClassName}
+            />
+          }
+        >
+          {content}
+        </PopoverTrigger>
+        <PopoverPopup side="left" sideOffset={16} padding="compact">
+          {details}
+        </PopoverPopup>
+      </Popover>
+    );
+  }
   return (
     <Tooltip>
       <TooltipTrigger
-        render={
-          <div
-            tabIndex={0}
-            aria-label={`${label}: ${ariaValue}`}
-            className="col-span-3 grid h-6 cursor-default grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]"
-          />
-        }
+        render={<div tabIndex={0} aria-label={`${label}: ${ariaValue}`} className={rowClassName} />}
       >
-        <span className="max-w-28 truncate text-muted-foreground">{label}</span>
-        {fill !== null ? (
-          <span className="relative h-[3px] rounded-full bg-muted-foreground/30 dark:bg-muted-foreground/20">
-            {fill > 0 ? (
-              <span
-                className={cn(
-                  "absolute inset-y-0 left-0 rounded-full",
-                  tone === "error"
-                    ? "bg-error"
-                    : tone === "warning"
-                      ? "bg-warning"
-                      : muted
-                        ? "bg-muted-foreground"
-                        : "bg-foreground/80",
-                )}
-                style={{ width: `max(${fill}%, 6px)` }}
-              />
-            ) : null}
-            {tick !== null ? (
-              <span
-                aria-hidden
-                className="absolute -top-[3px] h-[9px] w-px -translate-x-1/2 bg-foreground/60"
-                style={{ left: `${tick}%` }}
-              />
-            ) : null}
-          </span>
-        ) : null}
-        <span
-          className={cn(
-            // Text-only rows span the bar column so they never widen the shared value column.
-            "text-end font-medium tabular-nums",
-            fill === null && "col-span-2",
-            tone === "error"
-              ? "text-error-foreground"
-              : tone === "warning"
-                ? "text-warning-foreground"
-                : fill === null
-                  ? "text-muted-foreground"
-                  : "text-foreground/80",
-          )}
-        >
-          {value}
-        </span>
+        {content}
       </TooltipTrigger>
       {/* Rows sit 8px inside the card; clear its edge instead of overlapping it. */}
       <TooltipPopup side="left" sideOffset={16}>
         <div className="flex flex-col gap-0.5">{tooltip}</div>
       </TooltipPopup>
     </Tooltip>
+  );
+}
+
+function UsageRowContent({
+  label,
+  fill,
+  tone,
+  tick,
+  value,
+  muted,
+}: {
+  readonly label: string;
+  readonly fill: number | null;
+  readonly tone: UsageTone;
+  readonly tick: number | null;
+  readonly value: string;
+  readonly muted: boolean;
+}) {
+  return (
+    <>
+      <span className="max-w-28 truncate text-muted-foreground">{label}</span>
+      {fill !== null ? (
+        <span className="relative h-[3px] rounded-full bg-muted-foreground/30 dark:bg-muted-foreground/20">
+          {fill > 0 ? (
+            <span
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full",
+                tone === "error"
+                  ? "bg-error"
+                  : tone === "warning"
+                    ? "bg-warning"
+                    : muted
+                      ? "bg-muted-foreground"
+                      : "bg-foreground/80",
+              )}
+              style={{ width: `max(${fill}%, 6px)` }}
+            />
+          ) : null}
+          {tick !== null ? (
+            <span
+              aria-hidden
+              className="absolute -top-[3px] h-[9px] w-px -translate-x-1/2 bg-foreground/60"
+              style={{ left: `${tick}%` }}
+            />
+          ) : null}
+        </span>
+      ) : null}
+      <span
+        className={cn(
+          // Text-only rows span the bar column so they never widen the shared value column.
+          "text-end font-medium tabular-nums",
+          fill === null && "col-span-2",
+          tone === "error"
+            ? "text-error-foreground"
+            : tone === "warning"
+              ? "text-warning-foreground"
+              : fill === null
+                ? "text-muted-foreground"
+                : "text-foreground/80",
+        )}
+      >
+        {value}
+      </span>
+    </>
   );
 }
