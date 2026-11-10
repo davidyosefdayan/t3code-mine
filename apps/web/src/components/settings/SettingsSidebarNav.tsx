@@ -442,7 +442,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           </div>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="max-md:hidden">
+      <SidebarFooter className="empty:hidden max-md:hidden">
         <Suspense fallback={null}>
           <T3ConnectSidebarSignIn />
         </Suspense>

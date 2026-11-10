@@ -205,31 +205,31 @@ export const COLOR_THEMES = [
       info: "#e2a8c6",
     },
   },
-  deepTheme("blueberry", "Blueberry", "#1e3150", "#2f5c94", {
+  deepTheme("blueberry", "Blueberry", "#101c5c", "#3a5fd0", {
     success: "#9fd6b0",
     warning: "#f2cf86",
     error: "#f4a7a2",
     info: "#b9c8f2",
   }),
-  deepTheme("forest", "Forest", "#173a2f", "#235c49", {
+  deepTheme("forest", "Forest", "#0a3b2b", "#1d7656", {
     success: "#a8dcb8",
     warning: "#ecd08c",
     error: "#f2aaa2",
     info: "#a9d3dc",
   }),
-  deepTheme("rosewood", "Rosewood", "#6a3450", "#8c4467", {
+  deepTheme("rosewood", "Rosewood", "#561331", "#a3305f", {
     success: "#b9e0c2",
     warning: "#f6d79a",
     error: "#ffc1c6",
     info: "#f0c4dd",
   }),
-  deepTheme("plum", "Plum", "#382356", "#5b3d8c", {
+  deepTheme("plum", "Plum", "#2a0f57", "#6a3fc4", {
     success: "#acdcb8",
     warning: "#f1d18e",
     error: "#f6abb6",
     info: "#d4c4f6",
   }),
-  deepTheme("deepteal", "Deep Teal", "#0f4746", "#14625f", {
+  deepTheme("deepteal", "Deep Teal", "#053d3e", "#0e7671", {
     success: "#a6e0cf",
     warning: "#f0d08c",
     error: "#f5abae",

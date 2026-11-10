@@ -2684,17 +2684,34 @@ html[data-palette]:not([data-palette=""]) {
   --pal-soft-hover: color-mix(in oklab, var(--primary) 14%, var(--background));
   --pal-list: color-mix(in oklab, var(--pal-shell) 22%, var(--background));
 }
-/* Dark panels need a stronger tint for the same soft-chip contrast. */
+/* Dark mode mirrors light: the chat canvas is neutral (white in light, ChatGPT-style
+   #181818 in dark, never true black, which glares), raised surfaces step lighter, and
+   only the rail and the list carry the theme: the list is the rail's hue, darkened, at
+   half its saturation, like Slack's sidebar. Text is off-white. */
 html.dark[data-palette]:not([data-palette=""]) {
+  --pal-list: oklch(from var(--pal-shell) 0.2 calc(c * 0.5) h);
+  --background: #181818;
+  --surface-raised: #222222;
+  --card: var(--surface-raised);
+  --popover: #262626;
+  --foreground: #ececec;
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --muted-foreground: #a0a0a0;
   --pal-soft: color-mix(in oklab, var(--primary) 16%, var(--background));
   --pal-soft-hover: color-mix(in oklab, var(--primary) 26%, var(--background));
-  --pal-list: color-mix(in oklab, var(--pal-shell) 55%, var(--background));
   --accent: var(--pal-soft-hover);
   --toolbar-control-hover: var(--pal-soft-hover);
   --message-surface: color-mix(in oklab, var(--primary) 11%, var(--background));
-  /* A theme tint barely lifts off a true-black canvas, and some frames are near black,
-     so the sidebar's tone is lightened toward the text color. */
-  --pal-agent-bubble: color-mix(in oklab, var(--foreground) 10%, var(--pal-list));
+  --pal-agent-bubble: color-mix(in oklab, var(--foreground) 8%, var(--background));
+}
+/* The sidebar's stock dark tokens are true black; give it the list's tone. */
+html.dark[data-palette]:not([data-palette=""]) [data-app-sidebar] {
+  --background: var(--pal-list);
+  --card: var(--pal-list);
+  --foreground: #ececec;
+  --muted: color-mix(in oklab, #ffffff 3%, var(--pal-list));
+  --accent: color-mix(in oklab, #ffffff 7%, var(--pal-list));
 }
 
 /* The page sidebar sits inside the rounded content panel, so its chips and row
