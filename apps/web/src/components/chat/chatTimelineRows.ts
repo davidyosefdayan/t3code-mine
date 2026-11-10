@@ -1,58 +1,25 @@
-// Personal build: the chat-style conversation. One rule shapes the agent's side:
-//
-//   Every time someone speaks (your message, a message you send mid-turn, your
-//   answer to the agent's question, or the agent messaging you through
-//   message_user), the agent's work up to that point closes into one
-//   "Worked for …" line.
-//
-// Work is grouped by run, so a turn the agent starts on its own (a wake, a
-// continuation) gets its own line. Within a line:
-//   - steps (tool calls, thoughts, and notes the agent wrote along the way) hide
-//     behind the line and open in place, one upstream step row each;
-//   - cards and events (subagents, errors, notifications, compaction, pages,
-//     plans) stay visible next to the line without splitting it;
-//   - the run's last assistant message is its answer, a gray bubble after
-//     everything else in the turn, once the run has stopped working.
-// While the agent works, the newest line is live (it names the current step,
-// see chatLiveWorkLine) and a typing bubble sits where the answer will appear.
-import {
-  contextCompactionTokenCounts,
-  workEntryMessageToUserText,
-} from "@t3tools/client-runtime/work-log/presentation";
-import { hasQuestionAnswer } from "@t3tools/client-runtime/work-log/user-input";
-import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
-import {
-  idleCompactionOf,
-  isCompactionCommandMessage,
-  MessageId,
-  type OrchestrationV2IdleCompaction,
-  type RunId,
-} from "@t3tools/contracts";
-import { IDLE_COMPACTION_TITLES } from "@t3tools/client-runtime/user-message";
-import * as DateTime from "effect/DateTime";
+// Personal build: the chat-style conversation as a small pass over upstream's rows,
+// so its folds and the "Tool calls in chat" setting apply. message_user calls become
+// messages, a turn's last text is its answer bubble, and a working turn folds into one
+// live line (the sidebar's words, liveWorkLine.ts) above a typing bubble.
+import { workEntryMessageToUserText } from "@t3tools/client-runtime/work-log/presentation";
+import { MessageId, type RunId } from "@t3tools/contracts";
 
-import {
-  deriveRevertTurnCountByUserMessageId,
-  formatDuration,
-  type TimelineEntry,
-  type WorkLogEntry,
-} from "../../session-logic";
-import type { ChatMessage, TurnDiffSummary } from "../../types";
+import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
 import {
   deriveActiveVisualResponseRunIds,
+  deriveMessagesTimelineRows,
   deriveTerminalAssistantMessageIds,
   deriveUnsettledRunId,
   groupOwnUserMessage,
   liveWorkEntryLabel,
-  timelineEntriesForChat,
-  workEntryIsVisibleInGroup,
-  WORKTREE_SETUP_ROW_ID,
+  MESSAGE_TO_USER_ID_PREFIX,
+  timelineTurnFoldRunIdsByEntryId,
   type MessagesTimelineRow,
   type MessagesTimelineRowsInput,
 } from "./MessagesTimeline.logic";
 
 type Row = MessagesTimelineRow;
-type MessageRow = Extract<Row, { kind: "message" }>;
 
 export type ChatTimelineRowsInput = MessagesTimelineRowsInput & {
   /** Relative paths in the live line ("Reading src/bin.ts"). */
@@ -60,86 +27,6 @@ export type ChatTimelineRowsInput = MessagesTimelineRowsInput & {
 };
 
 export const CHAT_TYPING_ROW_ID = "chat-typing-row";
-
-const EMPTY_IDS: ReadonlySet<string> = new Set();
-
-interface WorkBlock {
-  /** Runs that are still working share one block, so a provider restart stays one line. */
-  readonly key: string;
-  readonly id: string;
-  readonly startAt: string | null;
-  endAt: string | null;
-  /** Side rows that arrived before the first step sit above the line. */
-  readonly leading: Row[];
-  readonly steps: Array<{ readonly row: Row; readonly visible: boolean }>;
-  readonly side: Row[];
-  answer: MessageRow | null;
-  runIds: Set<RunId>;
-  compacting: boolean;
-}
-
-function entryRunId(entry: TimelineEntry): RunId | null {
-  switch (entry.kind) {
-    case "message":
-      return entry.message.runId;
-    case "work":
-      return entry.entry.runId ?? null;
-    case "event":
-      return entry.projectedItem.item.runId;
-    case "proposed-plan":
-      return entry.proposedPlan.runId;
-    case "html-render":
-    case "mcp-app":
-      return entry.runId;
-  }
-}
-
-function entryEndAt(entry: TimelineEntry): string {
-  if (entry.kind === "message") return entry.message.updatedAt;
-  const item =
-    entry.kind === "work"
-      ? entry.entry.projectedItem?.item
-      : entry.kind === "event"
-        ? entry.projectedItem.item
-        : undefined;
-  const end = item?.completedAt ?? item?.updatedAt;
-  return end ? DateTime.formatIso(end) : entry.createdAt;
-}
-
-function laterIso(a: string | null, b: string | null): string | null {
-  if (a === null) return b;
-  if (b === null) return a;
-  return Date.parse(b) > Date.parse(a) ? b : a;
-}
-
-function elapsedLabel(startAt: string | null, endAt: string | null): string | null {
-  if (startAt === null || endAt === null) return null;
-  const ms = Date.parse(endAt) - Date.parse(startAt);
-  return Number.isFinite(ms) ? formatDuration(Math.max(0, ms)) : null;
-}
-
-/** Notifications and notices are things that happened, not the agent's work. */
-function isChatEventEntry(entry: WorkLogEntry): boolean {
-  return entry.itemType === "notification" || entry.itemType === "system_notice";
-}
-
-/** Errors stay visible as cards, like upstream keeps them out of folds. */
-function isErrorEntry(entry: WorkLogEntry): boolean {
-  return (
-    entry.itemType === "error" ||
-    entry.tone === "error" ||
-    entry.sourceActivityKind === "runtime.error"
-  );
-}
-
-function isCompactionEntry(entry: WorkLogEntry): boolean {
-  return entry.sourceActivityKind === "context-compaction";
-}
-
-/** Your answer to a question the agent asked. A question still waiting on you stays its work. */
-export function isQuestionReplyEntry(entry: WorkLogEntry): boolean {
-  return entry.questionAnswer !== undefined && hasQuestionAnswer(entry.questionAnswer);
-}
 
 function previewText(text: string): string {
   const line = text
@@ -149,12 +36,15 @@ function previewText(text: string): string {
   return (line ?? "").replace(/[*_`~]/gu, "").trim();
 }
 
+function isChatEventEntry(entry: WorkLogEntry): boolean {
+  return entry.itemType === "notification" || entry.itemType === "system_notice";
+}
+
 /**
  * The chat's live line: what a working agent is doing now. The note it wrote
  * most recently, if that came after its latest step ("Checking how the zoom
  * bar loads"); otherwise the newest step still running ("Running git",
- * "Reading bin.ts"); otherwise "Thinking". Reads the working runs' own entries,
- * so a step a message of yours interrupted is still named.
+ * "Reading bin.ts"); otherwise "Thinking".
  */
 export function chatLiveWorkLine(
   entries: ReadonlyArray<TimelineEntry>,
@@ -174,7 +64,7 @@ export function chatLiveWorkLine(
     if (
       work.toolLifecycleStatus !== "inProgress" ||
       isChatEventEntry(work) ||
-      isCompactionEntry(work) ||
+      work.sourceActivityKind === "context-compaction" ||
       work.itemType === "reasoning" ||
       workEntryMessageToUserText(work) !== null
     ) {
@@ -187,439 +77,224 @@ export function chatLiveWorkLine(
   return "Thinking";
 }
 
-/** The agent's message_user call, shown as the agent speaking. */
-function toUserMessage(entry: Extract<TimelineEntry, { kind: "work" }>, text: string): ChatMessage {
-  return {
-    id: MessageId.make(`to-user:${entry.entry.toolCallId ?? entry.id}`),
-    role: "assistant",
-    text,
-    runId: entry.entry.runId ?? null,
-    streaming: false,
-    createdAt: entry.createdAt,
-    updatedAt: entry.createdAt,
-  };
+const messagesToUser = new WeakMap<TimelineEntry, TimelineEntry>();
+
+/** The agent's message_user calls, as the agent speaking. */
+function withMessagesToUser(entries: ReadonlyArray<TimelineEntry>): ReadonlyArray<TimelineEntry> {
+  return entries.map((entry) => {
+    if (entry.kind !== "work") return entry;
+    const cached = messagesToUser.get(entry);
+    if (cached) return cached;
+    const text = workEntryMessageToUserText(entry.entry);
+    if (text === null) return entry;
+    const message: TimelineEntry = {
+      id: entry.id,
+      kind: "message",
+      createdAt: entry.createdAt,
+      ...(entry.attempt === undefined ? {} : { attempt: entry.attempt }),
+      message: {
+        id: MessageId.make(`${MESSAGE_TO_USER_ID_PREFIX}${entry.entry.toolCallId ?? entry.id}`),
+        role: "assistant",
+        text,
+        runId: entry.entry.runId ?? null,
+        streaming: false,
+        createdAt: entry.createdAt,
+        updatedAt: entry.createdAt,
+      },
+    };
+    messagesToUser.set(entry, message);
+    return message;
+  });
 }
 
-/** Adjacent subagent cards from one provider turn render as one grouped card, like upstream. */
-function groupSubagentCards(rows: ReadonlyArray<Row>): Row[] {
-  const result: Row[] = [];
-  for (const row of rows) {
-    const previous = result.at(-1);
-    if (
-      row.kind === "event" &&
-      row.projectedItem.item.type === "subagent" &&
-      previous?.kind === "event" &&
-      previous.projectedItem.item.type === "subagent" &&
-      previous.projectedItem.item.runId === row.projectedItem.item.runId &&
-      previous.projectedItem.item.providerTurnId === row.projectedItem.item.providerTurnId
-    ) {
-      result[result.length - 1] = {
-        ...previous,
-        subagents: [...(previous.subagents ?? [previous.projectedItem]), row.projectedItem],
-      };
-      continue;
-    }
-    result.push(row);
-  }
-  return result;
-}
-
-function deriveChatRows(
-  input: ChatTimelineRowsInput,
-  lineIdByEntryId: Map<string, string> | null,
-): Row[] {
-  const entries = timelineEntriesForChat(input.timelineEntries);
-  const latestRun = input.latestRun ?? null;
-  const unsettledRunId = deriveUnsettledRunId(latestRun, input.runningRunId ?? null);
+/** Which runs count as working, and which finished texts are answers. */
+function chatTurnState(input: ChatTimelineRowsInput, entries: ReadonlyArray<TimelineEntry>) {
+  const unsettledRunId = deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null);
+  const runlessActive = input.isWorking && input.runlessWorkActive === true;
   const activeRunIds = deriveActiveVisualResponseRunIds({
     timelineEntries: entries,
     unsettledRunId,
     isWorking: input.isWorking,
   });
-  const runlessActive = input.isWorking && input.runlessWorkActive === true;
-  const isActiveRun = (runId: RunId | null) =>
-    runId === null ? runlessActive : activeRunIds.has(runId);
-  const finalMessageIds = deriveTerminalAssistantMessageIds(entries);
-  const expandedLineIds = input.expandedWorkGroupIds ?? EMPTY_IDS;
+  const terminalIds = deriveTerminalAssistantMessageIds(entries);
+  /** A turn's last text, unless its own run is still working. */
+  const isAnswer = (message: { id: MessageId; runId: RunId | null }) =>
+    terminalIds.has(message.id) &&
+    (message.runId === null
+      ? !runlessActive
+      : !input.isWorking || message.runId !== unsettledRunId);
+  const isActive = (runId: RunId | null | undefined) =>
+    runId == null ? runlessActive : activeRunIds.has(runId);
+  return { terminalIds, isAnswer, isActive };
+}
 
-  const interruptedRunIds = new Set<RunId>();
-  if (latestRun?.status === "interrupted") interruptedRunIds.add(latestRun.runId);
-  for (const entry of entries) {
-    if (
-      entry.kind === "event" &&
-      entry.projectedItem.item.type === "run_interrupt_result" &&
-      entry.projectedItem.item.runId !== null
-    ) {
-      interruptedRunIds.add(entry.projectedItem.item.runId);
-    }
-  }
+function isMessageToUser(row: Extract<Row, { kind: "message" }>): boolean {
+  return row.message.id.startsWith(MESSAGE_TO_USER_ID_PREFIX);
+}
 
-  const diffByMessageId = new Map<MessageId, TurnDiffSummary>();
-  for (const summary of input.turnDiffSummaries) {
-    if (summary.assistantMessageId) diffByMessageId.set(summary.assistantMessageId, summary);
-  }
-  const revertCounts = input.supportsConversationRollback
-    ? deriveRevertTurnCountByUserMessageId({
-        timelineEntries: entries,
-        checkpoints: input.turnDiffSummaries,
-        threadStartCheckpointReady: input.threadStartCheckpointReady === true,
-        unsettledRunId,
-        availableRevertTurnCounts: input.availableRevertTurnCounts,
-      })
-    : new Map<MessageId, number>();
+/** Errors, events, questions and waiting approvals stay in view while the line folds the rest. */
+function staysBesideLiveLine(row: Extract<Row, { kind: "work" }>, input: ChatTimelineRowsInput) {
+  return row.groupedEntries.some((entry) => {
+    const item = entry.projectedItem?.item;
+    return (
+      isChatEventEntry(entry) ||
+      entry.tone === "error" ||
+      entry.sourceActivityKind === "runtime.error" ||
+      entry.itemType === "error" ||
+      entry.itemType === "thread_created" ||
+      entry.questionAnswer !== undefined ||
+      (item?.type === "approval_request" &&
+        input.pendingApprovalRequestIds?.has(item.requestId) === true)
+    );
+  });
+}
 
-  const messageRow = (
-    entry: { id: string; createdAt: string; projectedItem?: MessageRow["projectedItem"] },
-    message: ChatMessage,
-    chat: MessageRow["chat"],
-  ): MessageRow => {
-    const shown = chat === "answer" || chat === "to-user";
-    return {
-      kind: "message",
-      id: entry.id,
-      createdAt: entry.createdAt,
-      message,
-      ...(entry.projectedItem === undefined ? {} : { projectedItem: entry.projectedItem }),
-      showAssistantMeta: shown,
-      showAssistantCopyButton: shown,
-      assistantCopyStreaming: message.streaming,
-      assistantTurnDiffSummary: chat === "answer" ? diffByMessageId.get(message.id) : undefined,
-      revertTurnCount: message.role === "user" ? revertCounts.get(message.id) : undefined,
-      ...(chat === undefined ? {} : { chat }),
-    };
+function asBubble(row: Extract<Row, { kind: "message" }>, chat: "answer" | "to-user"): Row {
+  return {
+    ...row,
+    chat,
+    showAssistantMeta: true,
+    showAssistantCopyButton: true,
+    assistantCopyStreaming: row.message.streaming,
   };
+}
+
+/** Rows a "Worked for" fold shows when opened, so they sit on its rail. */
+function openedFoldRowIds(rows: ReadonlyArray<Row>, input: ChatTimelineRowsInput) {
+  const openRunIds = new Set(
+    rows.flatMap((row) => (row.kind === "turn-fold" && row.expanded ? [row.runId] : [])),
+  );
+  if (openRunIds.size === 0) return null;
+  const foldByEntryId = timelineTurnFoldRunIdsByEntryId(input);
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const entryId = row.id
+      .replace(/^work-toggle:/u, "")
+      .replace(/^work-group:(.*):details$/u, "$1");
+    const runId = foldByEntryId.get(entryId);
+    if (runId !== undefined && openRunIds.has(runId)) ids.add(row.id);
+  }
+  return ids;
+}
+
+function chatLiveLineId(input: Pick<ChatTimelineRowsInput, "latestRun" | "runningRunId">) {
+  return `chat-work:${deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null) ?? "runless"}`;
+}
+
+export function deriveChatTimelineRows(rawInput: ChatTimelineRowsInput): Row[] {
+  const input = { ...rawInput, timelineEntries: withMessagesToUser(rawInput.timelineEntries) };
+  const upstreamRows = deriveMessagesTimelineRows(input);
+  const zen = input.toolCallVisibility === "zen";
+  const { terminalIds, isAnswer, isActive } = chatTurnState(input, input.timelineEntries);
+  const onRail = openedFoldRowIds(upstreamRows, input);
+  const liveStart = input.isWorking ? upstreamRows.findIndex((row) => row.kind === "working") : -1;
 
   const rows: Row[] = [];
-  const usedLineIds = new Set<string>();
-  // The last thing someone said; the first line after it starts there.
-  // Typed through `as`: closures assign these, so control flow must not pin them to null.
-  let opener = null as { id: string; createdAt: string; consumed: boolean } | null;
-  let block = null as WorkBlock | null;
-
-  const lineIdFor = (runId: RunId | null) => {
-    const base = `chat-work:${runId ?? "runless"}:${opener?.id ?? "start"}`;
-    let id = base;
-    for (let suffix = 2; usedLineIds.has(id); suffix += 1) id = `${base}:${suffix}`;
-    usedLineIds.add(id);
-    return id;
-  };
-
-  const openBlock = (key: string, runId: RunId | null, at: string | null): WorkBlock => {
-    const startAt = opener && !opener.consumed ? opener.createdAt : at;
-    if (opener) opener.consumed = true;
-    return {
-      key,
-      id: lineIdFor(runId),
-      startAt,
-      endAt: null,
-      leading: [],
-      steps: [],
-      side: [],
-      answer: null,
-      runIds: new Set(runId === null ? [] : [runId]),
-      compacting: false,
-    };
-  };
-
-  const blockFor = (entry: TimelineEntry): WorkBlock => {
-    const runId = entryRunId(entry);
-    const key =
-      runId === null
-        ? runlessActive
-          ? "active"
-          : `runless:${opener?.id ?? "start"}`
-        : isActiveRun(runId)
-          ? "active"
-          : runId;
-    if (block?.key !== key) {
-      closeBlock();
-      block = openBlock(key, runId, entry.createdAt);
+  const lineRows: Row[] = [];
+  let stepCount = 0;
+  // A compaction writes no answer: the line names it, and the typing bubble steps aside.
+  let lineCompacting = false;
+  let compacting = false;
+  for (const [index, row] of upstreamRows.entries()) {
+    // The bubble carries its own meta row.
+    if (row.kind === "assistant-meta") continue;
+    const inLiveTurn = liveStart >= 0 && index >= liveStart;
+    if (inLiveTurn && (row.kind === "working" || row.kind === "thinking")) {
+      if (row.kind === "working") lineCompacting = row.compacting === true;
+      continue;
     }
-    if (runId !== null) block.runIds.add(runId);
-    block.endAt = laterIso(block.endAt, entryEndAt(entry));
-    return block;
-  };
-
-  const pushSide = (entry: TimelineEntry, row: Row) => {
-    const target = blockFor(entry);
-    (target.steps.length === 0 ? target.leading : target.side).push(row);
-  };
-
-  const pushStep = (entry: TimelineEntry, row: Row, visible: boolean) => {
-    const target = blockFor(entry);
-    target.steps.push({ row, visible });
-    lineIdByEntryId?.set(entry.id, target.id);
-  };
-
-  const emitSteps = (target: WorkBlock) => {
-    const visible = target.steps.filter((step) => step.visible).map((step) => step.row);
-    if (!expandedLineIds.has(target.id)) return;
-    for (const [index, row] of visible.entries()) {
-      const next = visible[index + 1];
-      rows.push(
-        row.kind === "work" && next?.kind === "work" ? { ...row, continuesWorkLog: true } : row,
-      );
-    }
-  };
-
-  const closeBlock = () => {
-    const closing = block;
-    if (!closing) return;
-    block = null;
-    rows.push(...groupSubagentCards(closing.leading));
-    const stepCount = closing.steps.filter((step) => step.visible).length;
-    if (stepCount > 0) {
-      const end = laterIso(closing.endAt, closing.answer?.message.updatedAt ?? null);
-      const duration = elapsedLabel(closing.startAt, end);
-      const interrupted = [...closing.runIds].some((runId) => interruptedRunIds.has(runId));
-      rows.push({
-        kind: "chat-work",
-        id: closing.id,
-        createdAt: closing.startAt,
-        label: interrupted
-          ? duration
-            ? `You stopped after ${duration}`
-            : "You stopped this response"
-          : duration
-            ? `Worked for ${duration}`
-            : "Worked",
-        live: false,
-        expanded: expandedLineIds.has(closing.id),
-        stepCount,
-        compacting: false,
-      });
-      emitSteps(closing);
-    }
-    rows.push(...groupSubagentCards(closing.side));
-    if (closing.answer) rows.push(closing.answer);
-  };
-
-  const speak = (entry: TimelineEntry, row: Row) => {
-    closeBlock();
-    rows.push(row);
-    opener = { id: entry.id, createdAt: entry.createdAt, consumed: false };
-  };
-
-  // Like upstream, a /compact prompt is the compaction itself: no bubble of
-  // its own, and T3 Code's automatic ones say why they ran.
-  const compactionReasonByRunId = new Map<RunId, OrchestrationV2IdleCompaction | undefined>();
-  for (const entry of entries) {
-    if (entry.kind === "message" && entry.message.runId !== null) {
-      if (isCompactionCommandMessage(entry.message)) {
-        compactionReasonByRunId.set(entry.message.runId, idleCompactionOf(entry.message));
-      }
-    }
-  }
-
-  for (const entry of entries) {
-    if (entry.kind === "message") {
-      const { message } = entry;
-      if (message.role === "user") {
-        if (isCompactionCommandMessage(message)) continue;
-        speak(entry, messageRow(entry, message, undefined));
-        continue;
-      }
-      if (message.role !== "assistant") continue;
-      const isAnswer = finalMessageIds.has(message.id) && !isActiveRun(message.runId);
-      if (isAnswer) {
-        const target = blockFor(entry);
-        target.answer = messageRow(entry, message, "answer");
+    if (inLiveTurn && row.kind === "context-compaction" && row.active) compacting = true;
+    if (row.kind === "message" && row.message.role === "assistant") {
+      if (isMessageToUser(row)) {
+        rows.push(asBubble(row, "to-user"));
+      } else if (zen || (inLiveTurn ? isAnswer(row.message) : terminalIds.has(row.message.id))) {
+        rows.push(asBubble(row, "answer"));
+      } else if (inLiveTurn) {
+        lineRows.push(row);
+        if (row.message.streaming || row.message.text.trim()) stepCount += 1;
       } else {
-        pushStep(
-          entry,
-          messageRow(entry, message, "note"),
-          message.streaming || message.text.trim().length > 0,
-        );
+        rows.push(onRail?.has(row.id) ? { ...row, chatStep: true } : row);
       }
       continue;
     }
-
-    if (entry.kind === "work") {
-      const work = entry.entry;
-      if (isQuestionReplyEntry(work)) {
-        speak(entry, { kind: "chat-reply", id: entry.id, createdAt: entry.createdAt, entry: work });
+    const isWorkRow =
+      row.kind === "work-live" ||
+      row.kind === "work-toggle" ||
+      row.kind === "attempt-fold" ||
+      (row.kind === "work" && (row.isExpandedToolGroup || !staysBesideLiveLine(row, input)));
+    if (inLiveTurn && !zen && isWorkRow) {
+      lineRows.push(row);
+      if (row.kind !== "work" || !row.isExpandedToolGroup) stepCount += 1;
+      continue;
+    }
+    if (row.kind === "work" && row.groupedEntries.length === 1) {
+      const [entry] = row.groupedEntries;
+      if (entry && isChatEventEntry(entry)) {
+        rows.push({ ...row, chat: "event" });
         continue;
       }
-      const toUserText = workEntryMessageToUserText(work);
-      if (toUserText !== null) {
-        speak(entry, messageRow(entry, toUserMessage(entry, toUserText), "to-user"));
-        continue;
-      }
-      const active = isActiveRun(work.runId ?? null) && work.toolLifecycleStatus === "inProgress";
-      if (isCompactionEntry(work)) {
-        if (active && input.isWorking) {
-          // The live line carries a compaction in progress.
-          blockFor(entry).compacting = true;
-          continue;
-        }
-        const compaction = work.structuredPayload;
-        const reason = work.runId ? compactionReasonByRunId.get(work.runId) : undefined;
-        pushSide(entry, {
-          kind: "context-compaction",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          label: reason ? IDLE_COMPACTION_TITLES[reason] : work.label,
-          tokenCounts:
-            compaction?.type === "compaction" ? contextCompactionTokenCounts(compaction) : null,
-          active: false,
-        });
-        continue;
-      }
-      if (
-        isChatEventEntry(work) ||
-        isErrorEntry(work) ||
-        work.itemType === "thread_created" ||
-        // Like upstream, a question still waiting on you stays visible.
-        work.questionAnswer !== undefined
-      ) {
-        pushSide(entry, {
-          kind: "work",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          groupedEntries: [work],
-          isExpandedToolGroup: false,
-          ...(isChatEventEntry(work) ? { chat: "event" as const } : {}),
-        });
-        continue;
-      }
-      pushStep(
-        entry,
-        {
-          kind: "work",
-          id: entry.id,
-          createdAt: entry.createdAt,
-          groupedEntries: [work],
-          isExpandedToolGroup: false,
-          chat: "step",
-        },
-        workEntryIsVisibleInGroup(work, active),
-      );
-      continue;
     }
-
-    if (entry.kind === "event") {
-      // The interrupt result is the marker; the request only duplicates it.
-      if (entry.projectedItem.item.type === "run_interrupt_request") continue;
-      pushSide(entry, {
-        kind: "event",
-        id: entry.id,
-        createdAt: entry.createdAt,
-        projectedItem: entry.projectedItem,
-      });
-      continue;
-    }
-
-    if (entry.kind === "proposed-plan") {
-      pushSide(entry, {
-        kind: "proposed-plan",
-        id: entry.id,
-        createdAt: entry.createdAt,
-        proposedPlan: entry.proposedPlan,
-      });
-      continue;
-    }
-
-    if (entry.kind === "html-render") {
-      pushSide(entry, {
-        kind: "html-render",
-        id: entry.id,
-        createdAt: entry.createdAt,
-        htmlRender: entry.htmlRender,
-      });
-      continue;
-    }
-
-    pushSide(entry, {
-      kind: "mcp-app",
-      id: entry.id,
-      createdAt: entry.createdAt,
-      sourceThreadId: entry.sourceThreadId,
-      itemId: entry.itemId,
-      revision: entry.revision,
-      mcpApp: entry.mcpApp,
-    });
+    rows.push(onRail?.has(row.id) ? { ...row, chatStep: true } : row);
   }
 
   if (input.isWorking) {
-    // Once the provider turn ended, background work (subagents) can keep the
-    // run open, but the agent is no longer thinking or writing an answer.
-    const turnEnded = latestRun?.turnEnded === true;
-    const liveLabel = chatLiveWorkLine(
-      entries.filter((entry) => isActiveRun(entryRunId(entry))),
-      input.workspaceRoot,
-    );
-    const current: WorkBlock | null = block;
-    let live: WorkBlock;
-    if (current !== null && current.key === "active") {
-      live = current;
-      block = null;
-    } else {
-      closeBlock();
-      live = openBlock(
-        "active",
-        input.runningRunId ?? unsettledRunId,
-        input.activeTurnStartedAt ?? null,
+    const turnEnded = input.latestRun?.turnEnded === true;
+    if (liveStart >= 0 && !zen) {
+      const id = chatLiveLineId(input);
+      const label = chatLiveWorkLine(
+        input.timelineEntries.filter(
+          (entry) =>
+            !(entry.kind === "message" && isAnswer(entry.message)) &&
+            isActive(
+              entry.kind === "message"
+                ? entry.message.runId
+                : entry.kind === "work"
+                  ? entry.entry.runId
+                  : null,
+            ),
+        ),
+        input.workspaceRoot,
       );
+      const expanded = input.expandedWorkGroupIds?.has(id) ?? false;
+      rows.push({
+        kind: "chat-work",
+        id,
+        createdAt: input.activeTurnStartedAt ?? null,
+        label: turnEnded && label === "Thinking" ? "Waiting on background work" : label,
+        expanded,
+        stepCount,
+        compacting: lineCompacting,
+      });
+      if (expanded) rows.push(...lineRows.map((row) => ({ ...row, chatStep: true })));
     }
-    rows.push(...groupSubagentCards(live.leading));
-    rows.push({
-      kind: "chat-work",
-      id: live.id,
-      createdAt: live.startAt ?? input.activeTurnStartedAt ?? null,
-      label: turnEnded && liveLabel === "Thinking" ? "Waiting on background work" : liveLabel,
-      live: true,
-      expanded: expandedLineIds.has(live.id),
-      stepCount: live.steps.filter((step) => step.visible).length,
-      compacting: live.compacting,
-    });
-    emitSteps(live);
-    rows.push(...groupSubagentCards(live.side));
     if (!turnEnded) {
       rows.push({
         kind: "chat-typing",
         id: CHAT_TYPING_ROW_ID,
-        createdAt: live.startAt,
-        compacting: live.compacting,
+        createdAt: input.activeTurnStartedAt ?? null,
+        compacting: compacting || lineCompacting,
       });
     }
-  } else {
-    closeBlock();
   }
-
-  placeWorktreeSetup(rows, input);
   return rows.map((row, index) => groupOwnUserMessage(row, rows[index - 1], rows[index + 1]));
 }
 
-/**
- * Like upstream: the setup card sits under the first message until the agent's
- * turn is live; a failed or cancelled setup stays so its actions remain reachable.
- */
-function placeWorktreeSetup(rows: Row[], input: ChatTimelineRowsInput) {
-  const setup = input.worktreeSetup;
-  if (!setup) return;
-  const handedOff = worktreeSetupAgentStarted(setup) && input.latestRun?.startedAt != null;
-  if (handedOff && setup.phase === "running") return;
-  const firstUserIndex = rows.findIndex(
-    (row) => row.kind === "message" && row.message.role === "user",
-  );
-  rows.splice(firstUserIndex >= 0 ? firstUserIndex + 1 : rows.length, 0, {
-    kind: "worktree-setup",
-    id: WORKTREE_SETUP_ROW_ID,
-    createdAt: setup.startedAt,
-    snapshot: setup,
-    embedded: handedOff,
-  });
-}
-
-export function deriveChatTimelineRows(input: ChatTimelineRowsInput): Row[] {
-  return deriveChatRows(input, null);
-}
-
-/** The work line that holds each step, so find can open the line around a match. */
-export function chatWorkLineIdsByEntryId(
-  input: ChatTimelineRowsInput,
-): ReadonlyMap<string, string> {
-  const lineIds = new Map<string, string>();
-  deriveChatRows(input, lineIds);
-  return lineIds;
+/** The live line folds a working turn's steps, so find opens it to show a match there. */
+export function chatLiveLineIdHoldingEntry(
+  rawInput: ChatTimelineRowsInput,
+  entryId: string,
+): string | undefined {
+  if (!rawInput.isWorking || rawInput.toolCallVisibility === "zen") return undefined;
+  const entries = withMessagesToUser(rawInput.timelineEntries);
+  const entry = entries.find((candidate) => candidate.id === entryId);
+  if (entry?.kind !== "work" && !(entry?.kind === "message" && entry.message.role === "assistant"))
+    return undefined;
+  const { isAnswer, isActive } = chatTurnState(rawInput, entries);
+  if (entry.kind === "message") {
+    if (isAnswer(entry.message) || entry.message.id.startsWith(MESSAGE_TO_USER_ID_PREFIX)) {
+      return undefined;
+    }
+    return isActive(entry.message.runId) ? chatLiveLineId(rawInput) : undefined;
+  }
+  return isActive(entry.entry.runId) ? chatLiveLineId(rawInput) : undefined;
 }

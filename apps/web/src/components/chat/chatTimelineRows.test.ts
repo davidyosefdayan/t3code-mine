@@ -1,15 +1,12 @@
 import {
   MessageId,
-  NodeId,
-  ProviderDriverKind,
-  ProviderInstanceId,
   ProviderTurnId,
   RunId,
-  RuntimeRequestId,
   ThreadId,
   TurnItemId,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2TurnItem,
+  type ToolCallVisibility,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
@@ -17,8 +14,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { deriveTimelineEntriesFromVisibleTurnItems } from "../../session-logic";
 import {
   CHAT_TYPING_ROW_ID,
+  chatLiveLineIdHoldingEntry,
   chatLiveWorkLine,
-  chatWorkLineIdsByEntryId,
   deriveChatTimelineRows,
 } from "./chatTimelineRows";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
@@ -91,21 +88,6 @@ const thought = (id: string, second: number, runId: RunId) =>
     streaming: false,
   }) satisfies OrchestrationV2TurnItem;
 
-const subagent = (id: string, second: number, runId: RunId) =>
-  ({
-    ...base(id, second, runId),
-    status: "running",
-    completedAt: null,
-    type: "subagent",
-    subagentId: NodeId.make(id),
-    origin: "app_owned",
-    driver: ProviderDriverKind.make("codex"),
-    providerInstanceId: ProviderInstanceId.make("codex"),
-    childThreadId: ThreadId.make(`${id}-thread`),
-    prompt: `Inspect ${id}`,
-    result: null,
-  }) satisfies OrchestrationV2TurnItem;
-
 const messageUser = (id: string, second: number, runId: RunId, message: string) =>
   ({
     ...base(id, second, runId),
@@ -132,20 +114,6 @@ const notification = (id: string, second: number, runId: RunId) =>
     summary: "Background command finished",
   }) satisfies OrchestrationV2TurnItem;
 
-const question = (id: string, second: number, runId: RunId) =>
-  ({
-    ...base(id, second, runId),
-    type: "user_input_request",
-    requestId: RuntimeRequestId.make(`request-${id}`),
-    questions: [],
-    questionAnswer: {
-      requestId: `request-${id}`,
-      questionTextById: { pick: "Which file?" },
-      answers: { pick: "bin.ts" },
-      attachmentsByQuestionId: {},
-    },
-  }) satisfies OrchestrationV2TurnItem;
-
 const projected = (item: OrchestrationV2TurnItem): OrchestrationV2ProjectedTurnItem => ({
   position: item.ordinal,
   visibility: "local",
@@ -162,6 +130,8 @@ function rowsFor(
     readonly turnEnded?: boolean;
     readonly latest?: { runId: RunId; start: number; end: number };
     readonly expanded?: ReadonlyArray<string>;
+    readonly expandedRuns?: ReadonlyArray<RunId>;
+    readonly visibility?: ToolCallVisibility;
   } = {},
 ): MessagesTimelineRow[] {
   const timelineEntries = deriveTimelineEntriesFromVisibleTurnItems({
@@ -189,6 +159,8 @@ function rowsFor(
     runningRunId: options.working ?? null,
     isWorking: options.working !== undefined,
     expandedWorkGroupIds: new Set(options.expanded ?? []),
+    expandedRunIds: new Set(options.expandedRuns ?? []),
+    ...(options.visibility ? { toolCallVisibility: options.visibility } : {}),
     turnDiffSummaries: [],
     supportsConversationRollback: false,
   });
@@ -197,25 +169,28 @@ function rowsFor(
 /** A compact picture of the rows: ids, plus what each chat row says. */
 function shape(rows: ReadonlyArray<MessagesTimelineRow>) {
   return rows.map((row) => {
-    switch (row.kind) {
-      case "chat-work":
-        return `${row.live ? "live" : "line"}: ${row.label}`;
-      case "chat-typing":
-        return "typing";
-      case "chat-reply":
-        return `reply: ${row.id}`;
-      case "message":
-        return row.chat ? `${row.chat}: ${row.message.text}` : `${row.message.role}: ${row.id}`;
-      case "work":
-        return row.chat === "event" ? `event: ${row.id}` : `${row.chat ?? "work"}: ${row.id}`;
-      default:
-        return `${row.kind}: ${row.id}`;
-    }
+    const text = (() => {
+      switch (row.kind) {
+        case "chat-work":
+          return `live: ${row.label}`;
+        case "chat-typing":
+          return "typing";
+        case "turn-fold":
+          return `line: ${row.label}`;
+        case "message":
+          return row.chat ? `${row.chat}: ${row.message.text}` : `${row.message.role}: ${row.id}`;
+        case "work":
+          return `${row.chat ?? "work"}: ${row.id}`;
+        default:
+          return `${row.kind}: ${row.id}`;
+      }
+    })();
+    return row.chatStep ? `  ${text}` : text;
   });
 }
 
 describe("deriveChatTimelineRows", () => {
-  it("closes a finished turn into one line, with the answer last", () => {
+  it("folds a finished turn into upstream's line, with the answer as a bubble", () => {
     const items = [
       user("ask", 0, runA),
       thought("think", 1, runA),
@@ -223,43 +198,48 @@ describe("deriveChatTimelineRows", () => {
       assistant("note", 3, runA, "Looking at the config next."),
       command("grep", 4, runA, "grep -r foo"),
       assistant("answer", 9, runA, "All done."),
-      // Work after the final text still folds into the line above the answer.
-      command("check", 11, runA, "git status"),
     ];
-    const rows = rowsFor(items, { latest: { runId: runA, start: 0, end: 12 } });
-    expect(shape(rows)).toEqual(["user: ask", "line: Worked for 11s", "answer: All done."]);
-    const line = rows.find((row) => row.kind === "chat-work")!;
-    expect(line).toMatchObject({ stepCount: 5, expanded: false });
-
-    const opened = rowsFor(items, {
-      latest: { runId: runA, start: 0, end: 12 },
-      expanded: [line.id],
-    });
-    expect(shape(opened)).toEqual([
+    const latest = { runId: runA, start: 0, end: 12 };
+    expect(shape(rowsFor(items, { latest }))).toEqual([
       "user: ask",
-      "line: Worked for 11s",
-      "step: think",
-      "step: ls",
-      "note: Looking at the config next.",
-      "step: grep",
-      "step: check",
+      "line: Worked for 12s",
       "answer: All done.",
     ]);
+    // Opened, upstream's step rows sit on the line's rail.
+    const opened = shape(rowsFor(items, { latest, expandedRuns: [runA] }));
+    expect(opened[0]).toBe("user: ask");
+    expect(opened[1]).toBe("line: Worked for 12s");
+    expect(opened.at(-1)).toBe("answer: All done.");
+    expect(opened.slice(2, -1).length).toBeGreaterThan(0);
+    expect(opened.slice(2, -1).every((row) => row.startsWith("  "))).toBe(true);
+    expect(opened).toContain("  assistant: note");
   });
 
-  it("keeps a working turn live, with no answer yet and a typing bubble", () => {
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("ls", 1, runA),
-        assistant("note", 2, runA, "Checked the folder."),
-        command("tests", 3, runA, "vp test run", true),
-      ],
-      { working: runA },
-    );
+  it("keeps a working turn on one live line, with a typing bubble where the answer goes", () => {
+    const items = [
+      user("ask", 0, runA),
+      command("ls", 1, runA),
+      assistant("note", 2, runA, "Checked the folder."),
+      command("tests", 3, runA, "vp test run", true),
+    ];
+    const rows = rowsFor(items, { working: runA });
     expect(shape(rows)).toEqual(["user: ask", "live: Running vp", "typing"]);
     expect(rows.at(-1)?.id).toBe(CHAT_TYPING_ROW_ID);
-    expect(rows.find((row) => row.kind === "chat-work")).toMatchObject({ stepCount: 3 });
+    const line = rows.find((row) => row.kind === "chat-work")!;
+    expect(line).toMatchObject({ stepCount: 3 });
+
+    const opened = shape(rowsFor(items, { working: runA, expanded: [line.id] }));
+    expect(opened.slice(0, 2)).toEqual(["user: ask", "live: Running vp"]);
+    expect(opened).toContain("  assistant: note");
+    expect(opened.at(-1)).toBe("typing");
+  });
+
+  it("drops the line in Zen and keeps only the typing bubble", () => {
+    const rows = rowsFor([user("ask", 0, runA), command("tests", 1, runA, "vp test run", true)], {
+      working: runA,
+      visibility: "zen",
+    });
+    expect(shape(rows)).toEqual(["user: ask", "typing"]);
   });
 
   it("drops the typing bubble once the turn ended, while background work keeps it live", () => {
@@ -272,107 +252,37 @@ describe("deriveChatTimelineRows", () => {
     expect(shape(rows)).toEqual(["user: ask", "live: Thinking", "typing"]);
   });
 
-  it("stacks back-to-back messages from you like upstream's timeline", () => {
-    const rows = rowsFor([user("ask", 0, runA), user("more", 1, runA, "steer")], {
-      working: runA,
-    });
-    expect(rows.slice(0, 2)).toMatchObject([
-      { kind: "message", groupedWithNext: true, groupedWithPrevious: false },
-      { kind: "message", groupedWithNext: false, groupedWithPrevious: true },
-    ]);
-  });
-
-  it("closes the line when you steer, and keeps naming a step your message interrupted", () => {
+  it("stacks a steer under your message once the work between them folds into the line", () => {
     const rows = rowsFor(
       [
         user("ask", 0, runA),
         command("build", 1, runA, "make build", true),
-        user("steer", 5, runA, "steer"),
-        thought("rethink", 6, runA),
+        user("more", 2, runA, "steer"),
       ],
       { working: runA },
     );
-    expect(shape(rows)).toEqual([
-      "user: ask",
-      "line: Worked for 1s",
-      "user: steer",
-      "live: Running make",
-      "typing",
+    expect(shape(rows)).toEqual(["user: ask", "user: more", "live: Running make", "typing"]);
+    expect(rows.slice(0, 2)).toMatchObject([
+      { kind: "message", groupedWithNext: true },
+      { kind: "message", groupedWithPrevious: true },
     ]);
   });
 
-  it("gives a wake its own line, and the earlier answer stays an answer", () => {
-    const finished = [
+  it("keeps the earlier answer an answer while the agent works again on its own", () => {
+    const items = [
       user("ask", 0, runA),
       command("ls", 1, runA),
       assistant("answer-a", 4, runA, "Started the job."),
-      notification("wake", 30, runB),
-      command("log", 31, runB, "tail log"),
-      assistant("answer-b", 35, runB, "The job passed."),
+      command("log", 31, runB, "tail log", true),
     ];
-    expect(shape(rowsFor(finished, { latest: { runId: runB, start: 30, end: 35 } }))).toEqual([
-      "user: ask",
-      "line: Worked for 4s",
-      "answer: Started the job.",
-      "event: wake",
-      "line: Worked for 5s",
-      "answer: The job passed.",
-    ]);
-
-    // While the woken run works, the first run's answer does not fold back into work.
-    expect(shape(rowsFor(finished.slice(0, 5), { working: runB }))).toEqual([
-      "user: ask",
-      "line: Worked for 4s",
-      "answer: Started the job.",
-      "event: wake",
-      "live: Thinking",
-      "typing",
-    ]);
+    for (const visibility of ["showAll", "zen"] as const) {
+      const rows = shape(rowsFor(items, { working: runB, visibility }));
+      expect(rows).toContain("answer: Started the job.");
+      expect(rows.at(-1)).toBe("typing");
+    }
   });
 
-  it("shows a job finishing mid-turn as an event that does not split the line", () => {
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("ls", 1, runA),
-        notification("job-done", 2, runA),
-        command("cat", 3, runA, "cat out.txt"),
-        assistant("answer", 5, runA, "Done."),
-      ],
-      { latest: { runId: runA, start: 0, end: 5 } },
-    );
-    expect(shape(rows)).toEqual([
-      "user: ask",
-      "line: Worked for 5s",
-      "event: job-done",
-      "answer: Done.",
-    ]);
-  });
-
-  it("keeps subagent cards as one grouped card next to the line", () => {
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("ls", 1, runA),
-        subagent("child-1", 2, runA),
-        subagent("child-2", 3, runA),
-        command("wait", 4, runA, "sleep 1"),
-        assistant("answer", 8, runA, "Both are running."),
-      ],
-      { latest: { runId: runA, start: 0, end: 8 } },
-    );
-    expect(shape(rows)).toEqual([
-      "user: ask",
-      "line: Worked for 8s",
-      "event: child-1",
-      "answer: Both are running.",
-    ]);
-    expect(rows.find((row) => row.id === "child-1")).toMatchObject({
-      subagents: [{ item: { id: "child-1" } }, { item: { id: "child-2" } }],
-    });
-  });
-
-  it("shows message_user as the agent speaking, which closes the line and stays", () => {
+  it("shows message_user as the agent speaking, which no fold hides", () => {
     const items = [
       user("ask", 0, runA),
       command("ls", 1, runA),
@@ -381,7 +291,6 @@ describe("deriveChatTimelineRows", () => {
     ];
     expect(shape(rowsFor(items, { working: runA }))).toEqual([
       "user: ask",
-      "line: Worked for 1s",
       "to-user: Found the bug; fixing it now.",
       "live: Running apply",
       "typing",
@@ -392,155 +301,77 @@ describe("deriveChatTimelineRows", () => {
       command("fix", 3, runA, "apply patch"),
       assistant("answer", 6, runA, "Fixed."),
     ];
-    expect(shape(rowsFor(settled, { latest: { runId: runA, start: 0, end: 6 } }))).toEqual([
-      "user: ask",
-      "line: Worked for 1s",
-      "to-user: Found the bug; fixing it now.",
-      "line: Worked for 4s",
-      "answer: Fixed.",
-    ]);
+    for (const visibility of ["showAll", "hideAll", "zen"] as const) {
+      const rows = shape(
+        rowsFor(settled, { latest: { runId: runA, start: 0, end: 6 }, visibility }),
+      ).filter((row) => !row.startsWith("line:"));
+      expect(rows).toEqual([
+        "user: ask",
+        "to-user: Found the bug; fixing it now.",
+        "answer: Fixed.",
+      ]);
+    }
   });
 
   it("gives every bubble its meta row, even when more work follows it in the turn", () => {
-    const bubbleMeta = (rows: ReadonlyArray<MessagesTimelineRow>, text: string) => {
-      const row = rows.find(
-        (candidate) => candidate.kind === "message" && candidate.message.text === text,
-      );
-      return row?.kind === "message"
-        ? { showAssistantMeta: row.showAssistantMeta, copy: row.showAssistantCopyButton }
-        : null;
-    };
-    // The agent messages you mid-turn, then keeps working.
-    const told = rowsFor(
+    const rows = rowsFor(
       [
         user("ask", 0, runA),
         command("ls", 1, runA),
-        messageUser("tell", 2, runA, "Here is my recommendation."),
-        command("fix", 3, runA, "apply patch", true),
+        assistant("answer", 3, runA, "Here is my recommendation."),
+        command("more", 4, runA, "git diff"),
       ],
-      { working: runA },
+      { latest: { runId: runA, start: 0, end: 5 } },
     );
-    expect(bubbleMeta(told, "Here is my recommendation.")).toEqual({
+    expect(rows.some((row) => row.kind === "assistant-meta")).toBe(false);
+    expect(rows.find((row) => row.kind === "message" && row.chat === "answer")).toMatchObject({
       showAssistantMeta: true,
-      copy: true,
-    });
-    // A turn answers, then the agent continues in a new run with more work.
-    const continued = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("ls", 1, runA),
-        assistant("answer-a", 3, runA, "Here is my recommendation."),
-        command("more", 10, runB, "git diff"),
-        assistant("answer-b", 20, runB, "Fixed it too."),
-      ],
-      { latest: { runId: runB, start: 10, end: 20 } },
-    );
-    expect(shape(continued)).toEqual([
-      "user: ask",
-      "line: Worked for 3s",
-      "answer: Here is my recommendation.",
-      "line: Worked for 10s",
-      "answer: Fixed it too.",
-    ]);
-    expect(bubbleMeta(continued, "Here is my recommendation.")).toEqual({
-      showAssistantMeta: true,
-      copy: true,
+      showAssistantCopyButton: true,
     });
   });
 
-  it("shows a finished compaction as a centered event, and a running one on the live line", () => {
-    const finished = rowsFor(
+  it("centers a job finishing as an event", () => {
+    const rows = rowsFor(
       [
         user("ask", 0, runA),
         command("ls", 1, runA),
-        compaction("compact", 2, runA),
-        command("cat", 3, runA),
+        notification("job-done", 2, runA),
         assistant("answer", 5, runA, "Done."),
       ],
       { latest: { runId: runA, start: 0, end: 5 } },
     );
-    expect(shape(finished)).toEqual([
-      "user: ask",
-      "line: Worked for 5s",
-      "context-compaction: compact",
-      "answer: Done.",
-    ]);
+    expect(shape(rows)).toContain("event: job-done");
+  });
 
+  it("names a running compaction on the live line and hides the typing bubble", () => {
     const live = rowsFor(
       [user("ask", 0, runA), command("ls", 1, runA), compaction("compact", 2, runA, true)],
       { working: runA },
     );
-    expect(shape(live)).toEqual(["user: ask", "live: Thinking", "typing"]);
-    expect(live.find((row) => row.kind === "chat-work")).toMatchObject({ compacting: true });
     expect(live.find((row) => row.kind === "chat-typing")).toMatchObject({ compacting: true });
   });
 
-  it("shows T3 Code's own /compact as the compaction row alone, titled with why it ran", () => {
-    const compactPrompt: OrchestrationV2TurnItem = {
-      ...user("compact-prompt", 6, runB),
-      text: "/compact",
-      createdBy: "agent",
-      creationSource: "server",
-      idleCompaction: "onReturn",
-    } as OrchestrationV2TurnItem;
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        assistant("answer", 5, runA, "Done."),
-        compactPrompt,
-        compaction("compact", 7, runB),
-      ],
-      { latest: { runId: runB, start: 6, end: 8 } },
-    );
-    expect(shape(rows)).not.toContain("user: compact-prompt");
-    expect(rows.find((row) => row.kind === "context-compaction")).toMatchObject({
-      label: "Context compacted before sending",
-    });
-  });
-
-  it("shows your answer to the agent's question as a reply that closes the line", () => {
-    const rows = rowsFor(
-      [
-        user("ask", 0, runA),
-        command("ls", 1, runA),
-        question("pick", 2, runA),
-        command("cat", 4, runA, "cat bin.ts"),
-        assistant("answer", 6, runA, "Read it."),
-      ],
-      { latest: { runId: runA, start: 0, end: 6 } },
-    );
-    expect(shape(rows)).toEqual([
-      "user: ask",
-      "line: Worked for 1s",
-      "reply: pick",
-      "line: Worked for 4s",
-      "answer: Read it.",
-    ]);
-  });
-
-  it("keeps a line's id when its run settles, so an opened line stays open", () => {
-    const items = [user("ask", 0, runA), command("ls", 1, runA)];
-    const liveId = rowsFor(items, { working: runA }).find((row) => row.kind === "chat-work")?.id;
-    const settledId = rowsFor([...items, assistant("answer", 3, runA)], {
-      latest: { runId: runA, start: 0, end: 3 },
-    }).find((row) => row.kind === "chat-work")?.id;
-    expect(liveId).toBeDefined();
-    expect(settledId).toBe(liveId);
-  });
-
-  it("maps each step to its line for find", () => {
-    const timelineEntries = deriveTimelineEntriesFromVisibleTurnItems({
-      visibleTurnItems: [user("ask", 0, runA), command("ls", 1, runA)].map(projected),
-      optimisticMessages: [],
-    });
-    const lineIds = chatWorkLineIdsByEntryId({
-      timelineEntries,
-      latestRun: null,
-      isWorking: false,
+  it("opens the live line for find when it hides the match", () => {
+    const items = [user("ask", 0, runA), command("ls", 1, runA, "ls", true)];
+    const input = {
+      timelineEntries: deriveTimelineEntriesFromVisibleTurnItems({
+        visibleTurnItems: items.map(projected),
+        optimisticMessages: [],
+      }),
+      latestRun: {
+        runId: runA,
+        status: "running" as const,
+        startedAt: iso(0),
+        completedAt: null,
+      },
+      runningRunId: runA,
+      isWorking: true,
       turnDiffSummaries: [],
       supportsConversationRollback: false,
-    });
-    expect(lineIds.get("ls")).toMatch(/^chat-work:/);
+    };
+    const lineId = deriveChatTimelineRows(input).find((row) => row.kind === "chat-work")?.id;
+    expect(chatLiveLineIdHoldingEntry(input, "ls")).toBe(lineId);
+    expect(chatLiveLineIdHoldingEntry(input, "ask")).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { CiteMessageButton } from "./CiteMessageButton";
-import { AGENT_BUBBLE_CLASS_NAME } from "./ChatStyleRows";
+import { AGENT_BUBBLE_CLASS_NAME, useAnswerReplacesTyping } from "./ChatStyleRows";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { memo, use, useState } from "react";
@@ -41,6 +41,10 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   // along the way) is a gray bubble; notes written along the way sit quietly in
   // the turn's work, and the bubble's time and copy button are always shown.
   const chatBubble = row.chat === "answer" || row.chat === "to-user";
+  const { latestRunId } = use(TimelineRowActivityCtx);
+  const replacesTyping = useAnswerReplacesTyping(
+    row.chat === "answer" && row.message.runId !== null && row.message.runId === latestRunId,
+  );
 
   return (
     <>
@@ -48,8 +52,8 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
         className={cn(
           "relative min-w-0",
           chatBubble
-            ? AGENT_BUBBLE_CLASS_NAME
-            : row.chat === "note"
+            ? cn(AGENT_BUBBLE_CLASS_NAME, replacesTyping && "chat-bubble-in")
+            : row.chatStep
               ? "px-1 py-0.5 opacity-75"
               : "px-1 py-0.5",
         )}

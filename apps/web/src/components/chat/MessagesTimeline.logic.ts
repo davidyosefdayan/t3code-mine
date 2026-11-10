@@ -493,6 +493,8 @@ const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
 
 export type MessagesTimelineRow = MessagesTimelineRowContent & {
   readonly continuesWorkLog?: boolean;
+  /** Personal build: shown inside an opened chat work line, on its rail (chatTimelineRows.ts). */
+  readonly chatStep?: boolean;
 };
 
 type MessagesTimelineRowContent =
@@ -510,8 +512,8 @@ type MessagesTimelineRowContent =
       groupedEntries: WorkLogEntry[];
       isExpandedToolGroup: boolean;
       displayLabel?: string;
-      /** Personal build: a step inside a chat work line, or a centered chat event. */
-      chat?: "step" | "event";
+      /** Personal build: something that happened, centered in the chat layout. */
+      chat?: "event";
     }
   | {
       kind: "work-live";
@@ -609,8 +611,8 @@ type MessagesTimelineRowContent =
       groupedWithPrevious?: boolean;
       /** Set when the message above is a steer too, so the label shows once. */
       continuesSteer?: boolean;
-      /** Personal build: how the chat-style layout shows this message. */
-      chat?: "answer" | "note" | "to-user";
+      /** Personal build: a bubble in the chat layout, with its meta row. */
+      chat?: "answer" | "to-user";
     }
   | {
       kind: "assistant-meta";
@@ -652,12 +654,11 @@ type MessagesTimelineRowContent =
     }
   // Personal build: chat-style rows (chatTimelineRows.ts).
   | {
-      /** One "Worked for …" line per stretch of a turn's work; live while it works. */
+      /** A working turn's live line: its current step, with the work folded behind it. */
       kind: "chat-work";
       id: string;
       createdAt: string | null;
       label: string;
-      live: boolean;
       expanded: boolean;
       stepCount: number;
       /** The agent is compacting its context, so it is not typing an answer. */
@@ -669,13 +670,6 @@ type MessagesTimelineRowContent =
       id: string;
       createdAt: string | null;
       compacting: boolean;
-    }
-  | {
-      /** Your answer to a question the agent asked, as your reply. */
-      kind: "chat-reply";
-      id: string;
-      createdAt: string;
-      entry: WorkLogEntry;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -940,6 +934,14 @@ function timelineEntryFoldRunId(entry: TimelineEntry, runlessKey: RunId | null):
   return null;
 }
 
+// Personal build: the chat layout turns the agent's message_user calls into messages
+// with this id prefix (chatTimelineRows.ts); like your answers, no fold hides them.
+export const MESSAGE_TO_USER_ID_PREFIX = "to-user:";
+
+function timelineEntryIsMessageToUser(entry: TimelineEntry): boolean {
+  return entry.kind === "message" && entry.message.id.startsWith(MESSAGE_TO_USER_ID_PREFIX);
+}
+
 function timelineEntryIsSteer(entry: TimelineEntry): boolean {
   return (
     entry.kind === "message" &&
@@ -1191,6 +1193,7 @@ function deriveTurnFolds(input: {
       }
       if (entry.kind === "work" && entry.entry.itemType === "notification") continue;
       if (entry.kind === "work" && entry.entry.questionAnswer !== undefined) continue;
+      if (timelineEntryIsMessageToUser(entry)) continue;
       hiddenEntryIds.add(entry.id);
     }
     if (hiddenEntryIds.size === 0) {
@@ -1499,8 +1502,10 @@ function timelineRowEntries(
         message.role !== "assistant" ||
         message.id === input.revealedMessageId ||
         steerAnswerIds.has(message.id) ||
+        timelineEntryIsMessageToUser(entry) ||
         (terminalIds.has(message.id) &&
-          index < answeringFrom &&
+          // Personal build: a finished run's answer stays while the agent works on its own.
+          (index < answeringFrom || (answeringRunId !== null && message.runId !== null)) &&
           (answeringRunId === null || message.runId !== answeringRunId))
       );
     });
@@ -1511,11 +1516,6 @@ function timelineRowEntries(
     );
   }
   return withoutSubagentDelegationRows(settleSupersededReasoning(shown));
-}
-
-// Personal build: the chat layout's rows (chatTimelineRows.ts) start from these entries.
-export function timelineEntriesForChat(entries: ReadonlyArray<TimelineEntry>) {
-  return withoutSubagentDelegationRows(settleSupersededReasoning(entries));
 }
 
 function deriveTimelineTurnFolds(
@@ -2433,7 +2433,7 @@ function attachCreatedThreadSummaries(
   });
 }
 
-export const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
+const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
 
 export type MessagesTimelineRowsInput = Parameters<typeof deriveMessagesTimelineRows>[0];
 
@@ -2595,7 +2595,8 @@ export function computeStableMessagesTimelineRows(
 }
 
 function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
-  if (a.kind !== b.kind || a.id !== b.id) return false;
+  // Personal build: chatStep (chatTimelineRows.ts).
+  if (a.kind !== b.kind || a.id !== b.id || a.chatStep !== b.chatStep) return false;
 
   switch (a.kind) {
     case "working":
@@ -2742,7 +2743,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.createdAt === bc.createdAt &&
         a.label === bc.label &&
-        a.live === bc.live &&
         a.expanded === bc.expanded &&
         a.stepCount === bc.stepCount &&
         a.compacting === bc.compacting
@@ -2753,9 +2753,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       const bc = b as typeof a;
       return a.createdAt === bc.createdAt && a.compacting === bc.compacting;
     }
-
-    case "chat-reply":
-      return a.entry === (b as typeof a).entry;
   }
 }
 

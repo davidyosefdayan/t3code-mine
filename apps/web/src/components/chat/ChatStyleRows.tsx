@@ -1,16 +1,9 @@
-// Personal build: the chat-style timeline's own rows (see chatTimelineRows.ts).
+// Personal build: the chat-style timeline's own looks (see chatTimelineRows.ts).
 // Presentational only; MessagesTimeline reads its row context and passes it in.
-import {
-  getQuestionAnswerPreview,
-  getQuestionTextPreview,
-} from "@t3tools/client-runtime/work-log/user-input";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
-import { cn } from "~/lib/utils";
-import type { WorkLogEntry } from "../../session-logic";
-import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 
 /**
  * Your messages are a theme-color bubble. The overrides make the text, chips,
@@ -23,27 +16,30 @@ export const USER_BUBBLE_CLASS_NAME =
 export const AGENT_BUBBLE_CLASS_NAME =
   "w-fit max-w-full rounded-2xl rounded-bl-md bg-agent-bubble px-4 py-2.5";
 
-/** Steps and notes inside an opened work line hang off one continuous rail. */
-export function chatRowOnRail(row: MessagesTimelineRow): boolean {
-  return (
-    (row.kind === "work" && row.chat === "step") || (row.kind === "message" && row.chat === "note")
-  );
-}
-
 // Rows sit on fractional pixels, so the bar reaches a pixel past each edge to
 // overlap its neighbours instead of leaving hairline gaps.
 export const CHAT_RAIL_CLASS_NAME =
   "relative ms-2 ps-3.5 before:absolute before:-top-px before:-bottom-px before:start-0 before:w-0.5 before:bg-border";
 
-/** Typing dots. The steps() timing keeps them to a few repaints a cycle; they pause off screen. */
-function TypingDots() {
-  return (
-    <span ref={observeVisibleAnimation} className="flex shrink-0 items-center gap-1" aria-hidden>
-      <span className="chat-typing-dot" />
-      <span className="chat-typing-dot" />
-      <span className="chat-typing-dot" />
-    </span>
-  );
+let shownTypingBubbles = 0;
+
+function countTypingBubble(element: HTMLElement | null) {
+  if (element === null) return;
+  shownTypingBubbles += 1;
+  const stopAnimation = observeVisibleAnimation(element);
+  return () => {
+    shownTypingBubbles -= 1;
+    stopAnimation?.();
+  };
+}
+
+/**
+ * True for an answer bubble that mounts in the same update that removes the
+ * typing bubble, so it fades in where the typing bubble stood.
+ */
+export function useAnswerReplacesTyping(isLatestRunAnswer: boolean): boolean {
+  const [enter] = useState(() => isLatestRunAnswer && shownTypingBubbles > 0);
+  return enter;
 }
 
 /** While the agent works, a typing bubble sits where its answer will appear. */
@@ -51,11 +47,14 @@ export function ChatTypingTimelineRow({ hidden }: { hidden: boolean }) {
   if (hidden) return null;
   return (
     <div
-      className="mt-1 flex w-fit items-center rounded-2xl rounded-bl-md bg-agent-bubble px-4 py-3"
+      ref={countTypingBubble}
+      className="chat-typing-bubble ms-2 mt-1 mb-1 flex w-fit items-center gap-1.5 rounded-3xl bg-agent-bubble px-4 py-3"
       role="status"
       aria-label="The agent is working"
     >
-      <TypingDots />
+      <span className="chat-typing-dot" />
+      <span className="chat-typing-dot" />
+      <span className="chat-typing-dot" />
     </div>
   );
 }
@@ -70,6 +69,8 @@ export function ChatWorkLineContent(props: {
   canExpand: boolean;
   timer?: ReactNode;
   trailing?: ReactNode;
+  /** Older work is still loading for the opened line. */
+  busy?: boolean;
   onToggle: () => void;
 }) {
   const Icon = props.expanded ? ChevronDownIcon : ChevronRightIcon;
@@ -79,6 +80,7 @@ export function ChatWorkLineContent(props: {
         type="button"
         aria-expanded={props.canExpand ? props.expanded : undefined}
         disabled={!props.canExpand}
+        aria-busy={props.busy}
         data-scroll-anchor-ignore
         onClick={props.onToggle}
         className="flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-md px-1.5 py-0.5 text-muted-foreground text-xs tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:cursor-default disabled:hover:text-muted-foreground"
@@ -88,26 +90,6 @@ export function ChatWorkLineContent(props: {
         {props.canExpand ? <Icon className="size-3.5 shrink-0" /> : null}
       </button>
       {props.trailing}
-    </div>
-  );
-}
-
-/** Your answer to a question the agent asked, as a reply bubble quoting the question. */
-export function ChatReplyTimelineRow({ entry }: { entry: WorkLogEntry }) {
-  const answer = entry.questionAnswer;
-  if (!answer) return null;
-  const question = getQuestionTextPreview(answer);
-  const reply = getQuestionAnswerPreview(answer);
-  return (
-    <div className="flex justify-end">
-      <div className={cn("max-w-[80%] text-sm leading-relaxed", USER_BUBBLE_CLASS_NAME)}>
-        {question ? (
-          <div className="mb-1.5 border-s-2 border-current/40 ps-2.5 text-xs opacity-80">
-            {question}
-          </div>
-        ) : null}
-        <div className="whitespace-pre-wrap">{reply}</div>
-      </div>
     </div>
   );
 }
