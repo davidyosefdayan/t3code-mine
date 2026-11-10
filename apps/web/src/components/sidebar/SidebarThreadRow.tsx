@@ -15,16 +15,14 @@ import { isYourTurnUnseen, threadWaitingOnYou, yourTurnSince } from "../needsYou
 import { resolveThreadRowLine } from "./threadGroups";
 import { ReadAloudThreadIndicator } from "./ReadAloudThreadIndicator";
 import {
-  ThreadPullRequestBadgeControl,
   ThreadTerminalStatusButton,
   prStatusIndicator,
   resolveThreadPullRequestBadge,
+  resolveThreadPullRequestBadgePresentation,
   useLinkedThreadPullRequest,
 } from "../ThreadStatusIndicators";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
-import { useRightPanelStore } from "../../rightPanelStore";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
-import { InlineButton } from "../ui/button";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -185,6 +183,7 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  onOpenPullRequest,
 }: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
@@ -202,13 +201,15 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  onOpenPullRequest?: (event: ReactMouseEvent<HTMLAnchorElement>, url: string) => void;
 }) {
   const previousProviderNames = thread.providerInstanceHistory
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   return (
-    <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
+    // Personal build: the card takes the pointer, so it stays open to click a PR in it.
+    <ThreadHoverCardPopup side="right" align="start" sideOffset={4} className="pointer-events-auto">
       <SidebarThreadCardBody
         thread={thread}
         project={project}
@@ -224,6 +225,7 @@ function SidebarThreadTooltip({
         terminalStatus={terminalStatus}
         terminalProcessLabel={terminalProcessLabel(terminalProcessCount)}
         showPullRequests={supportsMultiplePullRequests}
+        {...(onOpenPullRequest ? { onOpenPullRequest } : {})}
       />
     </ThreadHoverCardPopup>
   );
@@ -553,6 +555,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   );
   // Personal build: upstream's pull request badge, on the row's bottom line
   // beside the model logo. Several PRs collapse into one count or stack badge.
+  // It only shows; the hover card lists the PRs to open (one place, not two).
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
     thread.linkedPullRequest,
@@ -567,7 +570,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : null;
   const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
   const openPrLink = useOpenPrLink();
-  const handlePrClick = (event: ReactMouseEvent<HTMLElement>, targetUrl?: string) => {
+  const handlePrClick = (event: ReactMouseEvent<HTMLAnchorElement>, targetUrl?: string) => {
     const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
     if (!url) return;
     const showInRightPanel = targetUrl !== undefined || props.openPullRequestsInRightPanel;
@@ -579,22 +582,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
     : null;
-  const prBadge =
-    prBadgeShape?.kind === "stack" || pr || currentLinkedPr ? (
-      <ThreadPullRequestBadgeControl
-        render={<InlineButton />}
-        badge={prBadgeShape}
-        pullRequests={thread.pullRequests}
-        number={pr?.number ?? currentLinkedPr?.number}
-        url={pr?.url ?? currentLinkedPr?.url}
-        status={prStatus}
-        onOpenList={() => {
-          useRightPanelStore.getState().open(threadRef, "pull-requests");
-          if (!props.isRouteThread) onThreadActivate(threadRef);
-        }}
-        onOpenPullRequest={handlePrClick}
-      />
-    ) : null;
+  const prPresentation = resolveThreadPullRequestBadgePresentation({
+    badge: prBadgeShape,
+    number: pr?.number ?? currentLinkedPr?.number,
+    url: pr?.url ?? currentLinkedPr?.url,
+    status: prStatus,
+  });
+  const prBadge = prPresentation ? (
+    <span
+      aria-label={prPresentation.label}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 tabular-nums",
+        prPresentation.toneClassName,
+      )}
+    >
+      <prPresentation.Icon aria-hidden className="size-3 shrink-0 text-current" />
+      <span>{prPresentation.text}</span>
+    </span>
+  ) : null;
 
   const status = resolveSidebarThreadStatus(thread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
@@ -705,6 +710,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
+      onOpenPullRequest={handlePrClick}
     />
   );
 

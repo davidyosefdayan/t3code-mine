@@ -117,6 +117,7 @@ export function SidebarThreadCardBody(props: {
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessLabel: string;
   showPullRequests: boolean;
+  onOpenPullRequest?: (event: ReactMouseEvent<HTMLAnchorElement>, url: string) => void;
 }) {
   const { thread, providerEntry } = props;
   const driverKind = providerEntry?.driverKind ?? null;
@@ -181,7 +182,7 @@ export function SidebarThreadCardBody(props: {
               showBadge={props.showInstanceBadge && providerEntry?.accentColor !== undefined}
               badgeContent="none"
               badgeClassName="h-2 min-w-2 px-0"
-              iconClassName="size-3 shrink-0 grayscale opacity-60"
+              iconClassName="size-3 shrink-0 opacity-60"
             />
             <div className="min-w-0 truncate text-foreground/75">
               {props.showInstanceBadge && providerEntry
@@ -225,7 +226,10 @@ export function SidebarThreadCardBody(props: {
       </div>
       {props.showPullRequests && thread.pullRequests.length > 0 ? (
         <div className="border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
-          <ThreadPullRequestsMiniList pullRequests={thread.pullRequests} />
+          <ThreadPullRequestsMiniList
+            pullRequests={thread.pullRequests}
+            {...(props.onOpenPullRequest ? { onOpenPullRequest: props.onOpenPullRequest } : {})}
+          />
         </div>
       ) : null}
     </div>
