@@ -25,7 +25,11 @@ export function createThreadWorkingSignal() {
   return {
     observe(threads: readonly EnvironmentThreadShell[]) {
       const before = threads.map((thread) => tracker.isWorking(thread));
-      tracker.observe(threads);
+      // Upstream skips the hold for pinned chats, which never sit in its Working shelf;
+      // here a pinned chat works in Working too, so it gets the same hold.
+      tracker.observe(
+        threads.map((thread) => (thread.pinnedAt == null ? thread : { ...thread, pinnedAt: null })),
+      );
       if (threads.some((thread, index) => tracker.isWorking(thread) !== before[index])) changed();
     },
     subscribe(listener: () => void) {

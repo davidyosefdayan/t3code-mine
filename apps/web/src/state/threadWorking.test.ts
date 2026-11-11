@@ -72,12 +72,26 @@ describe("createThreadWorkingSignal", () => {
     }
   });
 
-  it("reports a chat that leaves Working at once, such as a pinned one", () => {
+  it("holds a pinned chat in Working like any other", () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-15T12:00:00.000Z") });
+    try {
+      const { signal, changes } = harness();
+      const pinned = { pinnedAt: "2026-10-15T08:00:00.000Z" };
+      signal.observe([{ ...working, ...pinned }]);
+      signal.observe([{ ...done, ...pinned }]);
+      expect(changes).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(WORKING_EXIT_GRACE_MS);
+      expect(changes).toHaveBeenCalledTimes(1);
+      expect(signal.isWorking()({ ...done, ...pinned })).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a chat that leaves Working at once when it needs you", () => {
     const { signal, changes } = harness();
-    const pinned = { pinnedAt: "2026-10-15T08:00:00.000Z" };
-    signal.observe([{ ...working, ...pinned }]);
-    signal.observe([{ ...done, ...pinned }]);
+    signal.observe([working]);
+    signal.observe([{ ...done, hasPendingApprovals: true }]);
     expect(changes).toHaveBeenCalledTimes(1);
-    expect(signal.isWorking()({ ...done, ...pinned })).toBe(false);
   });
 });
