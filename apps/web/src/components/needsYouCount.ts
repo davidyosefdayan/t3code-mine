@@ -10,6 +10,7 @@ import { useDelegatedUnderParent, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom } from "../state/server";
 import { setNotificationBadge } from "../threadNotifications";
 import { useUiStateStore } from "../uiStateStore";
+import { useThreadIsWorking } from "../state/threadWorking";
 import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   filterSidebarV2VisibleThreads,
@@ -119,6 +120,8 @@ export const WAITING_ON_YOU_LABELS: Record<ThreadWaitingOnYouKind, string> = {
   other: "Your turn",
 };
 
+type IsWorking = (thread: EnvironmentThreadShell) => boolean;
+
 interface NeedsYouCapabilities {
   readonly threadSnooze?: boolean;
   readonly threadSettlement?: boolean;
@@ -132,11 +135,12 @@ export function threadNeedsYou(
   capabilities: NeedsYouCapabilities | undefined,
   localLastVisitedAtByKey: Readonly<Record<string, string>>,
   now: string,
+  isWorking: IsWorking = isSidebarThreadWorking,
 ): boolean {
   if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) return false;
   if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") return false;
   if (threadWaitingOnYou(thread) !== null) return true;
-  if (isSidebarThreadWorking(thread)) return false;
+  if (isWorking(thread)) return false;
   const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
   const lastVisitedAt = resolveThreadLastVisitedAt(
     thread.lastVisitedAt,
@@ -153,9 +157,10 @@ export function countThreadsNeedingYou(
   localLastVisitedAtByKey: Readonly<Record<string, string>>,
   now: string,
   delegatedUnderParent: ReadonlySet<string> = new Set(),
+  isWorking: IsWorking = isSidebarThreadWorking,
 ): number {
   return filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent).filter((thread) =>
-    threadNeedsYou(thread, capabilitiesOf(thread), localLastVisitedAtByKey, now),
+    threadNeedsYou(thread, capabilitiesOf(thread), localLastVisitedAtByKey, now, isWorking),
   ).length;
 }
 
@@ -168,12 +173,16 @@ export function useNeedsYouCount(): number {
   // The minute clock, so a woken snooze counts within a minute and the
   // compiler-cached count never reads the clock during render.
   const nowMinute = useNowMinute();
+  // Personal build: the Working group's own decision, so the badge counts a chat the
+  // moment it leaves Working.
+  const isWorking = useThreadIsWorking();
   return countThreadsNeedingYou(
     threads,
     (thread) => serverConfigs.get(thread.environmentId)?.environment.capabilities,
     localLastVisitedAtByKey,
     `${nowMinute}:00.000Z`,
     delegatedUnderParent,
+    isWorking,
   );
 }
 

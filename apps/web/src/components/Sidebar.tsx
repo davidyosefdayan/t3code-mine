@@ -29,11 +29,7 @@ import {
   effectiveSnoozed,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
-import {
-  asLaunchingThread,
-  createInboxReturnTracker,
-  isThreadWorking,
-} from "@t3tools/client-runtime/state/thread-inbox";
+import { asLaunchingThread, isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
@@ -142,6 +138,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { threadNeedsYou } from "./needsYouCount";
+import { threadWorking } from "../state/threadWorking";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   useEnvironmentIdentities,
@@ -337,7 +334,8 @@ const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const UNREAD_ONLY_KEY = "t3code:sidebar:unread-only";
 
-const inboxReturns = createInboxReturnTracker();
+// Personal build: the shared tracker, so Working, unread, the badge, and the beep agree.
+const inboxReturns = threadWorking;
 
 type SidebarOptimisticDrop = {
   readonly key: string;
@@ -444,10 +442,7 @@ function useSidebarThreads(input: {
     keepEmptyFolders: keepEmpty,
     unreadOnly,
   } = input;
-  const inboxReturnsVersion = useSyncExternalStore(
-    inboxReturns.subscribe,
-    inboxReturns.getSnapshot,
-  );
+  const inboxReturnsVersion = useSyncExternalStore(inboxReturns.subscribe, inboxReturns.version);
   const nowMinute = useNowMinute();
   // Minute-quantized clocks would delay second-precise snooze wakes by up to a minute.
   const snoozeWakeClock = useSnoozeWakeClock(threads);
@@ -496,6 +491,7 @@ function useSidebarThreads(input: {
       serverConfigs.get(thread.environmentId)?.environment.capabilities,
       localLastVisitedAtByKey,
       `${nowMinute}:00.000Z`,
+      inboxReturns.isWorking(),
     );
   const partition = unreadOnly
     ? {
@@ -684,8 +680,8 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
   // The tracker holds a chat in Working briefly after it stops, so a server
-  // auto-settle lands before the chat flashes back home.
-  const inboxObservation = inboxReturns.observe(threads);
+  // auto-settle lands before the chat flashes back home. It is fed at app start.
+  const inboxObservation = { isWorking: inboxReturns.isWorking() };
   const waitingOnYou: EnvironmentThreadShell[] = [];
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];

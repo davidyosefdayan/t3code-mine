@@ -23,6 +23,7 @@ import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
+import { threadWorking } from "../state/threadWorking";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
@@ -109,7 +110,6 @@ export function startThreadNotifications(
     pending.clear();
   };
 
-  // Completions fire from a timer, so read settings, focus and route when presenting.
   const present = (
     environmentId: EnvironmentId,
     state: NotificationState,
@@ -225,8 +225,10 @@ export function startThreadNotifications(
     environmentId: EnvironmentId,
     entry: WatchedEnvironment,
     threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+    workingMoved = false,
   ) => {
     const previous = entry.previous;
+    const isWorking = threadWorking.isWorking();
     const next = new Map<ThreadId, NotificationState>();
     // A parent here also hears of what its tasks on linked environments ask.
     const subagentRequests = registry.get(
@@ -248,6 +250,7 @@ export function startThreadNotifications(
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       if (
         !entry.reconnecting &&
+        !workingMoved &&
         prior?.raw === rawThread &&
         prior.subagentRequest === subagentRequest
       ) {
@@ -268,7 +271,9 @@ export function startThreadNotifications(
         ? `${thread.latestRun?.runId ?? ""}:${status}:${requestId ?? ""}`
         : null;
       const completed = status === "ready" && thread.latestRun?.status === "completed";
-      const settled = completed && !monitorHoldsWakeCompletion(rawThread);
+      // Personal build: done only once the chat leaves Working, the same moment it turns
+      // unread there, so the beep, the dot, and the move happen together.
+      const settled = completed && !monitorHoldsWakeCompletion(rawThread) && !isWorking(thread);
       const parsedCompletedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const completedAt = Number.isFinite(parsedCompletedAt) ? parsedCompletedAt : null;
       const state = {
@@ -318,7 +323,6 @@ export function startThreadNotifications(
           observeThreads(environmentId, entry, threads);
           return;
         }
-        entry.gate.cancelPending();
         entry.reconnecting = true;
         entry.gate.pause();
       },
@@ -327,6 +331,9 @@ export function startThreadNotifications(
     const reobserve = () => {
       if (threads !== null) observeThreads(environmentId, entry, threads);
     };
+    const unsubscribeWorking = threadWorking.subscribe(() => {
+      if (threads !== null) observeThreads(environmentId, entry, threads, true);
+    });
     const unsubscribeRequests = registry.subscribe(
       environmentThreadShells.pendingSubagentRequestsAtom(environmentId),
       reobserve,
@@ -337,6 +344,7 @@ export function startThreadNotifications(
     );
     entry.unsubscribe = () => {
       unsubscribeShell();
+      unsubscribeWorking();
       unsubscribeRequests();
       unsubscribeDelegated();
       entry.gate.clear();
