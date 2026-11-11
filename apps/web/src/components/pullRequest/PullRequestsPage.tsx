@@ -86,7 +86,15 @@ import { registerCommands } from "~/shortcuts/dispatcher";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "../chat/PanelLayoutControls";
 import { Button } from "../ui/button";
+import { RefreshIcon } from "../ui/refresh-icon";
 import { SidebarInset } from "../ui/sidebar";
+import { createPortal } from "react-dom";
+import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { PullRequestsSidebarList } from "./PullRequestsSidebarList";
+import { usePullRequestsSidebarSlot } from "./pullRequestsSidebarSlot";
+import { pullRequestFilterChips } from "./pullRequestFilterChips";
+import { ListFilterButton, ListSortMenu } from "../page/ListSearchBar";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useOpenPanelPullRequestUrl } from "~/hooks/useOpenPanelPullRequestUrl";
@@ -143,6 +151,7 @@ const EMPTY_PREVIEW_DESKTOP_STATE = {};
 const EMPTY_TERMINAL_LABELS = new Map<string, string>();
 const EMPTY_PENDING_SURFACES = new Set<string>();
 export function PullRequestsPage() {
+  const sidebarSlot = usePullRequestsSidebarSlot();
   const search = useSearch({ from: "/_chat/pull-requests" });
   const sort = search.sort ?? "ready";
   const statsPolicy: PullRequestStatsPolicy =
@@ -1263,7 +1272,15 @@ export function PullRequestsPage() {
       Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
     })),
   ];
-  const sortMenu = (
+  // Personal build: in the sidebar, sort and filters are icons in the search bar.
+  const sortMenu = sidebarSlot ? (
+    <ListSortMenu
+      value={sort}
+      defaultValue="ready"
+      options={SORT_OPTIONS}
+      onChange={(next) => updateListScope({ sort: next })}
+    />
+  ) : (
     <PullRequestCompactFilterMenu
       label="Sort pull requests"
       triggerIcon={<ArrowDownUpIcon aria-hidden className="size-4" />}
@@ -1276,6 +1293,9 @@ export function PullRequestsPage() {
   );
   const filtersMenu = (
     <PullRequestFiltersMenuInSidebarOrder
+      {...(sidebarSlot
+        ? { renderTrigger: (count: number) => <ListFilterButton active={count > 0} /> }
+        : {})}
       onOpenChange={setFiltersOpen}
       state={search.state}
       stateOptions={STATE_TABS}
@@ -1322,6 +1342,36 @@ export function PullRequestsPage() {
     />
   );
   const columnProps = {
+    searchBar: {
+      value: search.q ?? "",
+      busy: typedQuery.length > 0 && (!querySettled || showingCarried),
+      onChange: (query: string) => updateListScope({ q: query || undefined }),
+      onSubmit: submitQuery,
+    },
+    filterChips: pullRequestFilterChips(
+      search,
+      {
+        projectTitle: scopedProject?.title,
+        serverLabel:
+          scopedEnvironmentId === null || scopedEnvironmentId === undefined
+            ? undefined
+            : serverMenuOptions.find((option) => option.value === scopedEnvironmentId)?.label,
+      },
+      updateListScope,
+    ),
+    onClearFilters: () =>
+      updateListScope({
+        state: "open",
+        involvement: "all",
+        projectId: undefined,
+        environmentId: undefined,
+        host: undefined,
+        author: undefined,
+        labels: undefined,
+        draft: undefined,
+        review: undefined,
+        checks: undefined,
+      }),
     refreshing,
     onRefresh: () => void refreshFromHost(),
     searchValue: search.q ?? "",
@@ -1465,17 +1515,47 @@ export function PullRequestsPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [keybindings]);
 
+  // Personal build: with the Pull requests sidebar on screen, the list draws
+  // there and the open pull request fills the page, like a chat on Threads.
+  const showingDetail =
+    rightPanelPresent && renderedPullRequestSurface !== null && panelEnvironmentId !== null;
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div className="relative flex min-h-0 flex-1">
-        {pullRequestsSupported && rightPanelPresent ? openPanelControls : null}
-        <PullRequestsColumn {...columnProps} />
+        {sidebarSlot === null && pullRequestsSupported && rightPanelPresent
+          ? openPanelControls
+          : null}
+        {sidebarSlot !== null && pullRequestsSupported ? (
+          // Personal build: Refresh in the title bar's corner, where Usage and Skills keep it.
+          <div
+            className="fixed top-[calc(var(--workspace-controls-top)+0.5rem)] right-[calc(var(--workspace-controls-right)+0.5rem)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center [-webkit-app-region:no-drag]"
+            data-workspace-titlebar-controls
+          >
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Refresh pull requests"
+              onClick={() => void refreshFromHost()}
+              disabled={refreshing}
+            >
+              <RefreshIcon size="sm" refreshing={refreshing} />
+            </Button>
+          </div>
+        ) : null}
+        {sidebarSlot === null ? (
+          <PullRequestsColumn {...columnProps} />
+        ) : (
+          <>
+            {createPortal(<PullRequestsSidebarList {...columnProps} />, sidebarSlot)}
+            {showingDetail && rightPanelState.isOpen ? null : <PullRequestsNothingOpen />}
+          </>
+        )}
 
         {rightPanelPresent && renderedPullRequestSurface && panelEnvironmentId !== null ? (
           <RightPanelTabs
             mode="inline"
             open={rightPanelState.isOpen}
-            maximized={rightPanelMaximized}
+            maximized={sidebarSlot !== null || rightPanelMaximized}
             keybindings={keybindings}
             getShortcutContext={getShortcutContext}
             widthStorageKey="t3code:pull-request-panel-width"
@@ -1602,6 +1682,23 @@ export function PullRequestsPage() {
         ) : null}
       </div>
     </SidebarInset>
+  );
+}
+
+function PullRequestsNothingOpen() {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <WorkspacePageHeader electron={isElectron}>
+        <WorkspaceBreadcrumb ariaLabel="Pull requests breadcrumb">
+          <WorkspaceBreadcrumbItem current>
+            <h1 className="truncate">Pull requests</h1>
+          </WorkspaceBreadcrumbItem>
+        </WorkspaceBreadcrumb>
+      </WorkspacePageHeader>
+      <p className="m-auto px-6 text-sm text-muted-foreground">
+        Pick a pull request from the list to open it here.
+      </p>
+    </div>
   );
 }
 

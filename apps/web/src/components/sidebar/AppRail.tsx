@@ -1,4 +1,4 @@
-import { ChartColumnBigIcon, Icon, MessagesSquareIcon, type IconNode } from "lucide-react";
+import { Icon, MessagesSquareIcon, type IconNode } from "lucide-react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -12,9 +12,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SkillsIcon } from "../skills/SkillsIcon";
 import { ForkUpdateRailButton } from "./ForkUpdateRailButton";
 import { RailDot } from "./RailDot";
+import { UsageRailIcon, UsageRailTooltip, useUsageRailRings } from "../usage/UsageRailIcon";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { useNavigateToMainApp } from "./mainAppLocation";
-import { useNeedsYouCount } from "../needsYouCount";
+import { useNeedsYouCounts } from "../needsYouCount";
 
 // Route chunks behind the rail: the thread views and each rail page.
 const RAIL_ROUTE_IDS = [
@@ -51,6 +52,8 @@ function RailButton(props: {
   active: boolean;
   activeFill: string;
   dot?: boolean;
+  /** Richer hover content than the label, such as Usage's limits. */
+  tooltip?: ReactNode;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -76,7 +79,7 @@ function RailButton(props: {
         {props.children}
         {props.dot ? <RailDot active={props.active} /> : null}
       </TooltipTrigger>
-      <TooltipPopup side="right">{props.label}</TooltipPopup>
+      <TooltipPopup side="right">{props.tooltip ?? props.label}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -90,7 +93,16 @@ export function AppRail() {
   const desktopUpdateState = useDesktopUpdateState();
   const desktopUpdatesEnabled = desktopUpdateState?.enabled === true;
   const router = useRouter();
-  const needsYouCount = useNeedsYouCount();
+  const needsYou = useNeedsYouCounts();
+  const threadsLabel = [
+    needsYou.needsYou > 0
+      ? `${needsYou.needsYou} ${needsYou.needsYou === 1 ? "needs" : "need"} you`
+      : null,
+    needsYou.unread > 0 ? `${needsYou.unread} unread` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const usageRings = useUsageRailRings();
   // Pages are split chunks. Load every rail destination once the app is idle so
   // switching pages never renders an empty frame while code downloads.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules idle-time preloading of the rail's route chunks
@@ -143,9 +155,9 @@ export function AppRail() {
       className="relative z-20 hidden h-[calc(100dvh-var(--app-topbar-height))] w-(--app-rail-width) shrink-0 flex-col items-center gap-1.5 bg-sidebar-shell py-(--app-rail-inset) pl-px md:flex [&_button]:[-webkit-app-region:no-drag]"
     >
       <RailButton
-        label={needsYouCount > 0 ? `Threads, ${needsYouCount} need you` : "Threads"}
+        label={threadsLabel ? `Threads, ${threadsLabel}` : "Threads"}
         active={page === "threads"}
-        dot={needsYouCount > 0}
+        dot={threadsLabel !== ""}
         activeFill="[&_path:first-child]:fill-current"
         onClick={() => void navigateToMainApp()}
       >
@@ -166,10 +178,12 @@ export function AppRail() {
       <RailButton
         label="Usage"
         active={page === "usage"}
-        activeFill="[&_rect]:fill-current"
+        // Filled bars would hide the limits the bars show.
+        activeFill={usageRings.length === 0 ? "[&_rect]:fill-current" : ""}
+        tooltip={<UsageRailTooltip rings={usageRings} />}
         onClick={() => void navigate({ to: "/usage" })}
       >
-        <ChartColumnBigIcon />
+        <UsageRailIcon rings={usageRings} active={page === "usage"} />
       </RailButton>
       <RailButton
         label="Skills"

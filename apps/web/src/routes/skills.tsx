@@ -7,6 +7,8 @@ import { parseSkillsView } from "../components/skills/skillsCatalog";
 export interface SkillsSearch {
   /** Selected view (see SkillsView). Absent means every skill. */
   readonly view?: string;
+  /** The open skill's key. Absent shows the first in the view. */
+  readonly skill?: string;
 }
 
 export const Route = createFileRoute("/skills")({
@@ -18,14 +20,16 @@ export const Route = createFileRoute("/skills")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  validateSearch: (raw: Record<string, unknown>): SkillsSearch =>
-    typeof raw.view === "string" && raw.view !== "all" ? { view: raw.view } : {},
+  validateSearch: (raw: Record<string, unknown>): SkillsSearch => ({
+    ...(typeof raw.view === "string" && raw.view !== "all" ? { view: raw.view } : {}),
+    ...(typeof raw.skill === "string" && raw.skill ? { skill: raw.skill } : {}),
+  }),
   component: SkillsRoute,
 });
 
-// The view lives in the URL so the Skills sidebar and the page share it.
+// The view and the open skill live in the URL so the Skills sidebar (the
+// list) and the page (the skill) share them.
 function SkillsRoute() {
-  const { view } = Route.useSearch();
-  const parsed = parseSkillsView(view);
-  return <SkillsPage view={parsed} />;
+  const { view, skill } = Route.useSearch();
+  return <SkillsPage view={parseSkillsView(view)} selectedKey={skill ?? null} />;
 }

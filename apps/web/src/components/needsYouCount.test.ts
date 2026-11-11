@@ -181,7 +181,10 @@ describe("countThreadsNeedingYou", () => {
         lastVisitedAt: "2026-10-15T10:05:00.000Z",
       }),
     ];
-    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toBe(2);
+    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toEqual({
+      needsYou: 0,
+      unread: 2,
+    });
   });
 
   it("leaves out working, settled, archived, and subagent threads", () => {
@@ -200,10 +203,13 @@ describe("countThreadsNeedingYou", () => {
         },
       }),
     ];
-    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toBe(0);
+    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toEqual({
+      needsYou: 0,
+      unread: 0,
+    });
   });
 
-  it("counts threads waiting on you even once read, but not snoozed ones", () => {
+  it("counts threads waiting on you even once read, apart from unread ones, but not snoozed ones", () => {
     const waitingOnYou = {
       kind: "decision" as const,
       reason: "Choose how refunds split",
@@ -220,18 +226,27 @@ describe("countThreadsNeedingYou", () => {
         snoozedAt: "2026-10-15T11:00:00.000Z",
         snoozedUntil: "2026-10-16T09:00:00.000Z",
       }),
+      finished("2026-10-15T10:00:00.000Z", {
+        id: ThreadId.make("thread-unread"),
+        lastVisitedAt: "2026-10-15T09:00:00.000Z",
+      }),
     ];
-    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toBe(1);
+    expect(countThreadsNeedingYou(threads, capabilities, {}, NOW)).toEqual({
+      needsYou: 1,
+      unread: 1,
+    });
   });
 
   it("falls back to the local visited mark on servers without visited tracking", () => {
     const thread = finished("2026-10-15T10:00:00.000Z");
     const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
     expect(
-      countThreadsNeedingYou([thread], capabilities, { [key]: "2026-10-15T09:00:00.000Z" }, NOW),
+      countThreadsNeedingYou([thread], capabilities, { [key]: "2026-10-15T09:00:00.000Z" }, NOW)
+        .unread,
     ).toBe(1);
     expect(
-      countThreadsNeedingYou([thread], capabilities, { [key]: "2026-10-15T10:30:00.000Z" }, NOW),
+      countThreadsNeedingYou([thread], capabilities, { [key]: "2026-10-15T10:30:00.000Z" }, NOW)
+        .unread,
     ).toBe(0);
   });
 });

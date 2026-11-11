@@ -75,6 +75,29 @@ export function sidebarThreadState(
   return isWorking(thread) ? "working" : null;
 }
 
+/** Personal build: how Pinned and Open list their chats. Custom is the order you drag. */
+export const THREAD_LIST_SORTS = ["custom", "activity", "newest"] as const;
+export type ThreadListSort = (typeof THREAD_LIST_SORTS)[number];
+
+const lastActivityMs = (thread: EnvironmentThreadShell) =>
+  Math.max(
+    firstValidTimestampMs(thread.latestUserMessageAt),
+    firstValidTimestampMs(thread.latestRun?.completedAt ?? null),
+    firstValidTimestampMs(thread.createdAt),
+  );
+
+/** Latest activity (your last message or the agent's last finished turn) or newest first. */
+export function sortThreadsBy<T extends EnvironmentThreadShell>(
+  threads: readonly T[],
+  sort: Exclude<ThreadListSort, "custom">,
+): T[] {
+  return threads.toSorted((left, right) =>
+    sort === "activity"
+      ? lastActivityMs(right) - lastActivityMs(left)
+      : firstValidTimestampMs(right.createdAt) - firstValidTimestampMs(left.createdAt),
+  );
+}
+
 // Homes keep your order, and anything that arrives without a drag (a new
 // chat, a fresh pin, a restored chat) lands at the bottom.
 export function sortPinnedHome<T extends EnvironmentThreadShell>(threads: readonly T[]): T[] {

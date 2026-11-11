@@ -1,31 +1,22 @@
 import { AuthProvidersManageScope } from "@t3tools/contracts";
 import {
   CheckIcon,
-  ChevronDownIcon,
   CopyIcon,
   EllipsisIcon,
   FolderOpenIcon,
   MessageSquarePlusIcon,
   PencilLineIcon,
   PlusIcon,
-  SearchIcon,
   SquarePenIcon,
   Trash2Icon,
 } from "lucide-react";
-import {
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { useFileContextMenu, useFileContextMenuHandler } from "../../fileContextMenu";
+import { useFileContextMenu } from "../../fileContextMenu";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { cn, isMacPlatform } from "../../lib/utils";
+import { isMacPlatform } from "../../lib/utils";
 import { resolveProviderInstanceDisplayName } from "@t3tools/client-runtime/state/provider-instance-display";
 import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
 import { useEnvironmentScope } from "../../state/session";
@@ -36,10 +27,8 @@ import ChatMarkdown from "../ChatMarkdown";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { useProjectFileQuery } from "../files/projectFilesQueryState";
 import { StartTruncatedPath } from "../StartTruncatedPath";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -54,7 +43,9 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
+import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { PageCard, PageMessage, PageSection } from "../page/PageSection";
 import { SkillCreateDialog, type SkillCreateTarget } from "./SkillCreateDialog";
 import { SkillsIcon } from "./SkillsIcon";
 import { useSkillActions } from "./useSkillActions";
@@ -66,7 +57,6 @@ import {
   personalSkillsRoot,
   filterSkillEntriesForView,
   groupSkillEntries,
-  searchSkillEntries,
   skillDirectory,
   skillInvocationLabel,
   stripSkillFrontmatter,
@@ -76,7 +66,7 @@ import {
   type SkillsView,
 } from "./skillsCatalog";
 
-const SOURCE_LABEL: Record<SkillSource, string> = {
+export const SOURCE_LABEL: Record<SkillSource, string> = {
   personal: "Personal",
   project: "Project",
   plugin: "Plugin",
@@ -100,48 +90,18 @@ export function useSkillsEnvironments(): SkillsEnvironmentInput[] {
   );
 }
 
-export function SkillsPage({ view }: { view: SkillsView }) {
-  const environments = useSkillsEnvironments();
-  const projects = useProjects();
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const [query, setQuery] = useState("");
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  // The project whose opening scan finished, so a scan that fails stops spinning.
-  const [scannedProject, setScannedProject] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
+/**
+ * Personal build: New skill, which lives in the Skills sidebar beside search
+ * like New thread. Returns the targets, the two ways to start, and the dialog.
+ */
+export function useSkillCreation(
+  view: SkillsView,
+  environments: ReadonlyArray<SkillsEnvironmentInput>,
+  entries: ReadonlyArray<SkillEntry>,
+  onCreated: (key: string) => void,
+) {
   const actions = useSkillActions();
-
-  const entries = collectSkillEntries(environments);
-  const viewEntries = filterSkillEntriesForView(entries, view);
-  const visible = searchSkillEntries(viewEntries, query);
-  const searching = query.trim().length > 0;
-  const groups = groupSkillEntries(visible, { keepOrder: searching });
-  const ordered = groups.flatMap((group) => group.entries);
-  // An explicit pick wins; otherwise the first skill shows, so the detail pane
-  // is never empty on a wide window.
-  const selected = ordered.find((entry) => entry.key === selectedKey) ?? ordered[0] ?? null;
-
-  const projectTitle =
-    view.kind === "project"
-      ? (projects.find(
-          (project) =>
-            project.environmentId === view.environmentId && project.workspaceRoot === view.cwd,
-        )?.title ?? view.cwd)
-      : null;
-  const viewLabel =
-    view.kind === "all"
-      ? "All skills"
-      : view.kind === "personal"
-        ? "Personal"
-        : view.kind === "provider"
-          ? (entries.find((entry) => entry.instanceId === view.instanceId)?.providerName ??
-            view.instanceId)
-          : projectTitle;
-
+  const [createOpen, setCreateOpen] = useState(false);
   // New skills go to the project being viewed, else the first connected
   // machine, for each provider whose skills T3 Code can manage. Codex comes
   // first so its folder holds the real copy: `.agents/skills` is the shared
@@ -185,6 +145,84 @@ export function SkillsPage({ view }: { view: SkillsView }) {
     );
     void actions.startChat(createEnvironment.environmentId, prompt, createProjectRoot);
   };
+
+  const dialog =
+    createEnvironment && createOpen ? (
+      <SkillCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        environmentId={createEnvironment.environmentId}
+        targets={createTargets}
+        initialProjectRoot={createProjectRoot}
+        onCreate={async (request) => {
+          const created = await actions.create({
+            environmentId: createEnvironment.environmentId,
+            input: {
+              name: request.name,
+              description: request.description,
+              instructions: request.instructions,
+              instanceIds: request.instanceIds,
+              ...(request.projectRoot ? { projectRoot: request.projectRoot } : {}),
+            },
+          });
+          if (!created) return false;
+          onCreated(
+            `${createEnvironment.environmentId}\u0000${request.instanceIds[0]}\u0000${created.path}`,
+          );
+          return true;
+        }}
+      />
+    ) : null;
+  return {
+    canCreate: createTargets.length > 0,
+    openWrite: () => setCreateOpen(true),
+    createWithAi,
+    dialog,
+  };
+}
+
+export function SkillsPage({
+  view,
+  selectedKey,
+}: {
+  view: SkillsView;
+  /** The skill from the URL; absent shows the first in the view. */
+  selectedKey: string | null;
+}) {
+  const environments = useSkillsEnvironments();
+  const projects = useProjects();
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  // The project whose opening scan finished, so a scan that fails stops spinning.
+  const [scannedProject, setScannedProject] = useState<string | null>(null);
+  const actions = useSkillActions();
+
+  const entries = collectSkillEntries(environments);
+  const viewEntries = filterSkillEntriesForView(entries, view);
+  // Same order as the sidebar's list, so the default pick is its first row.
+  const ordered = groupSkillEntries(viewEntries).flatMap((group) => group.entries);
+  // An explicit pick wins; otherwise the first skill shows, so the detail pane
+  // is never empty on a wide window.
+  const selected = ordered.find((entry) => entry.key === selectedKey) ?? ordered[0] ?? null;
+
+  const projectTitle =
+    view.kind === "project"
+      ? (projects.find(
+          (project) =>
+            project.environmentId === view.environmentId && project.workspaceRoot === view.cwd,
+        )?.title ?? view.cwd)
+      : null;
+  const viewLabel =
+    view.kind === "all"
+      ? "All skills"
+      : view.kind === "personal"
+        ? "Personal"
+        : view.kind === "provider"
+          ? (entries.find((entry) => entry.instanceId === view.instanceId)?.providerName ??
+            view.instanceId)
+          : projectTitle;
 
   // A project's skills only exist once its providers have scanned the folder,
   // which the composer otherwise does on first use. Opening the project here
@@ -247,31 +285,13 @@ export function SkillsPage({ view }: { view: SkillsView }) {
     void work.finally(() => setRefreshing(false));
   };
 
-  const moveSelection = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    if (ordered.length === 0) return;
-    event.preventDefault();
-    const index = selected ? ordered.indexOf(selected) : -1;
-    const next =
-      ordered[
-        event.key === "ArrowDown"
-          ? Math.min(ordered.length - 1, index + 1)
-          : Math.max(0, index === -1 ? 0 : index - 1)
-      ];
-    if (!next) return;
-    setSelectedKey(next.key);
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-skill-key="${CSS.escape(next.key)}"]`)
-      ?.focus();
-  };
-
   const scanning =
     projectKey !== null && scannedProject !== projectKey && unscannedProviders.length > 0;
   const body: ReactNode =
     environments.length === 0 ? (
       <SkillsEmptyState
-        title="No environment connected"
-        description="Skills come from the providers on a connected T3 Code server."
+        title="No computer connected"
+        description="Skills come from the agents on a connected computer."
       />
     ) : viewEntries.length === 0 ? (
       scanning ? (
@@ -282,267 +302,91 @@ export function SkillsPage({ view }: { view: SkillsView }) {
           description={
             view.kind === "project"
               ? "Project skills live in folders like .claude/skills or .agents/skills, one folder per skill with a SKILL.md."
-              : "Skills your providers can use show up here, from your personal skill folders, projects, and plugins."
+              : "Skills your agents can use show up here, from your skill folders, projects, and plugins."
           }
         />
       )
-    ) : ordered.length === 0 ? (
-      <SkillsEmptyState
-        title="No matching skills"
-        description={`Nothing matches “${query.trim()}”.`}
+    ) : null;
+
+  const breadcrumb = (
+    <WorkspaceBreadcrumb ariaLabel="Skills breadcrumb" className="min-w-0">
+      <WorkspaceBreadcrumbItem current={view.kind === "all" && selected === null}>
+        <h1>Skills</h1>
+      </WorkspaceBreadcrumbItem>
+      {view.kind === "all" ? null : (
+        <>
+          <WorkspaceBreadcrumbSeparator />
+          <WorkspaceBreadcrumbItem current={selected === null} className="min-w-0">
+            <span className="truncate">{viewLabel}</span>
+          </WorkspaceBreadcrumbItem>
+        </>
+      )}
+      {selected ? (
+        <>
+          <WorkspaceBreadcrumbSeparator />
+          <WorkspaceBreadcrumbItem current className="min-w-0">
+            <span className="truncate">{selected.displayName}</span>
+          </WorkspaceBreadcrumbItem>
+        </>
+      ) : null}
+    </WorkspaceBreadcrumb>
+  );
+  const refreshButton = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            onClick={refresh}
+            aria-label={view.kind === "project" ? "Rescan project" : "Refresh skills"}
+            aria-busy={refreshing || scanning}
+            disabled={refreshing || scanning || environments.length === 0}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <RefreshIcon size="sm" refreshing={refreshing || scanning} />
+          </Button>
+        }
       />
-    ) : (
-      <div className="@container/skills flex min-h-0 flex-1">
-        <div
-          className={cn(
-            "flex min-h-0 w-full flex-col border-border/60 @3xl/skills:w-80 @3xl/skills:shrink-0 @3xl/skills:border-e @5xl/skills:w-96",
-            selectedKey !== null && "@max-3xl/skills:hidden",
-          )}
-        >
-          <ScrollArea className="min-h-0 flex-1" scrollFade>
-            <div
-              ref={listRef}
-              role="listbox"
-              aria-label="Skills"
-              tabIndex={-1}
-              onKeyDown={moveSelection}
-              className="flex flex-col gap-4 px-2 py-3"
-            >
-              {groups.map((group) => (
-                <SkillGroupList
-                  key={group.key}
-                  label={group.label}
-                  entries={group.entries}
-                  selectedKey={selected?.key ?? null}
-                  onSelect={setSelectedKey}
-                />
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-        <div
-          className={cn("min-h-0 min-w-0 flex-1", selectedKey === null && "@max-3xl/skills:hidden")}
-        >
-          {selected ? (
-            <SkillDetail
-              key={selected.key}
-              entry={selected}
-              entries={entries}
-              actions={actions}
-              onBack={selectedKey === null ? undefined : () => setSelectedKey(null)}
-            />
-          ) : null}
-        </div>
-      </div>
-    );
+      <TooltipPopup side="bottom">
+        {view.kind === "project" ? "Rescan project" : "Refresh skills"}
+      </TooltipPopup>
+    </Tooltip>
+  );
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        {/* Right edge on the titlebar-controls inset, like Usage, so refresh
-            lines up with the panel toggle on the thread pages. */}
-        <WorkspacePageHeader electron={isElectron} className="pr-(--workspace-controls-right)">
-          <WorkspaceBreadcrumb ariaLabel="Skills breadcrumb" className="min-w-0">
-            <WorkspaceBreadcrumbItem current={view.kind === "all"}>
-              <h1>Skills</h1>
-            </WorkspaceBreadcrumbItem>
-            {view.kind === "all" ? null : (
-              <>
-                <WorkspaceBreadcrumbSeparator />
-                <WorkspaceBreadcrumbItem current className="min-w-0">
-                  <span className="truncate">{viewLabel}</span>
-                </WorkspaceBreadcrumbItem>
-              </>
-            )}
-          </WorkspaceBreadcrumb>
-          {viewEntries.length > 0 ? (
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {viewEntries.length}
-            </span>
-          ) : null}
-          <div className="min-w-0 flex-1" />
-          <InputGroup className="w-56 min-w-0 shrink [-webkit-app-region:no-drag] **:[input]:h-8 sm:**:[input]:h-7">
-            <InputGroupAddon>
-              <SearchIcon aria-hidden />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && query) {
-                  event.preventDefault();
-                  setQuery("");
-                }
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  listRef.current?.querySelector<HTMLElement>("[data-skill-key]")?.focus();
-                }
-              }}
-              placeholder="Search skills"
-              aria-label="Search skills"
-            />
-          </InputGroup>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  onClick={refresh}
-                  aria-label={view.kind === "project" ? "Rescan project" : "Refresh skills"}
-                  aria-busy={refreshing || scanning}
-                  disabled={refreshing || scanning || environments.length === 0}
-                  size="icon-sm"
-                  variant="ghost"
-                  className="[-webkit-app-region:no-drag]"
-                >
-                  <RefreshIcon size="sm" refreshing={refreshing || scanning} />
-                </Button>
-              }
-            />
-            <TooltipPopup side="bottom">
-              {view.kind === "project" ? "Rescan project" : "Refresh skills"}
-            </TooltipPopup>
-          </Tooltip>
-          {createTargets.length > 0 ? (
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button size="sm" className="shrink-0 [-webkit-app-region:no-drag]">
-                    <PlusIcon />
-                    New skill
-                    <ChevronDownIcon />
-                  </Button>
-                }
-              />
-              <MenuPopup align="end">
-                <MenuItem onClick={() => setCreateOpen(true)}>
-                  <PencilLineIcon />
-                  Write it yourself
-                </MenuItem>
-                <MenuItem onClick={createWithAi}>
-                  <MessageSquarePlusIcon />
-                  Create with an agent
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          ) : null}
-        </WorkspacePageHeader>
-        {createEnvironment && createOpen ? (
-          <SkillCreateDialog
-            open={createOpen}
-            onOpenChange={setCreateOpen}
-            environmentId={createEnvironment.environmentId}
-            targets={createTargets}
-            initialProjectRoot={createProjectRoot}
-            onCreate={async (request) => {
-              const created = await actions.create({
-                environmentId: createEnvironment.environmentId,
-                input: {
-                  name: request.name,
-                  description: request.description,
-                  instructions: request.instructions,
-                  instanceIds: request.instanceIds,
-                  ...(request.projectRoot ? { projectRoot: request.projectRoot } : {}),
-                },
-              });
-              if (!created) return false;
-              setQuery("");
-              setSelectedKey(
-                `${createEnvironment.environmentId}\u0000${request.instanceIds[0]}\u0000${created.path}`,
-              );
-              return true;
-            }}
+        {selected && environments.length > 0 && viewEntries.length > 0 ? (
+          <SkillDetail
+            key={selected.key}
+            entry={selected}
+            entries={entries}
+            actions={actions}
+            breadcrumb={breadcrumb}
+            pageActions={refreshButton}
           />
-        ) : null}
-        <div className="flex min-h-0 flex-1">{body}</div>
+        ) : (
+          <>
+            <SkillsPageHeader breadcrumb={breadcrumb}>{refreshButton}</SkillsPageHeader>
+            <div className="flex min-h-0 flex-1">{body}</div>
+          </>
+        )}
       </div>
     </SidebarInset>
   );
 }
 
-function SkillGroupList(props: {
-  label: string;
-  entries: ReadonlyArray<SkillEntry>;
-  selectedKey: string | null;
-  onSelect: (key: string) => void;
-}) {
-  const first = props.entries[0];
+/** The title bar: where you are, then small actions for what's on screen. */
+function SkillsPageHeader(props: { breadcrumb: ReactNode; children: ReactNode }) {
   return (
-    <section aria-label={props.label} className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-2 px-2 pb-1 text-xs font-semibold text-muted-foreground">
-        {first ? (
-          <ProviderInstanceIcon
-            driverKind={first.driver}
-            displayName={first.providerName}
-            accentColor={first.accentColor}
-            className="size-3.5"
-            iconClassName="size-3.5"
-            showBadge={false}
-          />
-        ) : null}
-        <span className="truncate">{props.label}</span>
-        <span className="ms-auto font-normal tabular-nums">{props.entries.length}</span>
+    // Right edge on the titlebar-controls inset, like Usage, so the actions
+    // line up with the panel toggle on the thread pages.
+    <WorkspacePageHeader electron={isElectron} className="pr-(--workspace-controls-right)">
+      {props.breadcrumb}
+      <div className="ms-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        {props.children}
       </div>
-      {props.entries.map((entry) => (
-        <SkillRow
-          key={entry.key}
-          entry={entry}
-          selected={entry.key === props.selectedKey}
-          onSelect={() => props.onSelect(entry.key)}
-        />
-      ))}
-    </section>
-  );
-}
-
-function SkillRow(props: { entry: SkillEntry; selected: boolean; onSelect: () => void }) {
-  const { entry } = props;
-  const onContextMenu = useFileContextMenuHandler(entry.environmentId);
-  const summary = entry.skill.shortDescription ?? entry.skill.description;
-  return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={props.selected}
-      data-skill-key={entry.key}
-      onClick={props.onSelect}
-      onFocus={props.onSelect}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onContextMenu(
-          {
-            environmentId: entry.environmentId,
-            filePath: entry.skill.path,
-            workspaceRoot: undefined,
-          },
-          event,
-        );
-      }}
-      className={cn(
-        // Personal build: the list sits on the white panel, where the sidebar's
-        // white row colors don't show; a gray wash marks hover and selection.
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        props.selected && "bg-accent hover:bg-accent",
-        !entry.skill.enabled && "opacity-60",
-      )}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium text-foreground">{entry.displayName}</span>
-        {entry.skill.enabled ? null : (
-          <Badge variant="outline" size="sm" className="shrink-0">
-            Disabled
-          </Badge>
-        )}
-        {entry.source === "project" || entry.source === "plugin" ? (
-          <span className="ms-auto shrink-0 text-2xs text-muted-foreground">
-            {SOURCE_LABEL[entry.source]}
-          </span>
-        ) : null}
-      </span>
-      {summary ? (
-        <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{summary}</span>
-      ) : null}
-    </button>
+    </WorkspacePageHeader>
   );
 }
 
@@ -550,7 +394,8 @@ function SkillDetail(props: {
   entry: SkillEntry;
   entries: ReadonlyArray<SkillEntry>;
   actions: ReturnType<typeof useSkillActions>;
-  onBack: (() => void) | undefined;
+  breadcrumb: ReactNode;
+  pageActions: ReactNode;
 }) {
   const { entry, actions } = props;
   const environment = useSkillsEnvironments().find(
@@ -650,267 +495,245 @@ function SkillDetail(props: {
     setBusy(null);
   };
 
+  const editing = draft !== null;
+  const saveHint =
+    loadedBy.length > 1
+      ? "Saving updates every agent that loads this skill."
+      : `${isMacPlatform(navigator.platform) ? "⌘S" : "Ctrl+S"} to save, Esc to cancel.`;
+
+  // Personal build: the skill's own actions sit in the title bar beside its
+  // name, like a chat's; the body is drawn with the page pieces, like Usage.
   return (
-    <ScrollArea className="h-full" scrollFade>
-      <article className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 pt-6 pb-12">
-        {props.onBack ? (
-          <Button
-            variant="ghost-muted"
-            size="xs"
-            onClick={props.onBack}
-            className="self-start @3xl/skills:hidden"
-          >
-            ← All skills
-          </Button>
+    <>
+      <SkillsPageHeader breadcrumb={props.breadcrumb}>
+        {props.pageActions}
+        {manageable ? (
+          <label className="flex cursor-pointer items-center gap-2 px-1 text-xs text-muted-foreground">
+            {entry.skill.enabled ? "On" : "Off"}
+            <Switch
+              checked={entry.skill.enabled}
+              disabled={busy !== null}
+              onCheckedChange={(checked) => void toggle(checked)}
+              aria-label="Skill on"
+            />
+          </label>
         ) : null}
-        <header className="flex flex-col gap-3">
-          <div className="flex items-start gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-card">
-              <ProviderInstanceIcon
-                driverKind={entry.driver}
-                displayName={entry.providerName}
-                accentColor={entry.accentColor}
-                showBadge={false}
-              />
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <h2 className="truncate text-xl font-semibold leading-tight text-foreground">
-                {entry.displayName}
-              </h2>
-              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground/80">
-                  /{entry.skill.name}
-                </code>
-                <span>{entry.providerName}</span>
-                <span aria-hidden>·</span>
-                <span>{SOURCE_LABEL[entry.source]}</span>
-              </div>
-            </div>
-            {manageable ? (
-              <label className="mt-1 flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                {entry.skill.enabled ? "Enabled" : "Disabled"}
-                <Switch
-                  checked={entry.skill.enabled}
-                  disabled={busy !== null}
-                  onCheckedChange={(checked) => void toggle(checked)}
-                />
-              </label>
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label="More actions">
+                <EllipsisIcon />
+              </Button>
+            }
+          />
+          <MenuPopup align="end">
+            {canOpen ? (
+              <MenuItem onClick={() => void openInEditor()}>
+                <SquarePenIcon />
+                Open in editor
+              </MenuItem>
             ) : null}
-          </div>
+            {fileMenu.capabilities.revealLabel ? (
+              <MenuItem onClick={() => void fileMenu.activate("reveal-in-folder", fileTarget)}>
+                <FolderOpenIcon />
+                {fileMenu.capabilities.revealLabel}
+              </MenuItem>
+            ) : null}
+            <MenuItem onClick={() => copyToClipboard(entry.skill.path)}>
+              {isCopied ? <CheckIcon /> : <CopyIcon />}
+              Copy path
+            </MenuItem>
+            {editable ? (
+              <MenuItem variant="destructive" onClick={() => void remove()}>
+                <Trash2Icon />
+                Delete skill
+              </MenuItem>
+            ) : null}
+          </MenuPopup>
+        </Menu>
+      </SkillsPageHeader>
+      <ScrollArea className="min-h-0 flex-1" scrollFade>
+        <WorkspacePageContainer className="mx-0 max-w-none">
           {entry.skill.description ? (
-            <p className="text-sm leading-relaxed text-muted-foreground">
+            <p className="max-w-3xl px-3 text-sm text-muted-foreground sm:px-4">
               {entry.skill.description}
             </p>
           ) : null}
-          {entry.skill.enabled && invocation === null ? null : (
-            <div className="flex flex-wrap gap-1.5">
-              {entry.skill.enabled ? null : <Badge variant="warning">Disabled</Badge>}
-              {invocation ? <Badge variant="secondary">{invocation}</Badge> : null}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span>Available in</span>
-            {loadedBy.map((candidate) => (
-              <span
-                key={candidate.key}
-                className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-foreground/80"
-              >
-                <ProviderInstanceIcon
-                  driverKind={candidate.driver}
-                  displayName={candidate.providerName}
-                  accentColor={candidate.accentColor}
-                  className="size-3"
-                  iconClassName="size-3"
-                  showBadge={false}
+
+          <PageCard>
+            <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-x-4 gap-y-3 text-sm">
+              <dt className="text-xs text-muted-foreground">Command</dt>
+              <dd>
+                <code className="font-mono text-foreground">/{entry.skill.name}</code>
+                {invocation ? (
+                  <span className="ms-2 text-xs text-muted-foreground">{invocation}</span>
+                ) : null}
+              </dd>
+              <dt className="text-xs text-muted-foreground">Available in</dt>
+              <dd className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {loadedBy.map((candidate) => (
+                  <span key={candidate.key} className="inline-flex items-center gap-1.5">
+                    <ProviderInstanceIcon
+                      driverKind={candidate.driver}
+                      displayName={candidate.providerName}
+                      accentColor={candidate.accentColor}
+                      className="size-3.5"
+                      iconClassName="size-3.5"
+                      showBadge={false}
+                    />
+                    {candidate.providerName}
+                  </span>
+                ))}
+                {editable
+                  ? shareTargets.map((provider) => (
+                      <Button
+                        key={provider.instanceId}
+                        variant="ghost-muted"
+                        size="micro"
+                        disabled={busy !== null}
+                        onClick={() => void shareWith(provider.instanceId)}
+                      >
+                        <PlusIcon />
+                        Add to {resolveProviderInstanceDisplayName(provider)}
+                      </Button>
+                    ))
+                  : null}
+              </dd>
+              <dt className="text-xs text-muted-foreground">Source</dt>
+              <dd className="text-foreground">{SOURCE_LABEL[entry.source]}</dd>
+              <dt className="text-xs text-muted-foreground">File</dt>
+              <dd className="min-w-0">
+                <StartTruncatedPath
+                  path={entry.skill.path}
+                  className="block font-mono text-xs text-muted-foreground"
                 />
-                {candidate.providerName}
-              </span>
-            ))}
-            {editable
-              ? shareTargets.map((provider) => (
-                  <Button
-                    key={provider.instanceId}
-                    variant="ghost-muted"
-                    size="micro"
-                    disabled={busy !== null}
-                    onClick={() => void shareWith(provider.instanceId)}
-                  >
-                    <PlusIcon />
-                    Add to {resolveProviderInstanceDisplayName(provider)}
-                  </Button>
-                ))
-              : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {editable ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={draft !== null || file.data === null}
-                onClick={() => setDraft(file.data?.contents ?? "")}
-              >
-                <PencilLineIcon />
-                Edit
-              </Button>
-            ) : null}
-            {editable ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  void actions.startChat(
-                    entry.environmentId,
-                    buildEditSkillPrompt(entry.skill.path),
-                    entry.projectCwd ?? undefined,
-                  )
-                }
-              >
-                <MessageSquarePlusIcon />
-                Edit with an agent
-              </Button>
-            ) : null}
-            {canOpen ? (
-              <Button variant="ghost" size="sm" onClick={() => void openInEditor()}>
-                <SquarePenIcon />
-                Open in editor
-              </Button>
-            ) : null}
-            <div className="flex-1" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
+              </dd>
+            </dl>
+          </PageCard>
+
+          <PageSection
+            title="Instructions"
+            action={
+              editable && !editing ? (
+                <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"
-                    size="icon-sm"
-                    aria-label="Copy path"
-                    onClick={() => copyToClipboard(entry.skill.path)}
+                    size="sm"
+                    onClick={() =>
+                      void actions.startChat(
+                        entry.environmentId,
+                        buildEditSkillPrompt(entry.skill.path),
+                        entry.projectCwd ?? undefined,
+                      )
+                    }
                   >
-                    {isCopied ? <CheckIcon /> : <CopyIcon />}
+                    <MessageSquarePlusIcon />
+                    Edit with an agent
                   </Button>
-                }
-              />
-              <TooltipPopup side="bottom">{isCopied ? "Copied" : "Copy path"}</TooltipPopup>
-            </Tooltip>
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button variant="ghost" size="icon-sm" aria-label="More actions">
-                    <EllipsisIcon />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={file.data === null}
+                    onClick={() => setDraft(file.data?.contents ?? "")}
+                  >
+                    <PencilLineIcon />
+                    Edit
                   </Button>
+                </div>
+              ) : null
+            }
+          >
+            {editing ? (
+              <PageCard
+                footer={
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="me-auto">{saveHint}</span>
+                    <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy === "save" || draft === file.data?.contents}
+                      onClick={() => void save()}
+                    >
+                      {busy === "save" ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
                 }
-              />
-              <MenuPopup align="end">
-                {fileMenu.capabilities.revealLabel ? (
-                  <MenuItem onClick={() => void fileMenu.activate("reveal-in-folder", fileTarget)}>
-                    <FolderOpenIcon />
-                    {fileMenu.capabilities.revealLabel}
-                  </MenuItem>
-                ) : null}
-                {editable ? (
-                  <MenuItem variant="destructive" onClick={() => void remove()}>
-                    <Trash2Icon />
-                    Delete skill
-                  </MenuItem>
-                ) : null}
-              </MenuPopup>
-            </Menu>
-          </div>
-          <StartTruncatedPath
-            path={entry.skill.path}
-            className="font-mono text-2xs text-muted-foreground"
-          />
-        </header>
-        {draft !== null ? (
-          <div className="flex flex-col gap-2">
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "s" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  void save();
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDraft(null);
-                }
-              }}
-              aria-label="SKILL.md"
-              rows={24}
-              autoFocus
-              variant="code"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <span className="me-auto text-xs text-muted-foreground">
-                {loadedBy.length > 1
-                  ? "Saving updates every provider that loads this skill."
-                  : `${isMacPlatform(navigator.platform) ? "⌘S" : "Ctrl+S"} to save, Esc to cancel.`}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={busy === "save" || draft === file.data?.contents}
-                onClick={() => void save()}
               >
-                {busy === "save" ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-border/60 bg-card/40">
-            {body !== null ? (
+                <Textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "s" && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault();
+                      void save();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setDraft(null);
+                    }
+                  }}
+                  aria-label="SKILL.md"
+                  rows={24}
+                  autoFocus
+                  variant="code"
+                />
+              </PageCard>
+            ) : body !== null ? (
               body.length > 0 ? (
-                <>
+                <PageCard
+                  footer={
+                    file.data?.truncated ? (
+                      <p>
+                        This SKILL.md is long, so only the start is shown. Open it in your editor to
+                        read the rest.
+                      </p>
+                    ) : undefined
+                  }
+                >
                   <ChatMarkdown
                     text={body}
                     cwd={directory}
                     imageBaseDir={directory}
                     environmentId={entry.environmentId}
                     headingLevelOffset={2}
-                    className="px-6 py-5"
+                    className="max-w-3xl"
                   />
-                  {file.data?.truncated ? (
-                    <p className="border-t border-border/60 px-6 py-3 text-xs text-muted-foreground">
-                      This SKILL.md is long, so only the start is shown. Open it in your editor to
-                      read the rest.
-                    </p>
-                  ) : null}
-                </>
+                </PageCard>
               ) : (
-                <p className="px-6 py-5 text-sm text-muted-foreground">
-                  This SKILL.md has no instructions after its header.
-                </p>
+                <PageMessage>This SKILL.md has no instructions after its header.</PageMessage>
               )
             ) : file.error ? (
-              <p className="px-6 py-5 text-sm text-muted-foreground">
-                Could not read this skill’s SKILL.md: {file.error}
-              </p>
+              <PageMessage>Could not read this skill’s SKILL.md: {file.error}</PageMessage>
             ) : (
-              <div className="flex flex-col gap-3 px-6 py-5">
-                <Skeleton className="h-5 w-1/3" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-2/3" />
-              </div>
+              <PageCard>
+                <div className="flex flex-col gap-3">
+                  <Skeleton className="h-5 w-1/3" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-5/6" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              </PageCard>
             )}
-          </div>
-        )}
-      </article>
-    </ScrollArea>
+          </PageSection>
+        </WorkspacePageContainer>
+      </ScrollArea>
+    </>
   );
 }
 
 function SkillsListSkeleton() {
   return (
-    <div className="flex w-full flex-col gap-2 p-4 @3xl/skills:w-80">
-      {Array.from({ length: 6 }, (_, index) => (
-        <div key={index} className="flex flex-col gap-1.5 rounded-lg px-2.5 py-2">
-          <Skeleton className="h-4 w-1/2" />
-          <Skeleton className="h-3 w-5/6" />
+    <div className="min-h-0 min-w-0 flex-1" aria-busy>
+      <WorkspacePageContainer className="mx-0 max-w-none">
+        <div className="flex flex-col gap-2 px-3 sm:px-4">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-2/3" />
         </div>
-      ))}
+        <Skeleton shape="card" className="h-36" />
+        <Skeleton shape="card" className="h-64" />
+      </WorkspacePageContainer>
     </div>
   );
 }

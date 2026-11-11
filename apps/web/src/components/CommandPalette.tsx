@@ -1,5 +1,6 @@
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
+import { openCommandPalette } from "../commandPaletteBus";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
 import {
@@ -860,7 +861,17 @@ function OpenCommandPaletteDialog(props: {
           );
         },
       });
-      if (scratchTargetEnvironmentId === null) return projectItems;
+      // Personal build: starting a thread is where a missing project gets added.
+      const addProjectRow = {
+        kind: "action" as const,
+        value: "new-thread-in:add-project",
+        searchTerms: ["add project", "new project", "folder", "repo", "clone"],
+        title: "Add project…",
+        icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+        keepOpen: true,
+        run: async () => openCommandPalette({ open: "add-project" }),
+      };
+      if (scratchTargetEnvironmentId === null) return [...projectItems, addProjectRow];
 
       const noProjectIndex = newThreadNoProjectIndex(
         projectPickerEntries.map(({ group, targetProject, isPreferred }) => ({
@@ -884,6 +895,7 @@ function OpenCommandPaletteDialog(props: {
           run: () => startScratchThread(scratchTargetEnvironmentId),
         },
         ...projectItems.slice(noProjectIndex),
+        addProjectRow,
       ];
     })(),
     rowOrderKey("new-thread-in"),
@@ -892,7 +904,10 @@ function OpenCommandPaletteDialog(props: {
   // Jump shortcuts follow the rows as shown, so a pin cannot move a number to another row.
   const projectJumpItems = new Map(
     enumerateCommandPaletteItems(
-      openingOrderThreadItems.filter((item) => item.value !== NEW_THREAD_NO_PROJECT_VALUE),
+      openingOrderThreadItems.filter(
+        (item) =>
+          item.value !== NEW_THREAD_NO_PROJECT_VALUE && item.value !== "new-thread-in:add-project",
+      ),
     ).map((item) => [item.value, item] as const),
   );
   const projectThreadItems = openingOrderThreadItems.map(

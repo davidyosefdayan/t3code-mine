@@ -127,9 +127,28 @@ interface NeedsYouCapabilities {
   readonly threadSettlement?: boolean;
 }
 
-/** Waiting on you or unread, by the sidebar's rules. Snoozed, settled, and
-    working threads don't count. Callers rule out archived and subagent
+/** Waiting on you, else unread, by the sidebar's rules. Snoozed, settled,
+    and working threads are neither. Callers rule out archived and subagent
     threads. */
+function threadNeed(
+  thread: EnvironmentThreadShell,
+  capabilities: NeedsYouCapabilities | undefined,
+  localLastVisitedAtByKey: Readonly<Record<string, string>>,
+  now: string,
+  isWorking: IsWorking = isSidebarThreadWorking,
+): "needsYou" | "unread" | null {
+  if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) return null;
+  if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") return null;
+  if (threadWaitingOnYou(thread) !== null) return "needsYou";
+  if (isWorking(thread)) return null;
+  const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const lastVisitedAt = resolveThreadLastVisitedAt(
+    thread.lastVisitedAt,
+    localLastVisitedAtByKey[key],
+  );
+  return isThreadUnread(thread, lastVisitedAt, now) ? "unread" : null;
+}
+
 export function threadNeedsYou(
   thread: EnvironmentThreadShell,
   capabilities: NeedsYouCapabilities | undefined,
@@ -137,20 +156,18 @@ export function threadNeedsYou(
   now: string,
   isWorking: IsWorking = isSidebarThreadWorking,
 ): boolean {
-  if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) return false;
-  if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") return false;
-  if (threadWaitingOnYou(thread) !== null) return true;
-  if (isWorking(thread)) return false;
-  const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-  const lastVisitedAt = resolveThreadLastVisitedAt(
-    thread.lastVisitedAt,
-    localLastVisitedAtByKey[key],
-  );
-  return isThreadUnread(thread, lastVisitedAt, now);
+  return threadNeed(thread, capabilities, localLastVisitedAtByKey, now, isWorking) !== null;
 }
 
-/** How many threads are waiting on you or unread, across every project,
-    pins included. */
+export interface NeedsYouCounts {
+  /** In the Needs you group. */
+  readonly needsYou: number;
+  /** Unread, and not in Needs you. */
+  readonly unread: number;
+}
+
+/** How many threads are waiting on you, and how many others are unread,
+    across every project, pins included. */
 export function countThreadsNeedingYou(
   threads: readonly EnvironmentThreadShell[],
   capabilitiesOf: (thread: EnvironmentThreadShell) => NeedsYouCapabilities | undefined,
@@ -158,14 +175,25 @@ export function countThreadsNeedingYou(
   now: string,
   delegatedUnderParent: ReadonlySet<string> = new Set(),
   isWorking: IsWorking = isSidebarThreadWorking,
-): number {
-  return filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent).filter((thread) =>
-    threadNeedsYou(thread, capabilitiesOf(thread), localLastVisitedAtByKey, now, isWorking),
-  ).length;
+): NeedsYouCounts {
+  let needsYou = 0;
+  let unread = 0;
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
+    const need = threadNeed(
+      thread,
+      capabilitiesOf(thread),
+      localLastVisitedAtByKey,
+      now,
+      isWorking,
+    );
+    if (need === "needsYou") needsYou += 1;
+    else if (need === "unread") unread += 1;
+  }
+  return { needsYou, unread };
 }
 
 /** The count for the Dock badge and the rail's Threads dot. */
-export function useNeedsYouCount(): number {
+export function useNeedsYouCounts(): NeedsYouCounts {
   const threads = useThreadShells();
   const delegatedUnderParent = useDelegatedUnderParent();
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
@@ -191,7 +219,8 @@ export function useNeedsYouCount(): number {
  * focused, instead of upstream's count of missed notifications.
  */
 export function NeedsYouDockBadge() {
-  const needsYouCount = useNeedsYouCount();
+  const counts = useNeedsYouCounts();
+  const needsYouCount = counts.needsYou + counts.unread;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the desktop Dock badge in step with the unread count
   useEffect(() => setNotificationBadge(needsYouCount), [needsYouCount]);
   return null;

@@ -1,4 +1,5 @@
 /** The sidebar header: search (with the unread filter and project scope inside it) and the new-thread button. */
+import { ListFilterChips, type ListFilterChip } from "../page/ListSearchBar";
 import { CircleDotIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
@@ -18,6 +19,11 @@ export interface SidebarThreadHeaderProps {
   onUnreadOnlyChange: (unreadOnly: boolean) => void;
   hasProjects: boolean;
   projectScope: ReactNode;
+  /** Personal build: the sort icon, beside the filters in the search field. */
+  sortControl: ReactNode;
+  /** Personal build: the filters that are on, as removable chips under the search. */
+  filterChips: ReadonlyArray<ListFilterChip>;
+  onClearFilters: () => void;
   /** Receives the click so Shift+click can skip the project picker. */
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
@@ -39,6 +45,9 @@ export function SidebarThreadHeader({
   onUnreadOnlyChange,
   hasProjects,
   projectScope,
+  sortControl,
+  filterChips,
+  onClearFilters,
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
@@ -64,8 +73,9 @@ export function SidebarThreadHeader({
     // Personal build: search with the project scope inside it (both narrow
     // the list), and compose as its own button beside it, like a messages
     // app. Adding a project lives in the scope menu.
-    <div className="flex items-center gap-1.5">
-      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
+    <div className="flex items-start gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <div className="flex h-8 min-w-0 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
         <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
@@ -104,6 +114,7 @@ export function SidebarThreadHeader({
         ) : null}
         {/* Personal build: like Mail's filter, show only unread threads. */}
         <span className="flex shrink-0">
+          {sortControl}
           <SidebarHeaderIconButton
             label={unreadOnly ? "Show all threads" : "Show only unread threads"}
             isActive={unreadOnly}
@@ -114,6 +125,8 @@ export function SidebarThreadHeader({
           </SidebarHeaderIconButton>
           {hasProjects ? projectScope : null}
         </span>
+      </div>
+      <ListFilterChips chips={filterChips} onClear={onClearFilters} />
       </div>
       {/* Its own filled square beside the field, like a compose button. */}
       <span className="flex shrink-0 rounded-lg bg-chip">

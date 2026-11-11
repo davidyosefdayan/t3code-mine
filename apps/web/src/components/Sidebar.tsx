@@ -1,4 +1,5 @@
 import { attachSidebarTree } from "../lib/sidebarTree";
+import { ListSortMenu } from "./page/ListSearchBar";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
@@ -61,7 +62,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   FolderIcon,
-  FolderPlusIcon,
   ListFilterIcon,
   PlusIcon,
   SettingsIcon,
@@ -113,6 +113,9 @@ import {
   sidebarThreadState,
   sortOpenHome,
   sortPinnedHome,
+  sortThreadsBy,
+  THREAD_LIST_SORTS,
+  type ThreadListSort,
   sortWaitingOnYouBySince,
   sortWorkingByLastSend,
   useCollapsedSidebarGroups,
@@ -333,6 +336,13 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const UNREAD_ONLY_KEY = "t3code:sidebar:unread-only";
+const THREAD_SORT_KEY = "t3code:sidebar:thread-sort";
+const THREAD_SORT_SCHEMA = Schema.Literals(THREAD_LIST_SORTS);
+const THREAD_SORT_OPTIONS = [
+  { value: "custom", label: "Custom order" },
+  { value: "activity", label: "Latest activity" },
+  { value: "newest", label: "Newest first" },
+] as const;
 
 // Personal build: the shared tracker, so Working, unread, the badge, and the beep agree.
 const inboxReturns = threadWorking;
@@ -358,6 +368,8 @@ interface SidebarThreadPartitionInput {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  /** Personal build: Pinned and Open in the order you set, or by activity or age. */
+  readonly sort: ThreadListSort;
   // Snooze wakes, the queued-turn grace and the Working group's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -428,6 +440,7 @@ function useSidebarThreads(input: {
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
   readonly keepEmptyFolders: (group: SidebarProjectSnapshot) => boolean;
   readonly unreadOnly: boolean;
+  readonly threadSort: ThreadListSort;
 }) {
   const {
     projectScopeKey,
@@ -441,6 +454,7 @@ function useSidebarThreads(input: {
     folderGroups,
     keepEmptyFolders: keepEmpty,
     unreadOnly,
+    threadSort,
   } = input;
   const inboxReturnsVersion = useSyncExternalStore(inboxReturns.subscribe, inboxReturns.version);
   const nowMinute = useNowMinute();
@@ -480,6 +494,7 @@ function useSidebarThreads(input: {
     connectedEnvironmentIds,
     optimisticDrop,
     sortActiveBySend: folderGroups !== null,
+    sort: threadSort,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
   // Personal build: "Unread only" keeps what the Dock badge counts, plus the
@@ -676,6 +691,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     serverConfigs,
     optimisticDrop,
     sortActiveBySend,
+    sort,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
@@ -741,8 +757,12 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   // Availability gates dragging only; sorting must stay consistent across clients.
   // Personal build: Pinned and Open keep the order you set, with new arrivals
   // at the bottom; nothing re-sorts.
-  const sortedPinned = sortPinnedHome(pinned);
-  const sortedActive = sortActiveBySend ? sortWorkingThreadsBySend(active) : sortOpenHome(active);
+  const sortedPinned = sort === "custom" ? sortPinnedHome(pinned) : sortThreadsBy(pinned, sort);
+  const sortedActive = sortActiveBySend
+    ? sortWorkingThreadsBySend(active)
+    : sort === "custom"
+      ? sortOpenHome(active)
+      : sortThreadsBy(active, sort);
   return {
     waitingOnYouThreads: sortWaitingOnYouBySince(waitingOnYou),
     pinnedThreads:
@@ -1360,6 +1380,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
 
   const [unreadOnly, setUnreadOnly] = useLocalStorage(UNREAD_ONLY_KEY, false, Schema.Boolean);
+  const [threadSort, setThreadSort] = useLocalStorage(
+    THREAD_SORT_KEY,
+    "custom" as ThreadListSort,
+    THREAD_SORT_SCHEMA,
+  );
   const {
     waitingOnYouThreads,
     pinnedThreads,
@@ -1416,6 +1441,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
     unreadOnly,
+    threadSort,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -2991,6 +3017,28 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               unreadOnly={unreadOnly}
               onUnreadOnlyChange={setUnreadOnly}
               hasProjects={projectGroups.length > 0}
+              sortControl={
+                <ListSortMenu
+                  value={threadSort}
+                  defaultValue="custom"
+                  options={THREAD_SORT_OPTIONS}
+                  onChange={setThreadSort}
+                />
+              }
+              filterChips={[
+                ...(unreadOnly
+                  ? [{ key: "unread", label: "Unread", onRemove: () => setUnreadOnly(false) }]
+                  : []),
+                ...scopedProjectGroups.map((project) => ({
+                  key: `project:${project.projectKey}`,
+                  label: project.displayName,
+                  onRemove: () => toggleProjectScopeKey(project.projectKey),
+                })),
+              ]}
+              onClearFilters={() => {
+                setUnreadOnly(false);
+                setProjectScopeKeys([]);
+              }}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -3189,21 +3237,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         );
                       }}
                     </ComboboxList>
-                    {/* Personal build: adding a project lives here, with the
-                        projects, instead of as its own header button. */}
-                    <div className="border-t border-border/60 p-1">
-                      <button
-                        type="button"
-                        className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent sm:min-h-7"
-                        onClick={() => {
-                          dispatchProjectScopeMenu({ type: "open-changed", open: false });
-                          openAddProjectCommandPalette();
-                        }}
-                      >
-                        <FolderPlusIcon className="size-4 shrink-0 text-muted-foreground" />
-                        Add project…
-                      </button>
-                    </div>
                   </ComboboxPopup>
                 </Combobox>
               }
