@@ -1647,9 +1647,7 @@ export const globalIdleCompaction = (settings: IdleCompactionSettings): IdleComp
     ? settings.compactIdleThreads
     : settings.compactIdleThreads
       ? "beforeCacheExpires"
-      : // Personal build: compacting is opt-in, so settings that never chose a mode
-        // mean Never, and Enter doesn't compact a long chat unasked.
-        "off");
+      : "onReturn");
 
 /** Sets the mode, and the legacy switch shipped clients still read alongside it. */
 export const withIdleCompaction = <S extends IdleCompactionSettings>(

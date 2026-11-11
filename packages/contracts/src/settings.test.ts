@@ -273,7 +273,7 @@ describe("resolveIdleCompaction", () => {
       "beforeCacheExpires",
     );
     expect(globalIdleCompaction(decodeServerSettings({ compactIdleThreads: "off" }))).toBe("off");
-    expect(globalIdleCompaction(decodeServerSettings({}))).toBe("off");
+    expect(globalIdleCompaction(decodeServerSettings({}))).toBe("onReturn");
   });
 
   it("keeps the legacy switch a boolean, as shipped clients decode it", () => {
