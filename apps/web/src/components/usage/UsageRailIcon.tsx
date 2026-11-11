@@ -1,24 +1,21 @@
 /**
  * Personal build: the Usage rail icon's bars show each provider's weekly limit
- * left, in its color (left bar Claude, right bar Codex). The hover card turns a
- * provider amber or red when its week is tight or will run out.
+ * left, in its color (left bar Claude, right bar Codex); hovering lists them.
  */
 import type { ServerProvider } from "@t3tools/contracts";
 import { collectLimitAccounts, collectLimitPools } from "@t3tools/shared/usageLimits";
 import { ChartColumnBigIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
-import { computeLimitInsights, type ForecastStatus } from "./limitInsights";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { barColor, useLimitPresentations } from "./UsageLimits";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
-import { driverLabel, STATUS, weeklyTargetOf } from "./weeklyLimit";
+import { driverLabel, weeklyTargetOf } from "./weeklyLimit";
 
 export interface RailRing {
   readonly driver: ServerProvider["driver"];
   readonly label: string;
   readonly remainingPercent: number;
-  readonly status: ForecastStatus;
-  readonly runsOutAtMs: number | null;
 }
 
 /** Claude left, Codex right, then anything else; fixed so bars never swap places. */
@@ -31,10 +28,7 @@ const ringRank = (driver: string) => {
   return index === -1 ? RING_ORDER.length : index;
 };
 
-/**
- * Reads the limits already on every client. The forecast here uses the week's
- * average pace only (no transcript scan), so the rail costs nothing to draw.
- */
+/** Reads the limits already on every client, so the rail costs nothing to draw. */
 export function useUsageRailRings(): readonly RailRing[] {
   return useUsageLimitSummaries().slice(0, 2);
 }
@@ -51,34 +45,16 @@ export function useUsageLimitSummaries(): readonly RailRing[] {
     .flatMap((pool): RailRing[] => {
       const target = weeklyTargetOf(pool);
       if (!target) return [];
-      const { forecast } = computeLimitInsights(
-        {
-          usedPercent: target.window.usedPercent,
-          startMs: target.startMs,
-          resetsAtMs: target.resetsAtMs,
-          nowMs: now,
-        },
-        [],
-      );
       return [
         {
           driver: pool.driver,
           label: driverLabel(pool.driver),
           remainingPercent: target.window.remainingPercent,
-          status: forecast.status,
-          runsOutAtMs: forecast.status === "runsOut" ? forecast.runsOutAtMs : null,
         },
       ];
     })
     .toSorted((left, right) => ringRank(left.driver) - ringRank(right.driver));
 }
-
-const toneClass = (status: ForecastStatus) =>
-  status === "runsOut"
-    ? "text-destructive-foreground"
-    : status === "tight"
-      ? "text-warning-foreground"
-      : undefined;
 
 /** The chart icon's two bars, left then right. Equal heights, since each is one full week. */
 const BARS = [
@@ -152,46 +128,34 @@ function levelPath(x: number, bottom: number, height: number): string {
   return `M${x} ${top}H${x + 6}V${bottom - r}A${r} ${r} 0 0 1 ${x + 6 - r} ${bottom}H${x + r}A${r} ${r} 0 0 1 ${x} ${bottom - r}Z`;
 }
 
-function formatRunsOut(ms: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(ms);
-}
-
 export function UsageRailTooltip({ rings }: { readonly rings: readonly RailRing[] }) {
   if (rings.length === 0) return <>Usage</>;
   return (
-    <div className="flex w-56 flex-col gap-2 py-0.5">
-      <span className="font-medium">Usage this week</span>
-      {rings.map((ring, index) => (
-        <div key={ring.driver} className="flex flex-col gap-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="min-w-0 truncate">
-              {ring.label}
-              {rings.length > 1 ? (
-                <span className="text-muted-foreground">
-                  {" "}
-                  · {index === 0 ? "left bar" : "right bar"}
-                </span>
-              ) : null}
+    <div className="flex w-52 flex-col gap-2.5 py-0.5">
+      <span className="font-medium">Usage</span>
+      {rings.map((ring) => (
+        <div key={ring.driver} className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ProviderInstanceIcon
+                driverKind={ring.driver}
+                displayName={ring.label}
+                className="size-3.5"
+                iconClassName="size-3.5"
+              />
+              <span className="truncate">{ring.label}</span>
             </span>
-            <span className={cn("shrink-0 tabular-nums", toneClass(ring.status))}>
-              {ring.remainingPercent}% left
-            </span>
+            <span className="shrink-0 tabular-nums">{ring.remainingPercent}%</span>
           </div>
           <div className="h-1 rounded-full bg-muted">
             <div
-              className={cn("h-full rounded-full bg-current", toneClass(ring.status))}
-              style={{ width: `${Math.max(0, Math.min(100, ring.remainingPercent))}%` }}
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.max(0, Math.min(100, ring.remainingPercent))}%`,
+                backgroundColor: barColor(ring.driver),
+              }}
             />
           </div>
-          <span className="text-muted-foreground">
-            {ring.runsOutAtMs !== null
-              ? `May run out ${formatRunsOut(ring.runsOutAtMs)}`
-              : STATUS[ring.status].label}
-          </span>
         </div>
       ))}
     </div>
