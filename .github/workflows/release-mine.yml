@@ -92,6 +92,22 @@ jobs:
             target: nsis
             arch: x64
             rust_target: x86_64-pc-windows-msvc
+          # Linux builds the AppImage and .deb, plus the headless `t3` server
+          # archive. arm64 builds on arm64 hardware: node-pty compiles from source.
+          - label: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: x64
+            rust_target: x86_64-unknown-linux-gnu
+            cli_archive: true
+          - label: Linux arm64
+            runner: ubuntu-24.04-arm
+            platform: linux
+            target: AppImage
+            arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+            cli_archive: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -110,6 +126,14 @@ jobs:
 
       - name: Install dependencies
         run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      # Upstream's Linux packaging needs these (see its release-desktop.yml);
+      # patchelf is for the server archive's bundled libatomic.
+      - name: Install Linux build libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config libgtk-3-0t64 libnss3 libasound2t64 libgbm1 imagemagick patchelf
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -149,7 +173,9 @@ jobs:
             --build-version "$VERSION"
             --verbose
           )
-          if [[ "${{ matrix.platform }}" == "win" ]]; then
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            T3CODE_DESKTOP_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" vp run dist:desktop:artifact "${args[@]}"
+          elif [[ "${{ matrix.platform }}" == "win" ]]; then
             # Upstream caps the installer at 80 loose files; the fork's 12 theme icons and
             # 0.1.9's voice libraries go past it.
             T3CODE_WINDOWS_PAYLOAD_FILE_LIMIT=120 \
@@ -158,13 +184,36 @@ jobs:
             env -u GITHUB_REPOSITORY vp run dist:desktop:artifact "${args[@]}"
           fi
 
+      # The headless server: the same `t3` archive upstream ships, built from the
+      # server bundle the desktop build just made. Its archive name carries the
+      # fork's version; `t3 --version` reports upstream's, like the packages.
+      - name: Build server archive
+        if: matrix.cli_archive
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          node apps/server/scripts/cli.ts build-exe --verbose
+          monitor_dir="$RUNNER_TEMP/cli-resource-monitor/linux-${{ matrix.arch }}"
+          mkdir -p "$monitor_dir"
+          cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/t3-resource-monitor" "$monitor_dir/"
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch "${{ matrix.arch }}" \
+            --version "$VERSION" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* \
+            --expect-version "$(node -p 'require("./apps/server/package.json").version')"
+
       - name: Collect release files
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-publish
           shopt -s nullglob
-          for file in release/*.dmg release/*.zip release/*.exe release/*.blockmap release/*.yml; do
+          for file in release/*.dmg release/*.zip release/*.exe release/*.AppImage release/*.deb release/*.blockmap release/*.yml release-cli/*; do
             [[ "$file" == */builder-debug.yml ]] && continue
             cp "$file" release-publish/
           done
@@ -205,6 +254,10 @@ jobs:
           ```
 
           Mac copies don't update themselves yet; download each new release by hand.
+
+          **Linux desktop:** run the `.AppImage` (make it executable first), or install the `.deb` with `sudo apt install ./T3-Code-*.deb`. The AppImage updates itself from here.
+
+          **Linux server (headless):** download the `t3-*-linux-x64.tar.gz` (or `-arm64`) archive, unpack it, and run `./t3 serve`.
           EOF
           gh release create "v$VERSION" release-files/* \
             --repo "$GITHUB_REPOSITORY" \
