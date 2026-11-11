@@ -38,7 +38,7 @@ import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/ser
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { shortcutLabelForCommand } from "../../keybindings";
-import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
+import { refreshUsageBreakdowns, useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   enumerateDays,
@@ -79,6 +79,7 @@ import {
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { PageCard, PageMessage, PageSection, PageStat } from "../page/PageSection";
 import { UsageLimitsDashboard } from "./UsageLimitsDashboard";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
@@ -322,6 +323,7 @@ export function UsagePage({
     if (refreshingRef.current) return;
 
     if (showingLimits) {
+      refreshUsageBreakdowns();
       refreshingRef.current = true;
       setIsRefreshing(true);
       void refreshLimits().finally(() => {
@@ -497,11 +499,11 @@ export function UsagePage({
         <ScrollArea className="min-h-0 flex-1" scrollFade>
           <WorkspacePageContainer width="wide">
             {selectedEnvironments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <PageMessage>
                 {environments.length === 0
                   ? `Connect an environment to see ${showingLimits ? "limits" : "usage"}.`
                   : `Select an environment to see ${showingLimits ? "limits" : "usage"}.`}
-              </p>
+              </PageMessage>
             ) : showingLimits ? (
               <UsageLimitsDashboard
                 provider={limitsProvider ?? null}
@@ -513,14 +515,14 @@ export function UsagePage({
             ) : shown === null ? (
               <UsageSkeleton />
             ) : !canReadDiagnostics ? (
-              <div className="space-y-2 py-12 text-center text-sm text-muted-foreground">
+              <PageMessage>
                 {selectedEnvironments.map((environment) => (
-                  <p key={environment.environmentId}>
+                  <span key={environment.environmentId} className="block">
                     {selectedEnvironments.length > 1 ? `${environment.label}: ` : null}
                     {environment.error}
-                  </p>
+                  </span>
                 ))}
-              </div>
+              </PageMessage>
             ) : (
               <UsageOverview
                 merged={merged}
@@ -530,6 +532,7 @@ export function UsagePage({
                 hours={hours}
                 showingKept={showingKept}
                 metric={metric === "tokens" ? "tokens" : "cost"}
+                windowLabel={windowLabel}
                 selectedEnvironments={selectedEnvironments}
                 hiddenProviders={hiddenProviders}
                 refreshingUsage={refreshingUsage}
@@ -596,6 +599,7 @@ function UsageOverview({
   hours,
   showingKept,
   metric,
+  windowLabel,
   selectedEnvironments,
   hiddenProviders,
   refreshingUsage,
@@ -610,6 +614,7 @@ function UsageOverview({
   readonly hours: readonly string[];
   readonly showingKept: boolean;
   readonly metric: "tokens" | "cost";
+  readonly windowLabel: string;
   readonly selectedEnvironments: readonly EnvironmentUsageStatus[];
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
   readonly refreshingUsage: boolean;
@@ -657,205 +662,211 @@ function UsageOverview({
   const rankedProviders = rankProvidersByMetric(activeProviders, merged.providers, metric);
 
   return (
-    <div aria-busy={loadingPartial} className="flex flex-col gap-6">
+    // Personal build: sections and cards from `page/PageSection`, like Usage → Limits.
+    <div aria-busy={loadingPartial} className="flex flex-col gap-8">
       {sourceMessages.map((message) => (
-        <p key={message} className="mb-4 text-sm text-muted-foreground">
-          {message}
-        </p>
+        <PageMessage key={message}>{message}</PageMessage>
       ))}
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-5">
-          <div className="flex flex-col gap-1">
-            <span
+      <PageSection
+        title={`${shownHourly ? "Hourly" : "Daily"} ${metric === "tokens" ? "processed tokens" : "cost"}`}
+        description={windowLabel}
+        action={spendUnitToggle}
+      >
+        <PageCard>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+            <div className="flex min-w-0 flex-col gap-5">
+              <div className="flex flex-col gap-1">
+                <span
+                  className={cn(
+                    "text-4xl font-semibold tracking-tight text-foreground tabular-nums",
+                    figureClass(loadingPartial),
+                  )}
+                >
+                  {metric === "cost" ? formatUsd(merged.costUsd) : formatTokens(merged.totalTokens)}
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <span>
+                    <span className={figureClass(loadingPartial)}>
+                      {formatCount(merged.sessions)} sessions
+                    </span>
+                    {metric === "cost" && " · API estimate"}
+                  </span>
+                  {metric === "cost" && merged.costQuality.unpricedShare > 0 && (
+                    <Popover>
+                      <PopoverTrigger
+                        openOnHover
+                        render={<InlineButton tone="muted" />}
+                        aria-label="Unpriced usage details"
+                      >
+                        <InfoIcon className="size-3" aria-hidden />
+                      </PopoverTrigger>
+                      <PopoverPopup side="top" tooltipStyle>
+                        API estimate excludes {formatPercent(merged.costQuality.unpricedShare)}{" "}
+                        unpriced records.
+                      </PopoverPopup>
+                    </Popover>
+                  )}
+                </span>
+              </div>
+
+              {showChatGptSharing ? (
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>ChatGPT shared usage</span>
+                  <ChatGptUsageButton size="xs" />
+                </div>
+              ) : null}
+
+              {rankedProviders.map((provider) => {
+                const totals = merged.providers.find((entry) => entry.provider === provider);
+                const share =
+                  metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
+                const providerSessions = totals?.sessions ?? 0;
+                const sessionLabel = `${formatCount(providerSessions)} ${
+                  providerSessions === 1 ? "session" : "sessions"
+                }`;
+                const providerLoading = loadingProviders.has(provider);
+                const awaitingData = providerLoading && !providersWithData.has(provider);
+                return (
+                  <div key={provider} className="flex flex-col gap-1">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+                        <span
+                          aria-hidden
+                          className="size-2 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: PROVIDER_PRESENTATION[provider].color,
+                          }}
+                        />
+                        <ProviderMark provider={provider} className="size-4" />
+                        <span className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="truncate">{PROVIDER_PRESENTATION[provider].label}</span>
+                          <span
+                            className={cn(
+                              "shrink-0 whitespace-nowrap text-2xs text-muted-foreground tabular-nums",
+                              figureClass(providerLoading),
+                              awaitingData && "invisible",
+                            )}
+                          >
+                            {sessionLabel}
+                          </span>
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 text-sm font-medium text-foreground tabular-nums",
+                          figureClass(providerLoading),
+                        )}
+                      >
+                        {awaitingData
+                          ? "-"
+                          : metric === "cost"
+                            ? formatUsd(totals?.costUsd ?? 0)
+                            : formatTokens(totals?.totalTokens ?? 0)}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-xs text-muted-foreground",
+                        figureClass(providerLoading),
+                        awaitingData && "invisible",
+                      )}
+                    >
+                      {metric === "cost"
+                        ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
+                        : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-3">
+              <UsageProviderChart
+                providers={activeProviders}
+                loadingProviders={chartLoadingProviders}
+                days={days}
+                daily={merged.daily}
+                hours={hours}
+                hourly={merged.hourly}
+                metric={metric}
+                referenceTime={shownWindow.untilTime}
+                resolution={shownHourly ? "hour" : "day"}
+                timeZone={shownWindow.timeZone}
+                hour12={hour12}
+              />
+            </div>
+          </div>
+        </PageCard>
+      </PageSection>
+
+      <PageSection title="Totals">
+        <PageCard>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
+            <Metric
+              loading={loadingPartial}
+              label="Processed tokens"
+              value={formatTokens(merged.totalTokens)}
+            />
+            <Metric
+              loading={loadingPartial}
+              label="Cached input"
+              value={formatTokens(merged.cachedInputTokens)}
+            />
+            <Metric
+              loading={loadingPartial}
+              label="Uncached input"
+              value={formatTokens(merged.uncachedInputTokens)}
+            />
+            <Metric
+              loading={loadingPartial}
+              label="Output"
+              value={formatTokens(merged.outputTokens)}
+            />
+            <Metric
+              loading={loadingPartial}
+              label="Cache savings"
+              value={formatUsd(merged.costQuality.cacheSavingsUsd)}
+            />
+          </div>
+
+          {merged.totalTokens > 0 ? (
+            <div
               className={cn(
-                "text-4xl font-semibold text-foreground tabular-nums",
+                "mt-4 grid gap-x-12 gap-y-6 border-t border-border/50 pt-4 lg:grid-cols-2",
                 figureClass(loadingPartial),
               )}
             >
-              {metric === "cost" ? formatUsd(merged.costUsd) : formatTokens(merged.totalTokens)}
-            </span>
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <span>
-                <span className={figureClass(loadingPartial)}>
-                  {formatCount(merged.sessions)} sessions
-                </span>
-                {metric === "cost" && " · API estimate"}
-              </span>
-              {metric === "cost" && merged.costQuality.unpricedShare > 0 && (
-                <Popover>
-                  <PopoverTrigger
-                    openOnHover
-                    render={<InlineButton tone="muted" />}
-                    aria-label="Unpriced usage details"
-                  >
-                    <InfoIcon className="size-3" aria-hidden />
-                  </PopoverTrigger>
-                  <PopoverPopup side="top" tooltipStyle>
-                    API estimate excludes {formatPercent(merged.costQuality.unpricedShare)} unpriced
-                    records.
-                  </PopoverPopup>
-                </Popover>
+              {metric === "tokens" ? (
+                <UsageShareBar
+                  label="Tokens by type"
+                  segments={tokenTypeSegments(merged)}
+                  format={formatTokens}
+                />
+              ) : (
+                <>
+                  <UsageShareBar
+                    label="Cost by type"
+                    segments={costTypeSegments(merged.categoryCost)}
+                    format={formatUsd}
+                  />
+                  {merged.speedCost.fast + merged.speedCost.ultrafast > 0 ? (
+                    <UsageShareBar
+                      label="Cost by speed"
+                      segments={speedCostSegments(merged.speedCost)}
+                      format={formatUsd}
+                      aside={<SpeedPremium premiumUsd={merged.speedCost.premium} />}
+                    />
+                  ) : null}
+                </>
               )}
-            </span>
-          </div>
-
-          {showChatGptSharing ? (
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>ChatGPT shared usage</span>
-              <ChatGptUsageButton size="xs" />
             </div>
           ) : null}
+        </PageCard>
+      </PageSection>
 
-          {rankedProviders.map((provider) => {
-            const totals = merged.providers.find((entry) => entry.provider === provider);
-            const share = metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
-            const providerSessions = totals?.sessions ?? 0;
-            const sessionLabel = `${formatCount(providerSessions)} ${
-              providerSessions === 1 ? "session" : "sessions"
-            }`;
-            const providerLoading = loadingProviders.has(provider);
-            const awaitingData = providerLoading && !providersWithData.has(provider);
-            return (
-              <div key={provider} className="flex flex-col gap-1">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-                    <span
-                      aria-hidden
-                      className="size-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: PROVIDER_PRESENTATION[provider].color,
-                      }}
-                    />
-                    <ProviderMark provider={provider} className="size-4" />
-                    <span className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="truncate">{PROVIDER_PRESENTATION[provider].label}</span>
-                      <span
-                        className={cn(
-                          "shrink-0 whitespace-nowrap text-2xs text-muted-foreground tabular-nums",
-                          figureClass(providerLoading),
-                          awaitingData && "invisible",
-                        )}
-                      >
-                        {sessionLabel}
-                      </span>
-                    </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 text-sm font-medium text-foreground tabular-nums",
-                      figureClass(providerLoading),
-                    )}
-                  >
-                    {awaitingData
-                      ? "-"
-                      : metric === "cost"
-                        ? formatUsd(totals?.costUsd ?? 0)
-                        : formatTokens(totals?.totalTokens ?? 0)}
-                  </span>
-                </div>
-                <span
-                  className={cn(
-                    "text-xs text-muted-foreground",
-                    figureClass(providerLoading),
-                    awaitingData && "invisible",
-                  )}
-                >
-                  {metric === "cost"
-                    ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                    : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-foreground">
-              {shownHourly ? "Hourly" : "Daily"} {metric === "tokens" ? "processed tokens" : "cost"}
-            </h2>
-            {spendUnitToggle}
-          </div>
-          <UsageProviderChart
-            providers={activeProviders}
-            loadingProviders={chartLoadingProviders}
-            days={days}
-            daily={merged.daily}
-            hours={hours}
-            hourly={merged.hourly}
-            metric={metric}
-            referenceTime={shownWindow.untilTime}
-            resolution={shownHourly ? "hour" : "day"}
-            timeZone={shownWindow.timeZone}
-            hour12={hour12}
-          />
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-          <Metric
-            loading={loadingPartial}
-            label="Processed tokens"
-            value={formatTokens(merged.totalTokens)}
-          />
-          <Metric
-            loading={loadingPartial}
-            label="Cached input"
-            value={formatTokens(merged.cachedInputTokens)}
-          />
-          <Metric
-            loading={loadingPartial}
-            label="Uncached input"
-            value={formatTokens(merged.uncachedInputTokens)}
-          />
-          <Metric
-            loading={loadingPartial}
-            label="Output"
-            value={formatTokens(merged.outputTokens)}
-          />
-          <Metric
-            loading={loadingPartial}
-            label="Cache savings"
-            value={formatUsd(merged.costQuality.cacheSavingsUsd)}
-          />
-        </div>
-      </section>
-
-      {merged.totalTokens > 0 ? (
-        <section
-          className={cn("grid gap-x-12 gap-y-8 lg:grid-cols-2", figureClass(loadingPartial))}
-        >
-          {metric === "tokens" ? (
-            <UsageShareBar
-              label="Tokens by type"
-              segments={tokenTypeSegments(merged)}
-              format={formatTokens}
-            />
-          ) : (
-            <>
-              <UsageShareBar
-                label="Cost by type"
-                segments={costTypeSegments(merged.categoryCost)}
-                format={formatUsd}
-              />
-              {merged.speedCost.fast + merged.speedCost.ultrafast > 0 ? (
-                <UsageShareBar
-                  label="Cost by speed"
-                  segments={speedCostSegments(merged.speedCost)}
-                  format={formatUsd}
-                  aside={<SpeedPremium premiumUsd={merged.speedCost.premium} />}
-                />
-              ) : null}
-            </>
-          )}
-        </section>
-      ) : null}
-
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
+      <PageSection
+        title="Breakdown"
+        action={
           <ToggleGroup
             aria-label="Usage breakdown"
             variant="segmented"
@@ -876,161 +887,165 @@ function UsageOverview({
               </Toggle>
             ))}
           </ToggleGroup>
-        </div>
-
-        {breakdown === "model" ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-right text-xs text-muted-foreground">
-                <th className="py-2 pr-3 pl-2 text-left font-normal">#</th>
-                <th className="w-full py-2 text-left font-normal">Model</th>
-                <th className="py-2 pl-6 font-normal">Cost</th>
-                <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
-                <th className="py-2 pr-2 pl-6 font-normal">Tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdownModels.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-muted-foreground">
-                    No activity in this window.
-                  </td>
-                </tr>
-              ) : (
-                breakdownModels.map((model, index) => {
-                  const key = `${model.provider}:${model.model}`;
-                  const value = metric === "tokens" ? model.totalTokens : model.costUsd;
-                  const hasBar = value > 0 && breakdownPeak > 0;
-                  const share = modelShare(model, metric === "tokens" ? "tokens" : "cost");
-                  const rowFigures = figureClass(loadingProviders.has(model.provider));
-                  return (
-                    <tr
-                      key={key}
-                      className="relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50 has-focus-visible:bg-muted/50"
-                    >
-                      <td className="py-2.5 pr-3 pl-2 text-left text-xs">{index + 1}</td>
-                      <td className="py-2.5 text-left whitespace-normal">
-                        <button
-                          type="button"
-                          onClick={() => onSelectModel(key)}
-                          className={cn(
-                            "flex items-center gap-2 text-left text-foreground outline-none after:absolute after:inset-0",
-                            !hasBar && "py-1",
-                          )}
-                        >
-                          <ProviderMark provider={model.provider} className="size-3.5" />
-                          {model.model}
-                        </button>
-                        {hasBar ? (
-                          <div aria-hidden className={cn("mt-1.5 h-0.5 max-w-48", rowFigures)}>
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `max(0.5rem, ${(value / breakdownPeak) * 100}%)`,
-                                backgroundColor: PROVIDER_PRESENTATION[model.provider].color,
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
-                        {isModelCostUnknown(model) ? (
-                          <span className="text-muted-foreground">Unpriced</span>
-                        ) : (
-                          formatUsd(model.costUsd)
-                        )}
-                      </td>
-                      <td className={cn("hidden py-2.5 pl-6 sm:table-cell", rowFigures)}>
-                        {share === null ? "" : formatPercent(share)}
-                      </td>
-                      <td className={cn("py-2.5 pr-2 pl-6", rowFigures)}>
-                        {formatTokens(model.totalTokens)}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <div
-            className="overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            role="region"
-            aria-label="Usage breakdown by time"
-            tabIndex={0}
-          >
-            <table className="w-full text-sm whitespace-nowrap">
-              <colgroup>
-                <col className="w-2/5" />
-              </colgroup>
+        }
+      >
+        <PageCard flush>
+          {breakdown === "model" ? (
+            <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="py-2 pl-2 font-normal">{shownHourly ? "Hour" : "Day"}</th>
-                  {activeProviders.map((provider) => (
-                    <th key={provider} className="py-2 pl-4 text-right font-normal">
-                      {PROVIDER_PRESENTATION[provider].label}
-                    </th>
-                  ))}
-                  <th className="py-2 pl-4 text-right font-normal">Total</th>
-                  <th className="py-2 pr-2 pl-4 text-right font-normal">Tokens</th>
+                <tr className="border-b border-border text-right text-xs text-muted-foreground">
+                  <th className="py-2 pr-3 pl-3 text-left font-normal sm:pl-4">#</th>
+                  <th className="w-full py-2 text-left font-normal">Model</th>
+                  <th className="py-2 pl-6 font-normal">Cost</th>
+                  <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
+                  <th className="py-2 pr-3 pl-6 font-normal sm:pr-4">Tokens</th>
                 </tr>
               </thead>
               <tbody>
-                {breakdownPeriods.length === 0 ? (
+                {breakdownModels.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={activeProviders.length + 3}
-                      className="py-6 text-center text-muted-foreground"
-                    >
+                    <td colSpan={5} className="py-6 text-center text-muted-foreground">
                       No activity in this window.
                     </td>
                   </tr>
                 ) : (
-                  breakdownPeriods.map((period) => (
-                    <tr
-                      key={"hourStart" in period ? period.hourStart : period.day}
-                      className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                    >
-                      <td className="py-2 pl-2 text-foreground">
-                        {"hourStart" in period
-                          ? formatHourShort(period.hourStart, shownWindow.timeZone, hour12)
-                          : formatDayShort(period.day)}
-                      </td>
-                      {activeProviders.map((provider) => (
-                        <td
-                          key={provider}
-                          className={cn(
-                            "py-2 pl-4 text-right text-muted-foreground tabular-nums",
-                            figureClass(loadingProviders.has(provider)),
-                          )}
-                        >
-                          {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
+                  breakdownModels.map((model, index) => {
+                    const key = `${model.provider}:${model.model}`;
+                    const value = metric === "tokens" ? model.totalTokens : model.costUsd;
+                    const hasBar = value > 0 && breakdownPeak > 0;
+                    const share = modelShare(model, metric === "tokens" ? "tokens" : "cost");
+                    const rowFigures = figureClass(loadingProviders.has(model.provider));
+                    return (
+                      <tr
+                        key={key}
+                        className="relative border-b border-border/50 text-right last:border-b-0 whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50 has-focus-visible:bg-muted/50"
+                      >
+                        <td className="py-2.5 pr-3 pl-3 text-left text-xs sm:pl-4">{index + 1}</td>
+                        <td className="py-2.5 text-left whitespace-normal">
+                          <button
+                            type="button"
+                            onClick={() => onSelectModel(key)}
+                            className={cn(
+                              "flex items-center gap-2 text-left text-foreground outline-none after:absolute after:inset-0",
+                              !hasBar && "py-1",
+                            )}
+                          >
+                            <ProviderMark provider={model.provider} className="size-3.5" />
+                            {model.model}
+                          </button>
+                          {hasBar ? (
+                            <div aria-hidden className={cn("mt-1.5 h-0.5 max-w-48", rowFigures)}>
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `max(0.5rem, ${(value / breakdownPeak) * 100}%)`,
+                                  backgroundColor: PROVIDER_PRESENTATION[model.provider].color,
+                                }}
+                              />
+                            </div>
+                          ) : null}
                         </td>
-                      ))}
-                      <td
-                        className={cn(
-                          "py-2 pl-4 text-right text-foreground tabular-nums",
-                          figureClass(loadingPartial),
-                        )}
-                      >
-                        {formatUsd(period.costUsd)}
-                      </td>
-                      <td
-                        className={cn(
-                          "py-2 pr-2 pl-4 text-right text-muted-foreground tabular-nums",
-                          figureClass(loadingPartial),
-                        )}
-                      >
-                        {formatTokens(period.totalTokens)}
-                      </td>
-                    </tr>
-                  ))
+                        <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
+                          {isModelCostUnknown(model) ? (
+                            <span className="text-muted-foreground">Unpriced</span>
+                          ) : (
+                            formatUsd(model.costUsd)
+                          )}
+                        </td>
+                        <td className={cn("hidden py-2.5 pl-6 sm:table-cell", rowFigures)}>
+                          {share === null ? "" : formatPercent(share)}
+                        </td>
+                        <td className={cn("py-2.5 pr-3 pl-6 sm:pr-4", rowFigures)}>
+                          {formatTokens(model.totalTokens)}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
-          </div>
-        )}
-      </section>
+          ) : (
+            <div
+              className="overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              role="region"
+              aria-label="Usage breakdown by time"
+              tabIndex={0}
+            >
+              <table className="w-full text-sm whitespace-nowrap">
+                <colgroup>
+                  <col className="w-2/5" />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="py-2 pl-3 font-normal sm:pl-4">
+                      {shownHourly ? "Hour" : "Day"}
+                    </th>
+                    {activeProviders.map((provider) => (
+                      <th key={provider} className="py-2 pl-4 text-right font-normal">
+                        {PROVIDER_PRESENTATION[provider].label}
+                      </th>
+                    ))}
+                    <th className="py-2 pl-4 text-right font-normal">Total</th>
+                    <th className="py-2 pr-3 pl-4 text-right font-normal sm:pr-4">Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdownPeriods.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={activeProviders.length + 3}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        No activity in this window.
+                      </td>
+                    </tr>
+                  ) : (
+                    breakdownPeriods.map((period) => (
+                      <tr
+                        key={"hourStart" in period ? period.hourStart : period.day}
+                        className="border-b border-border/50 transition-colors last:border-b-0 hover:bg-muted/50"
+                      >
+                        <td className="py-2 pl-3 text-foreground sm:pl-4">
+                          {"hourStart" in period
+                            ? formatHourShort(period.hourStart, shownWindow.timeZone, hour12)
+                            : formatDayShort(period.day)}
+                        </td>
+                        {activeProviders.map((provider) => (
+                          <td
+                            key={provider}
+                            className={cn(
+                              "py-2 pl-4 text-right text-muted-foreground tabular-nums",
+                              figureClass(loadingProviders.has(provider)),
+                            )}
+                          >
+                            {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
+                          </td>
+                        ))}
+                        <td
+                          className={cn(
+                            "py-2 pl-4 text-right text-foreground tabular-nums",
+                            figureClass(loadingPartial),
+                          )}
+                        >
+                          {formatUsd(period.costUsd)}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-2 pr-3 pl-4 text-right text-muted-foreground tabular-nums sm:pr-4",
+                            figureClass(loadingPartial),
+                          )}
+                        >
+                          {formatTokens(period.totalTokens)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </PageCard>
+      </PageSection>
     </div>
   );
 }
@@ -1065,16 +1080,7 @@ function Metric({
   readonly value: string;
   readonly loading: boolean;
 }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn("text-base font-medium text-foreground tabular-nums", figureClass(loading))}
-      >
-        {value}
-      </span>
-    </div>
-  );
+  return <PageStat label={label} value={value} className={figureClass(loading)} />;
 }
 
 function UsageCoverageNotice({
@@ -1317,71 +1323,68 @@ function UsageProviderFilter({
 
 function UsageSkeleton() {
   return (
-    <>
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-1">
-            <Skeleton className="h-10 w-36" />
-            <Skeleton className="h-4 w-32" />
-          </div>
-          {PROVIDER_ORDER.map((provider) => (
-            <div key={provider} className="flex flex-col gap-1">
-              <div className="flex min-h-5 items-center justify-between gap-4">
-                <span className="flex items-center gap-2">
-                  <Skeleton shape="pill" className="size-2 shrink-0" />
-                  <Skeleton shape="pill" className="size-4 shrink-0" />
-                  <Skeleton className="h-3.5 w-20" />
-                </span>
-                <Skeleton className="h-3.5 w-14" />
+    <div aria-busy className="flex flex-col gap-8">
+      <PageSection
+        title={<Skeleton className="h-5 w-32" />}
+        action={<Skeleton shape="card" className="h-7 w-32" />}
+      >
+        <PageCard>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-10 w-36" />
+                <Skeleton className="h-4 w-32" />
               </div>
-              <Skeleton className="h-4 w-36" />
+              {PROVIDER_ORDER.map((provider) => (
+                <div key={provider} className="flex flex-col gap-1">
+                  <div className="flex min-h-5 items-center justify-between gap-4">
+                    <span className="flex items-center gap-2">
+                      <Skeleton shape="pill" className="size-2 shrink-0" />
+                      <Skeleton shape="pill" className="size-4 shrink-0" />
+                      <Skeleton className="h-3.5 w-20" />
+                    </span>
+                    <Skeleton className="h-3.5 w-14" />
+                  </div>
+                  <Skeleton className="h-4 w-36" />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-5 w-24" />
-          <div className="flex flex-col gap-1">
-            <Skeleton className="ml-16 h-56" />
-            <Skeleton className="ml-16 h-4" />
+            <div className="flex flex-col gap-1">
+              <Skeleton className="ml-16 h-56" />
+              <Skeleton className="ml-16 h-4" />
+            </div>
           </div>
-        </div>
-      </section>
+        </PageCard>
+      </PageSection>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <MetricSkeletons
-          labels={["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"]}
-        />
-      </section>
+      <PageSection title="Totals">
+        <PageCard>
+          <MetricSkeletons
+            labels={[
+              "Processed tokens",
+              "Cached input",
+              "Uncached input",
+              "Output",
+              "Cache savings",
+            ]}
+          />
+        </PageCard>
+      </PageSection>
 
-      <section className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
-        <div className="flex flex-col gap-2.5">
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="h-2" />
-          <Skeleton className="h-4 w-72" />
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
-          <Skeleton shape="card" className="h-7 w-28" />
-        </div>
-        <Skeleton className="h-44" />
-      </section>
-    </>
+      <PageSection title="Breakdown" action={<Skeleton shape="card" className="h-7 w-28" />}>
+        <PageCard>
+          <Skeleton className="h-44" />
+        </PageCard>
+      </PageSection>
+    </div>
   );
 }
 
 function MetricSkeletons({ labels }: { readonly labels: readonly string[] }) {
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
       {labels.map((label) => (
-        <div key={label} className="flex flex-col gap-0.5">
-          <span className="text-xs text-muted-foreground">{label}</span>
-          <Skeleton className="h-6 w-16" />
-        </div>
+        <PageStat key={label} label={label} value={<Skeleton className="my-0.5 h-6 w-16" />} />
       ))}
     </div>
   );

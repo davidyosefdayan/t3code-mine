@@ -27,6 +27,7 @@ import { cn } from "../../lib/utils";
 import { useUsageBreakdown } from "../../state/usage";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { PageCard, PageMessage, PageSection, PageStat } from "../page/PageSection";
 import { providerClients } from "../settings/providerDriverMeta";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -140,7 +141,7 @@ export function UsageLimitsDashboard({
     pools.toSorted((left, right) => remainingOf(left) - remainingOf(right))[0];
 
   return (
-    <div className={cn("flex flex-col gap-10", PROJECT_COLORS)}>
+    <div className={cn("flex flex-col gap-8", PROJECT_COLORS)}>
       {pool ? (
         <div className="flex flex-col gap-6">
           {pools.length > 1 ? (
@@ -160,9 +161,9 @@ export function UsageLimitsDashboard({
           />
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <PageMessage>
           No provider on the selected environments reports subscription limits.
-        </p>
+        </PageMessage>
       )}
       <UsageLimitsExtras presentations={selected} />
     </div>
@@ -180,14 +181,14 @@ function useWeeklyInsights(
   now: number,
   selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null,
 ) {
-  // Whole minutes, so re-renders within a refresh share one query.
-  const untilMs = target ? Math.min(Math.ceil(now / MINUTE) * MINUTE, target.resetsAtMs) : 0;
+  // Read to the reset, not to now: one key for the whole week, so a revisit
+  // reuses the saved answer instead of rescanning and redrawing.
   const breakdown = useUsageBreakdown(
     target?.kind
       ? {
           provider: target.kind,
           sinceTime: new Date(target.startMs).toISOString(),
-          untilTime: new Date(untilMs).toISOString(),
+          untilTime: new Date(target.resetsAtMs).toISOString(),
         }
       : null,
     selectedEnvironmentIds,
@@ -252,9 +253,9 @@ function ProviderTab({
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
 }) {
   const target = weeklyTargetOf(pool);
-  const { insights } = useWeeklyInsights(target, now, selectedEnvironmentIds);
+  const { insights, isPending } = useWeeklyInsights(target, now, selectedEnvironmentIds);
   const label = driverLabel(pool.driver);
-  const status = insights?.forecast.status;
+  const status = isPending ? undefined : insights?.forecast.status;
   const warn = status === "runsOut" || status === "tight";
   return (
     <Toggle value={pool.driver}>
@@ -301,7 +302,7 @@ function ProviderView({
     pool.accounts.length > 1 ||
     pool.accounts.some((account) => (account.limits.resetCredits?.availableCount ?? 0) > 0);
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-8">
       {target ? (
         <WeeklyLimitView
           pool={pool}
@@ -311,57 +312,12 @@ function ProviderView({
         />
       ) : null}
       {showWindows ? (
-        <section className="flex flex-col gap-4">
-          <SectionHeading title={target ? "Accounts and reset credits" : "Limit windows"} />
+        <PageSection title={target ? "Accounts and reset credits" : "Limit windows"}>
           <SegmentPopoverScope pools={[pool]} now={now}>
             <PoolSection pool={pool} now={now} showHeading={false} />
           </SegmentPopoverScope>
-        </section>
+        </PageSection>
       ) : null}
-    </div>
-  );
-}
-
-function SectionHeading({
-  title,
-  detail,
-}: {
-  readonly title: string;
-  readonly detail?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <h2 className="text-base font-semibold text-foreground">{title}</h2>
-      {detail ? <p className="max-w-2xl text-xs text-muted-foreground">{detail}</p> : null}
-    </div>
-  );
-}
-
-function Card({
-  className,
-  children,
-}: {
-  readonly className?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className={cn("min-w-0 rounded-xl border border-border/70 bg-card p-5", className)}>
-      {children}
-    </div>
-  );
-}
-
-function CardTitle({
-  children,
-  aside,
-}: {
-  readonly children: ReactNode;
-  readonly aside?: ReactNode;
-}) {
-  return (
-    <div className="mb-4 flex items-baseline justify-between gap-3">
-      <h3 className="text-sm font-medium text-foreground">{children}</h3>
-      {aside ? <span className="text-xs text-muted-foreground tabular-nums">{aside}</span> : null}
     </div>
   );
 }
@@ -383,34 +339,36 @@ function WeeklyLimitView({
 
   return (
     <>
-      <section className="flex flex-col gap-4">
-        <ForecastCard pool={pool} target={target} insights={insights} color={color} now={now} />
-      </section>
+      <ForecastSection
+        pool={pool}
+        target={target}
+        insights={insights}
+        pending={isPending}
+        color={color}
+        now={now}
+      />
       {target.kind === null ? null : (
-        <section className="flex flex-col gap-4">
-          <SectionHeading
-            title="Usage breakdown"
-            detail={
-              <>
-                Estimated percentages of your weekly limit since {formatWeekday(target.startMs)}.
-                The {target.window.usedPercent}% used is divided among recorded chats based on cost.
-                Missing activity can make these estimates too high.
-              </>
-            }
-          />
+        <PageSection
+          title="Usage breakdown"
+          description={
+            <>
+              Estimated percentages of your weekly limit since {formatWeekday(target.startMs)}. The{" "}
+              {target.window.usedPercent}% used is divided among recorded chats based on cost.
+              Missing activity can make these estimates too high.
+            </>
+          }
+        >
           {isPending ? (
             <UsageBreakdownSkeleton />
           ) : insights.chats.length === 0 ? (
-            <Card>
-              <p className="text-sm text-muted-foreground">
-                No {target.label} chat records found for this week in the selected environments.
-                Your provider's reported usage may include activity that is not recorded here.
-              </p>
-            </Card>
+            <PageMessage>
+              No {target.label} chat records found for this week in the selected environments. Your
+              provider's reported usage may include activity that is not recorded here.
+            </PageMessage>
           ) : (
             <UsageBreakdown insights={insights} color={color} now={now} />
           )}
-        </section>
+        </PageSection>
       )}
     </>
   );
@@ -472,16 +430,19 @@ function ForecastSentence({
   );
 }
 
-function ForecastCard({
+/** The forecast waits for the breakdown, so it never draws a guess and then redraws. */
+function ForecastSection({
   pool,
   target,
   insights,
+  pending,
   color,
   now,
 }: {
   readonly pool: LimitPool;
   readonly target: WeeklyTarget;
   readonly insights: LimitInsights;
+  readonly pending: boolean;
   readonly color: string;
   readonly now: number;
 }) {
@@ -489,102 +450,139 @@ function ForecastCard({
   const { forecast } = insights;
   const status = STATUS[forecast.status];
   const StatusIcon = status.icon;
-  const headline = <ForecastSentence target={target} insights={insights} now={now} />;
   const otherWindows = pool.windows.filter((window) => window !== target.window);
+  const estimate = (value: string) => (pending ? <Skeleton className="my-0.5 h-6 w-16" /> : value);
 
   return (
-    <Card className="flex flex-col gap-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-        <div className="flex min-w-0 flex-col gap-2">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <ProviderInstanceIcon
-              driverKind={target.driver}
-              displayName={target.label}
-              className="size-5"
-              iconClassName="size-4 text-foreground/80"
-            />
-            <span className="font-medium text-foreground">{target.label} weekly limit</span>
-            <span aria-hidden>·</span>
-            <span>
-              Resets{" "}
-              {formatUpcomingTimestamp(
-                new Date(target.resetsAtMs).toISOString(),
-                timestampFormat,
-                now,
-              )}
-            </span>
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="text-5xl font-semibold tracking-tight text-foreground tabular-nums">
-              {target.window.remainingPercent}%
-            </span>
-            <span className="text-base text-muted-foreground">of weekly limit remaining</span>
-          </div>
-          <p className="max-w-xl text-sm text-muted-foreground">{headline}</p>
-        </div>
-        <div className="flex w-full flex-col gap-4 md:w-64">
-          <Badge variant={status.variant} size="lg" className="self-start md:self-end">
+    <PageSection
+      title={
+        <>
+          <ProviderInstanceIcon
+            driverKind={target.driver}
+            displayName={target.label}
+            className="size-5"
+            iconClassName="size-4 text-foreground/80"
+          />
+          {target.label} weekly limit
+        </>
+      }
+      description={`Resets ${formatUpcomingTimestamp(
+        new Date(target.resetsAtMs).toISOString(),
+        timestampFormat,
+        now,
+      )}`}
+      action={
+        pending ? (
+          <Skeleton shape="pill" className="h-5.5 w-32" />
+        ) : (
+          <Badge variant={status.variant} size="lg">
             <StatusIcon aria-hidden />
             {status.label}
           </Badge>
-          {otherWindows.length > 0 ? (
-            <ul className="flex flex-col gap-2.5 rounded-lg bg-muted/50 p-3">
-              {otherWindows.map((window) => (
-                <li key={`${window.kind}:${window.id}`} className="flex flex-col gap-1">
-                  <div className="flex items-baseline justify-between gap-3 text-xs">
-                    <span className="truncate text-muted-foreground">{window.label}</span>
-                    <span className="font-medium text-foreground tabular-nums">
-                      {window.remainingPercent}% left
+        )
+      }
+    >
+      <PageCard
+        footer={
+          <p>
+            Percentages are of your full weekly limit. The daily allowance spreads your remaining
+            usage evenly until reset. It is not a separate daily limit.
+          </p>
+        }
+      >
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+            <div className="flex min-w-0 flex-[1_1_20rem] flex-col gap-2">
+              <PageStat
+                size="hero"
+                label="Left this week"
+                value={`${target.window.remainingPercent}%`}
+              />
+              {pending ? (
+                <div className="flex w-80 max-w-full flex-col gap-1.5 py-0.5">
+                  <Skeleton className="h-3.5" />
+                  <Skeleton className="h-3.5 w-3/5" />
+                </div>
+              ) : (
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  <ForecastSentence target={target} insights={insights} now={now} />
+                </p>
+              )}
+            </div>
+            {otherWindows.length > 0 ? (
+              <ul className="flex w-full flex-col gap-2.5 rounded-lg bg-muted/50 p-3 md:w-64">
+                {otherWindows.map((window) => (
+                  <li key={`${window.kind}:${window.id}`} className="flex flex-col gap-1">
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="truncate text-muted-foreground">{window.label}</span>
+                      <span className="font-medium text-foreground tabular-nums">
+                        {window.remainingPercent}% left
+                      </span>
+                    </div>
+                    <div className="h-1 rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${window.remainingPercent}%`, backgroundColor: color }}
+                      />
+                    </div>
+                    <span className="text-2xs text-muted-foreground tabular-nums">
+                      {nextResetIn(window, now)}
                     </span>
-                  </div>
-                  <div className="h-1 rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${window.remainingPercent}%`, backgroundColor: color }}
-                    />
-                  </div>
-                  <span className="text-2xs text-muted-foreground tabular-nums">
-                    {nextResetIn(window, now)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
+          {pending ? (
+            <BurnChartSkeleton />
+          ) : (
+            <BurnChart target={target} insights={insights} color={color} now={now} />
+          )}
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
+            <PageStat
+              label="Used today, estimated"
+              value={estimate(
+                forecast.today === null ? "Unavailable" : `≈${formatPoints(forecast.today)}`,
+              )}
+            />
+            <PageStat
+              label="Last 24 hours, estimated"
+              value={estimate(
+                forecast.last24h === null ? "Unavailable" : `≈${formatPoints(forecast.last24h)}`,
+              )}
+            />
+            <PageStat
+              label="Average daily use"
+              value={estimate(
+                forecast.status === "early"
+                  ? "After 24 hours"
+                  : formatPoints(forecast.averagePerDay),
+              )}
+            />
+            <PageStat
+              label="Available per day until reset"
+              value={estimate(formatPoints(forecast.dailyBudget))}
+            />
+          </div>
         </div>
-      </div>
-
-      <BurnChart target={target} insights={insights} color={color} now={now} />
-
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border/60 pt-5 md:grid-cols-4">
-        <Stat
-          label="Used today, estimated"
-          value={forecast.today === null ? "Unavailable" : `≈${formatPoints(forecast.today)}`}
-        />
-        <Stat
-          label="Last 24 hours, estimated"
-          value={forecast.last24h === null ? "Unavailable" : `≈${formatPoints(forecast.last24h)}`}
-        />
-        <Stat
-          label="Average daily use"
-          value={
-            forecast.status === "early" ? "After 24 hours" : formatPoints(forecast.averagePerDay)
-          }
-        />
-        <Stat label="Available per day until reset" value={formatPoints(forecast.dailyBudget)} />
-      </dl>
-      <p className="text-xs text-muted-foreground">
-        Percentages are of your full weekly limit. The daily allowance spreads your remaining usage
-        evenly until reset. It is not a separate daily limit.
-      </p>
-    </Card>
+      </PageCard>
+    </PageSection>
   );
 }
 
-function Stat({ label, value }: { readonly label: string; readonly value: string }) {
+/** Same footprint as `BurnChart`, so the real chart lands without moving anything. */
+function BurnChartSkeleton() {
   return (
-    <div className="flex flex-col gap-1">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-lg font-semibold text-foreground tabular-nums">{value}</dd>
+    <div className="flex flex-col gap-2" aria-busy>
+      <Skeleton className="h-4 w-72 max-w-full" />
+      <div className="grid grid-cols-[2.5rem_minmax(0,1fr)]">
+        <div />
+        <Skeleton shape="card" className="h-44" />
+        <div />
+        <div className="mt-1.5 h-4" />
+      </div>
     </div>
   );
 }
@@ -878,10 +876,10 @@ function Insights({ insights }: { readonly insights: readonly Insight[] }) {
           <div
             key={insight.id}
             className={cn(
-              "flex gap-3 rounded-xl border p-4",
+              "flex gap-3 rounded-xl border px-3 py-3.5 sm:px-4",
               insight.tone === "warning"
                 ? "border-warning/30 bg-warning-surface"
-                : "border-border/70 bg-card",
+                : "border-border/60 bg-card/40 shadow-xs/5",
             )}
           >
             <Icon
@@ -938,12 +936,10 @@ function ProjectsCard({ insights }: { readonly insights: LimitInsights }) {
   ];
   const total = rows.reduce((sum, row) => sum + row.points, 0);
   return (
-    <Card>
-      <CardTitle
-        aside={`${insights.projects.length} ${insights.projects.length === 1 ? "project" : "projects"}`}
-      >
-        Usage by project
-      </CardTitle>
+    <PageCard
+      title="Usage by project"
+      aside={`${insights.projects.length} ${insights.projects.length === 1 ? "project" : "projects"}`}
+    >
       <div
         className="mb-5 flex h-3 w-full gap-0.5 overflow-hidden rounded-full"
         role="img"
@@ -978,7 +974,7 @@ function ProjectsCard({ insights }: { readonly insights: LimitInsights }) {
           </li>
         ))}
       </ul>
-    </Card>
+    </PageCard>
   );
 }
 
@@ -991,8 +987,7 @@ function ModelsCard({
 }) {
   const max = insights.models[0]?.points ?? 0;
   return (
-    <Card>
-      <CardTitle>Usage by model</CardTitle>
+    <PageCard title="Usage by model">
       <ul className="flex flex-col gap-3.5">
         {insights.models.slice(0, 6).map((model) => (
           <li key={model.label} className="flex flex-col gap-1.5">
@@ -1014,7 +1009,7 @@ function ModelsCard({
           </li>
         ))}
       </ul>
-    </Card>
+    </PageCard>
   );
 }
 
@@ -1034,15 +1029,12 @@ function ChatsCard({
   const max = insights.chats[0]?.points ?? 0;
   const projectIndex = new Map(insights.projects.map((project, index) => [project.label, index]));
   return (
-    <Card className="px-2 pb-2">
-      <div className="px-3">
-        <CardTitle
-          aside={`${insights.chats.length} ${insights.chats.length === 1 ? "chat" : "chats"} this week`}
-        >
-          Usage by chat
-        </CardTitle>
-      </div>
-      <ol className="flex flex-col">
+    <PageCard
+      flush
+      title="Usage by chat"
+      aside={`${insights.chats.length} ${insights.chats.length === 1 ? "chat" : "chats"} this week`}
+    >
+      <ol className="flex flex-col px-1.5 sm:px-2">
         {chats.map((chat, index) => (
           <ChatRow
             key={chat.key}
@@ -1058,13 +1050,13 @@ function ChatsCard({
         ))}
       </ol>
       {insights.chats.length > CHATS_PREVIEW ? (
-        <div className="px-3 pt-1">
+        <div className="px-1.5 pt-1 sm:px-2">
           <Button size="xs" variant="ghost" onClick={() => setExpanded((value) => !value)}>
             {expanded ? "Show fewer" : `Show all ${insights.chats.length}`}
           </Button>
         </div>
       ) : null}
-    </Card>
+    </PageCard>
   );
 }
 
@@ -1138,7 +1130,7 @@ function ChatRow({
       </span>
     </>
   );
-  const className = "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start";
+  const className = "flex w-full items-center gap-3 rounded-lg px-1.5 py-2.5 text-start sm:px-2";
   return (
     <li>
       {threadId ? (
@@ -1166,12 +1158,12 @@ function ChatRow({
 
 function UsageBreakdownSkeleton() {
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" aria-busy>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Skeleton className="h-56" />
-        <Skeleton className="h-56" />
+        <Skeleton shape="card" className="h-56" />
+        <Skeleton shape="card" className="h-56" />
       </div>
-      <Skeleton className="h-80" />
+      <Skeleton shape="card" className="h-80" />
     </div>
   );
 }

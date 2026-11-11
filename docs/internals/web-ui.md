@@ -74,3 +74,24 @@ that calls no hook. Lint misses some bailouts, notably `try` with `finally` and
 compiles every file and fails on any skip. Async handlers rarely need `try`: an
 atom command settles into a result, so cleanup can follow the `await`. `useStableCallback` still
 marks handlers that leave a large component, as described above.
+
+## Page anatomy
+
+Full pages (Usage, and in this build Pull requests and Skills as they move over) share one
+layout, drawn like Settings, so a page reads the same wherever you land:
+
+- **Title bar**: `WorkspacePageHeader` with a breadcrumb. Breadcrumb segments may be pickers for
+  what the page is scoped to (Usage's environment and provider). Only whole-page actions sit on
+  the right, as ghost icon buttons or a compact select.
+- **Sidebar vs tabs**: the page's sidebar switches views (Limits or Spend). A segmented
+  `ToggleGroup` switches between views of one thing (a provider's limits, cost or tokens), at the
+  top of the content or as a section's action.
+- **Sections**: [`PageSection`](../../apps/web/src/components/page/PageSection.tsx) titles a
+  block with an optional description and one action. Its content is one or more `PageCard`s, the
+  same surface as `SettingsGroup`, with the title inset to line up with the card's text.
+- **Numbers**: `PageStat`. A page leads with at most one `hero` stat.
+- **Bottom**: notes about a card's numbers go in its `footer`, not as loose text after it.
+- **Empty and loading**: `PageMessage` says there is nothing to show. A placeholder takes the
+  real content's footprint, and a refresh keeps the previous numbers on screen (dimmed) rather
+  than dropping back to a placeholder. Never draw a stand-in value, such as a straight line, that
+  the real data then redraws.

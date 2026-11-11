@@ -255,6 +255,18 @@ export interface UsageBreakdownAnswer {
   readonly sessions: readonly UsageBreakdownSession[];
 }
 
+const liveBreakdownTargets = new Set<{
+  readonly environmentId: EnvironmentId;
+  readonly input: UsageBreakdownInput;
+}>();
+
+/** Rescans every breakdown on screen; their keys only change when a week resets. */
+export function refreshUsageBreakdowns(): void {
+  for (const target of liveBreakdownTargets) {
+    appAtomRegistry.refresh(serverEnvironment.usageBreakdown(target));
+  }
+}
+
 const usageBreakdownAtom = Atom.family((key: string) =>
   Atom.make((get) => {
     const { input, environmentIds } = JSON.parse(key) as {
@@ -273,7 +285,10 @@ const usageBreakdownAtom = Atom.family((key: string) =>
         hasSessionError: sessionResult._tag === "Failure",
       });
       if (!access.canReadDiagnostics || presentation.connection.phase !== "connected") continue;
-      const result = get(serverEnvironment.usageBreakdown({ environmentId, input }));
+      const target = { environmentId, input };
+      liveBreakdownTargets.add(target);
+      get.addFinalizer(() => liveBreakdownTargets.delete(target));
+      const result = get(serverEnvironment.usageBreakdown(target));
       const value = Option.getOrNull(AsyncResult.value(result));
       if (value) answers.push({ environmentId, sessions: value.sessions });
       else if (result.waiting) waiting += 1;
