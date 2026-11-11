@@ -1,6 +1,6 @@
-/** The sidebar header: search (with the unread filter and project scope inside it) and the new-thread button. */
+/** The sidebar header: search (with sort and filters inside it) and the new-thread button. */
 import { ListFilterChips, type ListFilterChip } from "../page/ListSearchBar";
-import { CircleDotIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -15,10 +15,8 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
-  unreadOnly: boolean;
-  onUnreadOnlyChange: (unreadOnly: boolean) => void;
-  hasProjects: boolean;
-  projectScope: ReactNode;
+  /** Personal build: one filter menu (state and project), like Pull requests. */
+  filterMenu: ReactNode;
   /** Personal build: the sort icon, beside the filters in the search field. */
   sortControl: ReactNode;
   /** Personal build: the filters that are on, as removable chips under the search. */
@@ -41,10 +39,7 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
-  unreadOnly,
-  onUnreadOnlyChange,
-  hasProjects,
-  projectScope,
+  filterMenu,
   sortControl,
   filterChips,
   onClearFilters,
@@ -75,58 +70,49 @@ export function SidebarThreadHeader({
     // app. Adding a project lives in the scope menu.
     <div className="flex items-start gap-1.5">
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <div className="flex h-8 min-w-0 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
-        <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
-        <SidebarInput
-          ref={searchInputRef}
-          nativeInput
-          type="search"
-          value={searchQuery}
-          onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder="Search"
-          aria-label="Search threads"
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={resultsVisible}
-          aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
-          aria-activedescendant={
-            activeResultExists
-              ? `sidebar-thread-search-result-${activeSearchResultIndex}`
-              : undefined
-          }
-          className="min-w-0 flex-1"
-        />
-        {isSearching ? (
-          <Button
-            type="button"
-            size="icon-micro"
-            variant="ghost-muted"
-            className="shrink-0"
-            aria-label="Clear thread search"
-            onClick={() => {
-              onClearSearch();
-              searchInputRef.current?.focus();
-            }}
-          >
-            <XIcon className="size-3" />
-          </Button>
-        ) : null}
-        {/* Personal build: like Mail's filter, show only unread threads. */}
-        <span className="flex shrink-0">
-          {sortControl}
-          <SidebarHeaderIconButton
-            label={unreadOnly ? "Show all threads" : "Show only unread threads"}
-            isActive={unreadOnly}
-            aria-pressed={unreadOnly}
-            onClick={() => onUnreadOnlyChange(!unreadOnly)}
-          >
-            <CircleDotIcon />
-          </SidebarHeaderIconButton>
-          {hasProjects ? projectScope : null}
-        </span>
-      </div>
-      <ListFilterChips chips={filterChips} onClear={onClearFilters} />
+        <div className="flex h-8 min-w-0 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
+          <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
+          <SidebarInput
+            ref={searchInputRef}
+            nativeInput
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
+            onKeyDown={onSearchKeyDown}
+            placeholder="Search"
+            aria-label="Search threads"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={resultsVisible}
+            aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
+            aria-activedescendant={
+              activeResultExists
+                ? `sidebar-thread-search-result-${activeSearchResultIndex}`
+                : undefined
+            }
+            className="min-w-0 flex-1"
+          />
+          {isSearching ? (
+            <Button
+              type="button"
+              size="icon-micro"
+              variant="ghost-muted"
+              className="shrink-0"
+              aria-label="Clear thread search"
+              onClick={() => {
+                onClearSearch();
+                searchInputRef.current?.focus();
+              }}
+            >
+              <XIcon className="size-3" />
+            </Button>
+          ) : null}
+          <span className="flex shrink-0">
+            {sortControl}
+            {filterMenu}
+          </span>
+        </div>
+        <ListFilterChips chips={filterChips} onClear={onClearFilters} />
       </div>
       {/* Its own filled square beside the field, like a compose button. */}
       <span className="flex shrink-0 rounded-lg bg-chip">

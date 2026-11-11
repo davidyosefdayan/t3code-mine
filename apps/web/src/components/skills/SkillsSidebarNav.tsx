@@ -1,5 +1,11 @@
 import type { ProviderDriverKind } from "@t3tools/contracts";
-import { MessageSquarePlusIcon, PencilLineIcon, SquarePenIcon } from "lucide-react";
+import {
+  LayersIcon,
+  MessageSquarePlusIcon,
+  PencilLineIcon,
+  SquarePenIcon,
+  UserIcon,
+} from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useRef, useState, type KeyboardEvent } from "react";
 
@@ -9,20 +15,11 @@ import { useProjects } from "../../state/entities";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { SidebarHeaderIconButton } from "../sidebar/SidebarThreadHeader";
 import { activeSurfaceClassName, restSurfaceClassName } from "../sidebar/ThreadRowParts";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SidebarListGroup, SidebarListLayout } from "../page/SidebarListLayout";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { ListFilterButton, ListSearchBar } from "../page/ListSearchBar";
+import { ListSearchBar } from "../page/ListSearchBar";
+import { ListFilterMenu, ListFilterSubmenu, listFilterIcon } from "../page/ListFilterMenu";
 import { SOURCE_LABEL, useSkillCreation, useSkillsEnvironments } from "./SkillsPage";
 import {
   collectSkillEntries,
@@ -130,71 +127,58 @@ export function SkillsSidebarNav() {
                 placeholder="Search"
                 ariaLabel="Search skills"
                 actions={
-                  <Menu>
-                    <MenuTrigger render={<ListFilterButton active={filtered} />} />
-                    <MenuPopup align="end" className="max-h-96">
-                      <MenuRadioGroup
-                        value={formatSkillsView(view) ?? "all"}
-                        onValueChange={(value) => selectView(parseSkillsView(String(value)))}
-                      >
-                        <MenuRadioItem value="all">All skills</MenuRadioItem>
-                        <MenuRadioItem value={formatSkillsView({ kind: "personal" })}>
-                          Personal
-                        </MenuRadioItem>
-                        {providers.length > 0 ? (
-                          <>
-                            <MenuSeparator />
-                            <MenuGroup>
-                              <MenuGroupLabel>Agents</MenuGroupLabel>
-                              {providers.map(([instanceId, provider]) => (
-                                <MenuRadioItem
-                                  key={instanceId}
-                                  value={formatSkillsView({ kind: "provider", instanceId })}
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <ProviderInstanceIcon
-                                      driverKind={provider.driver}
-                                      displayName={provider.name}
-                                      className="size-4"
-                                      iconClassName="size-4"
-                                    />
-                                    <span className="truncate">{provider.name}</span>
-                                  </span>
-                                </MenuRadioItem>
-                              ))}
-                            </MenuGroup>
-                          </>
-                        ) : null}
-                        {connectedProjects.length > 0 ? (
-                          <>
-                            <MenuSeparator />
-                            <MenuGroup>
-                              <MenuGroupLabel>Projects</MenuGroupLabel>
-                              {connectedProjects.map((project) => (
-                                <MenuRadioItem
-                                  key={`${project.environmentId}-${project.id}`}
-                                  value={formatSkillsView({
-                                    kind: "project",
-                                    environmentId: project.environmentId,
-                                    cwd: project.workspaceRoot,
-                                  })}
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <ProjectFavicon project={project} className="size-4" />
-                                    <span className="truncate">
-                                      {multipleEnvironments
-                                        ? `${project.title} · ${environmentLabels.get(project.environmentId)}`
-                                        : project.title}
-                                    </span>
-                                  </span>
-                                </MenuRadioItem>
-                              ))}
-                            </MenuGroup>
-                          </>
-                        ) : null}
-                      </MenuRadioGroup>
-                    </MenuPopup>
-                  </Menu>
+                  <ListFilterMenu active={filtered}>
+                    <ListFilterSubmenu
+                      label="Agent"
+                      value={view.kind === "provider" ? formatSkillsView(view) : "all"}
+                      options={[
+                        { value: "all", label: "All agents", icon: listFilterIcon(LayersIcon) },
+                        ...providers.map(([instanceId, provider]) => ({
+                          value: formatSkillsView({ kind: "provider", instanceId }),
+                          label: provider.name,
+                          icon: (
+                            <ProviderInstanceIcon
+                              driverKind={provider.driver}
+                              displayName={provider.name}
+                              className="size-3.5"
+                              iconClassName="size-3.5"
+                            />
+                          ),
+                        })),
+                      ]}
+                      onChange={(value) => selectView(parseSkillsView(value))}
+                    />
+                    <MenuSeparator />
+                    <ListFilterSubmenu
+                      label="Project"
+                      searchable
+                      value={
+                        view.kind === "project" || view.kind === "personal"
+                          ? formatSkillsView(view)
+                          : "all"
+                      }
+                      options={[
+                        { value: "all", label: "All projects", icon: listFilterIcon(LayersIcon) },
+                        {
+                          value: formatSkillsView({ kind: "personal" }),
+                          label: "Personal",
+                          icon: listFilterIcon(UserIcon),
+                        },
+                        ...connectedProjects.map((project) => ({
+                          value: formatSkillsView({
+                            kind: "project",
+                            environmentId: project.environmentId,
+                            cwd: project.workspaceRoot,
+                          }),
+                          label: multipleEnvironments
+                            ? `${project.title} · ${environmentLabels.get(project.environmentId)}`
+                            : project.title,
+                          icon: <ProjectFavicon project={project} className="size-3.5 shrink-0" />,
+                        })),
+                      ]}
+                      onChange={(value) => selectView(parseSkillsView(value))}
+                    />
+                  </ListFilterMenu>
                 }
                 chips={
                   filtered
@@ -235,45 +219,45 @@ export function SkillsSidebarNav() {
         </>
       }
     >
-        <div
-          ref={listRef}
-          role="listbox"
-          aria-label="Skills"
-          tabIndex={-1}
-          onKeyDown={moveSelection}
-          className="flex flex-col"
-        >
-          {ordered.length === 0 ? (
-            <p className="px-2 py-6 text-center text-sm text-sidebar-muted-foreground">
-              {searching ? `Nothing matches “${query.trim()}”.` : "No skills here."}
-            </p>
-          ) : (
-            groups.map((group) => (
-              <SidebarListGroup
-                key={group.key}
-                label={group.label}
-                count={group.entries.length}
-                expanded={!collapsedGroups.has(group.key)}
-                onToggle={() =>
-                  setCollapsedGroups((current) => {
-                    const next = new Set(current);
-                    if (!next.delete(group.key)) next.add(group.key);
-                    return next;
-                  })
-                }
-              >
-                {group.entries.map((entry) => (
-                  <SkillRow
-                    key={entry.key}
-                    entry={entry}
-                    selected={entry.key === openKey}
-                    onSelect={() => openSkill(entry.key)}
-                  />
-                ))}
-              </SidebarListGroup>
-            ))
-          )}
-        </div>
+      <div
+        ref={listRef}
+        role="listbox"
+        aria-label="Skills"
+        tabIndex={-1}
+        onKeyDown={moveSelection}
+        className="flex flex-col"
+      >
+        {ordered.length === 0 ? (
+          <p className="px-2 py-6 text-center text-sm text-sidebar-muted-foreground">
+            {searching ? `Nothing matches “${query.trim()}”.` : "No skills here."}
+          </p>
+        ) : (
+          groups.map((group) => (
+            <SidebarListGroup
+              key={group.key}
+              label={group.label}
+              count={group.entries.length}
+              expanded={!collapsedGroups.has(group.key)}
+              onToggle={() =>
+                setCollapsedGroups((current) => {
+                  const next = new Set(current);
+                  if (!next.delete(group.key)) next.add(group.key);
+                  return next;
+                })
+              }
+            >
+              {group.entries.map((entry) => (
+                <SkillRow
+                  key={entry.key}
+                  entry={entry}
+                  selected={entry.key === openKey}
+                  onSelect={() => openSkill(entry.key)}
+                />
+              ))}
+            </SidebarListGroup>
+          ))
+        )}
+      </div>
     </SidebarListLayout>
   );
 }

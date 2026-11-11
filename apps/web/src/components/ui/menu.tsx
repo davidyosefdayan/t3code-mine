@@ -168,8 +168,27 @@ function MenuCheckboxItem({
   variant = "default",
   ...props
 }: MenuPrimitive.CheckboxItem.Props & {
-  variant?: "default" | "icon" | "switch";
+  /** Personal build: "check" looks like a radio item (tint and a trailing check), for multi-select lists. */
+  variant?: "default" | "icon" | "switch" | "check";
 }) {
+  if (variant === "check") {
+    return (
+      <MenuPrimitive.CheckboxItem
+        checked={checked}
+        className={cn(
+          "flex min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1 text-base text-foreground outline-none data-checked:bg-foreground/[0.08] data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+          className,
+        )}
+        data-slot="menu-checkbox-item"
+        {...props}
+      >
+        <span className="min-w-0 flex-1">{children}</span>
+        <MenuPrimitive.CheckboxItemIndicator aria-hidden className="flex shrink-0">
+          <CheckIcon className="size-3.5" />
+        </MenuPrimitive.CheckboxItemIndicator>
+      </MenuPrimitive.CheckboxItem>
+    );
+  }
   return (
     <MenuPrimitive.CheckboxItem
       checked={checked}
