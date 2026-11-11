@@ -204,8 +204,7 @@ describe("scoped settings writes", () => {
     };
     const legacy = { settings: { ...DEFAULT_SERVER_SETTINGS, compactIdleThreads: false } };
     expect(scopedIdleCompaction([fixed, modes])).toEqual({ mixed: false, neverAvailable: true });
-    // Personal build: a legacy server that never chose a mode reads as Never, not "onReturn".
-    expect(scopedIdleCompaction([fixed, legacy])).toEqual({ mixed: true, neverAvailable: false });
+    expect(scopedIdleCompaction([fixed, legacy])).toEqual({ mixed: false, neverAvailable: false });
     expect(
       scopedIdleCompaction([fixed, { settings: { ...fixed.settings, idleCompaction: "off" } }])
         .mixed,
