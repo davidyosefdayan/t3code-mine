@@ -3,6 +3,7 @@
 // keeps upstream's partition and calls into these.
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
 
@@ -79,14 +80,11 @@ export function sidebarThreadState(
 export const THREAD_LIST_SORTS = ["custom", "activity", "newest"] as const;
 export type ThreadListSort = (typeof THREAD_LIST_SORTS)[number];
 
+// The same moment the row's time shows, so the list reads in that order.
 const lastActivityMs = (thread: EnvironmentThreadShell) =>
-  Math.max(
-    firstValidTimestampMs(thread.latestUserMessageAt),
-    firstValidTimestampMs(thread.latestRun?.completedAt ?? null),
-    firstValidTimestampMs(thread.createdAt),
-  );
+  firstValidTimestampMs(resolveThreadActivityTimestamp(thread) ?? thread.createdAt);
 
-/** Latest activity (your last message or the agent's last finished turn) or newest first. */
+/** Latest activity (the time each row shows) or newest first (when the chat was created). */
 export function sortThreadsBy<T extends EnvironmentThreadShell>(
   threads: readonly T[],
   sort: Exclude<ThreadListSort, "custom">,

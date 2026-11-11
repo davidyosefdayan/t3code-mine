@@ -1446,6 +1446,35 @@ describe("Working shelf (beta)", () => {
         unsnooze: false,
       });
     });
+
+    it("pins without reordering when Pinned is time-ordered", () => {
+      const base = {
+        pinnedOrder: ["p1", "p2"],
+        pinnedKeysById: new Map([
+          ["p1", "f"],
+          ["p2", "t"],
+        ]),
+        activeOrder: ["a1"],
+        activeKeysById: new Map([["a1", "m"]]),
+        pinnedTimeOrdered: true,
+      };
+      expect(
+        planSidebarThreadDrop({
+          ...base,
+          activeKey: "p2",
+          activeSection: "pinned",
+          target: { section: "pinned", pinnedOrder: ["p2", "p1"], activeOrder: ["a1"] },
+        }),
+      ).toEqual({ kind: "none" });
+      expect(
+        planSidebarThreadDrop({
+          ...base,
+          activeKey: "a1",
+          activeSection: "active",
+          target: { section: "pinned", pinnedOrder: ["a1", "p1", "p2"], activeOrder: [] },
+        }),
+      ).toEqual({ kind: "pin", order: ["p1", "p2"], orderKey: undefined, extraAssignments: [] });
+    });
   });
 });
 

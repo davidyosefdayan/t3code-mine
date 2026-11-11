@@ -2059,6 +2059,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeOrder: activeKeys,
             activeKeysById,
             activeReorderableKeys: activeReorderableThreadKeys,
+            activeTimeOrdered: threadSort !== "custom",
+            pinnedTimeOrdered: threadSort !== "custom",
           }).kind !== "none"
         );
       },
@@ -2092,6 +2094,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeOrder: activeKeys,
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
+      // Personal build: only Custom order is yours to drag; other sorts still take pins and moves.
+      activeTimeOrdered: threadSort !== "custom",
+      pinnedTimeOrdered: threadSort !== "custom",
     });
     if (plan.kind === "none") return;
     if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
