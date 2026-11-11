@@ -102,7 +102,7 @@ export function ListSearchBar(props: {
             <XIcon className="size-3" />
           </Button>
         ) : null}
-        {props.actions ? <span className="flex shrink-0">{props.actions}</span> : null}
+        {props.actions ? <span className="flex shrink-0 gap-0.5">{props.actions}</span> : null}
       </div>
       <ListFilterChips chips={chips} onClear={props.onClearChips} />
     </div>
