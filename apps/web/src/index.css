@@ -1823,9 +1823,9 @@ body {
   padding-right: var(--desktop-window-right-resize-inset);
 }
 
-.electron-windows {
-  --desktop-window-right-resize-inset: 6px;
-}
+/* Personal build: upstream insets #root 6px on Windows desktop to keep scrollbars
+   off the resize edge. The inset panel's own margin already does that, and the
+   inset showed as a dark strip below the full-width top bar. */
 
 /* App-chrome grain. Baked into each surface's own background (behind
    content) rather than a fixed overlay on top: a full-viewport overlay
