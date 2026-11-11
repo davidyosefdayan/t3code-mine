@@ -1,5 +1,5 @@
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
-import { pendingGuestMessageCount } from "@t3tools/contracts";
+import { pendingGuestMessageCount, waitingOnYouRequestId } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -1534,6 +1534,29 @@ function pendingRuntimeRequestSummary(
   };
 }
 
+// Personal build: a Needs you mark reaches official apps as an open question;
+// see waitingOnYouRequestId. Real requests come first, and Mine drops this one.
+function withWaitingOnYouRequest(
+  pending: OrchestrationV2PendingRuntimeRequestSummary | null,
+  thread: OrchestrationV2AppThread,
+): OrchestrationV2PendingRuntimeRequestSummary | null {
+  const waiting = thread.waitingOnYou ?? null;
+  if (
+    pending !== null ||
+    waiting === null ||
+    thread.archivedAt !== null ||
+    thread.settledOverride === "settled"
+  ) {
+    return pending;
+  }
+  return {
+    id: waitingOnYouRequestId(thread.id),
+    kind: "user_input",
+    createdAt: DateTime.makeUnsafe(waiting.since),
+    blocking: false,
+  };
+}
+
 function secretRequestAsPendingInput(
   item: OrchestrationV2TurnItem | null,
 ): OrchestrationV2PendingRuntimeRequestSummary | null {
@@ -1697,7 +1720,7 @@ export function threadShellFromProjection(
       latestRootProviderFailure(latestRun, projection.turnItems),
       providerSession?.lastError ?? null,
     ),
-    pendingRuntimeRequest,
+    pendingRuntimeRequest: withWaitingOnYouRequest(pendingRuntimeRequest, projection.thread),
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
     // Thread detail owns message bodies. Shell rows carry only a short preview
     // of the latest finished reply, so hydration stays independent of
@@ -2004,7 +2027,10 @@ function shellFromState(input: {
     lastErrorClass: input.state.lastErrorClass,
     lastErrorCode: input.state.lastErrorCode,
     usageLimitResetAt: input.state.usageLimitResetAt,
-    pendingRuntimeRequest: input.state.pendingRuntimeRequest,
+    pendingRuntimeRequest: withWaitingOnYouRequest(
+      input.state.pendingRuntimeRequest,
+      input.state.thread,
+    ),
     pendingGuestMessageCount: pendingGuestMessageCount(input.state.thread.guestShare),
     // Personal build: sidebar previews and turn-finished notifications.
     latestVisibleMessage: input.state.latestVisibleMessage,

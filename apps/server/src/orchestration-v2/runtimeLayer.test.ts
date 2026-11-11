@@ -35,6 +35,8 @@ import {
   RunId,
   ScheduledTaskId,
   ThreadId,
+  ThreadWaitingOnYouRequest,
+  waitingOnYouRequestId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
@@ -2574,6 +2576,67 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("a reply clears a Needs you mark unless it waits on a pull request", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projectId = ProjectId.make("needs-you-reply-project");
+      yield* seedProject({
+        projectId,
+        title: "Needs you reply",
+        workspaceRoot: "/workspace/needs-you-reply",
+        defaultModelSelection: null,
+        createdAt: "2026-09-07T00:00:00.000Z",
+      });
+      const key = { host: "github.com", repository: "acme/app", number: 7 };
+      const waitingAfterReply = Effect.fn("test.waitingAfterReply")(function* (
+        name: string,
+        waitingOnYou: typeof ThreadWaitingOnYouRequest.Type,
+      ) {
+        const threadId = ThreadId.make(`needs-you-reply-${name}`);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`needs-you-reply-${name}-create`),
+          threadId,
+          projectId,
+          title: "Needs you reply",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.waiting-on-you.set",
+          commandId: CommandId.make(`needs-you-reply-${name}-set`),
+          threadId,
+          waitingOnYou,
+        });
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`needs-you-reply-${name}-reply`),
+          threadId,
+          messageId: MessageId.make(`needs-you-reply-${name}-reply`),
+          text: "Done.",
+          attachments: [],
+          dispatchMode: { type: "defer_start" },
+        });
+        return (yield* orchestrator.getThreadShell(threadId))?.waitingOnYou?.reason ?? null;
+      });
+
+      assert.isNull(
+        yield* waitingAfterReply("decision", { kind: "decision", reason: "Pick a plan" }),
+      );
+      assert.equal(
+        yield* waitingAfterReply("merge", { kind: "merge", reason: "PR #7", pullRequest: key }),
+        "PR #7",
+      );
+    }),
+  );
+
   it.effect("applies lifecycle commands idempotently and emits archive/removal shell deltas", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -2764,6 +2827,16 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* setWaiting("set", { kind: "merge", reason: "PR #1058 is ready to merge" });
       const waiting = shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou;
       assert.exists(waiting);
+      // Official apps don't know the mark, so it also reads as an open question.
+      for (const shell of [
+        shellOf(yield* orchestrator.getShellSnapshot()),
+        yield* orchestrator.getThreadShell(threadId),
+      ]) {
+        assert.deepInclude(shell?.pendingRuntimeRequest, {
+          id: waitingOnYouRequestId(threadId),
+          kind: "user_input",
+        });
+      }
       assert.deepInclude(waiting, { kind: "merge", reason: "PR #1058 is ready to merge" });
       yield* TestClock.adjust("1 minute");
       yield* setWaiting("reword", { kind: "merge", reason: "PR #1058 is green and ready" });
@@ -2786,6 +2859,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       );
       yield* setWaiting("clear", null);
       assert.isNull(shellOf(yield* orchestrator.getShellSnapshot()).waitingOnYou);
+      assert.isNull(shellOf(yield* orchestrator.getShellSnapshot()).pendingRuntimeRequest);
       assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.waitingOnYou);
 
       const preAutoProjection = yield* orchestrator.getThreadProjection(threadId);

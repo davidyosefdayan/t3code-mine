@@ -4,6 +4,7 @@ import {
   OrchestrationV2ProviderSessionJson,
   StorageCleanupReport as StorageCleanupReportSchema,
   StorageWorktreeError,
+  isWaitingOnYouRequest,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -173,7 +174,9 @@ function threadIdle(
       thread.status === "cancelled" ||
       thread.status === "rolled_back") &&
     (thread.pendingBackgroundTasks?.length ?? 0) === 0 &&
-    thread.pendingRuntimeRequest === null &&
+    // Personal build: the Needs you stand-in isn't a real request.
+    (thread.pendingRuntimeRequest === null ||
+      isWaitingOnYouRequest(thread.pendingRuntimeRequest)) &&
     !threadHasQueuedTurnStart(thread, now) &&
     !heldForLimitRecovery(thread, now, settings)
   );
@@ -1463,7 +1466,10 @@ const make = Effect.gen(function* () {
             entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
             yield* gitManager.invalidateStatus(project.workspaceRoot);
             // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.
-            yield* Effect.logInfo("storage cleanup removed worktree", { threadId: thread.id, backup });
+            yield* Effect.logInfo("storage cleanup removed worktree", {
+              threadId: thread.id,
+              backup,
+            });
           }),
         );
       }).pipe(

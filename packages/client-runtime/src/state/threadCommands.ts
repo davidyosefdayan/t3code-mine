@@ -1,3 +1,5 @@
+// Personal build: drops the Needs you stand-in question (see threadWaitingOnYou.ts).
+import { withoutWaitingOnYouRequest } from "@t3tools/contracts";
 import type { ModelSelection, ThreadId } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -389,7 +391,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     pendingThreadIdsAtom: optimistic.pendingThreadIdsAtom,
     settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
       !accepted &&
-      (thread.pendingRuntimeRequest !== null ||
+      (withoutWaitingOnYouRequest(thread).pendingRuntimeRequest !== null ||
         ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status))
         ? thread
         : {

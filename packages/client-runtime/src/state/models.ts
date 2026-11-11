@@ -1,3 +1,5 @@
+// Personal build: drops the Needs you stand-in question (see threadWaitingOnYou.ts).
+import { withoutWaitingOnYouRequest } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestsOf } from "../threadPullRequests.ts";
 import type {
@@ -268,9 +270,11 @@ export type PendingSubagentRequest = "approval" | "user_input";
 
 export function presentThreadShell(
   environmentId: EnvironmentId,
-  thread: OrchestrationV2ThreadShell,
+  wireThread: OrchestrationV2ThreadShell,
   pendingSubagentRequest: PendingSubagentRequest | null = null,
 ): EnvironmentThreadShell {
+  // Personal build: Mine shows the Needs you mark itself, not its stand-in question.
+  const thread = withoutWaitingOnYouRequest(wireThread);
   const updatedAt = iso(thread.updatedAt);
   const latestRun =
     thread.latestRunId === null

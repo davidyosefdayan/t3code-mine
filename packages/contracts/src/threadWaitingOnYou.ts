@@ -1,11 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, RuntimeRequestId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ThreadPullRequestKey } from "./threadPullRequest.ts";
 
 /**
  * Personal build: what an agent handed back to the user, set and cleared by
- * the agent through `t3_needs_you`. Reading the thread never clears it.
+ * the agent through `t3_needs_you`. Reading the thread never clears it; a reply
+ * does, unless the mark waits on a pull request.
  */
 export const ThreadWaitingOnYouKind = Schema.Literals([
   "merge",
@@ -32,3 +33,24 @@ export const ThreadWaitingOnYou = Schema.Struct({
   since: IsoDateTime,
 });
 export type ThreadWaitingOnYou = typeof ThreadWaitingOnYou.Type;
+
+/**
+ * Personal build: official T3 Code apps don't know the mark, so the server also
+ * reports it as an open question ("Awaiting Input"), like upstream's link cards.
+ * Mine knows the mark and drops that request, so it looks exactly as before.
+ */
+const WAITING_ON_YOU_REQUEST_PREFIX = "waiting-on-you:";
+
+export const waitingOnYouRequestId = (threadId: string) =>
+  RuntimeRequestId.make(`${WAITING_ON_YOU_REQUEST_PREFIX}${threadId}`);
+
+export const isWaitingOnYouRequest = (request: { readonly id: string } | null | undefined) =>
+  request?.id.startsWith(WAITING_ON_YOU_REQUEST_PREFIX) === true;
+
+export function withoutWaitingOnYouRequest<
+  T extends { readonly pendingRuntimeRequest: { readonly id: string } | null },
+>(thread: T): T {
+  return isWaitingOnYouRequest(thread.pendingRuntimeRequest)
+    ? { ...thread, pendingRuntimeRequest: null }
+    : thread;
+}

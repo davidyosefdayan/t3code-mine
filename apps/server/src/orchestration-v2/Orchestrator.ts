@@ -6186,6 +6186,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
       projection = applyToProjection(projection, event);
     }
+    // Personal build: a reply answers what the agent marked, so it ends the
+    // mark. A mark naming a pull request waits for the merge instead.
+    const waitingOnYou = projection.thread.waitingOnYou ?? null;
+    if (
+      command.createdBy === "user" &&
+      !automaticWake &&
+      waitingOnYou !== null &&
+      waitingOnYou.pullRequest === undefined
+    ) {
+      const now = yield* DateTime.now;
+      const event = yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...projection.thread, waitingOnYou: null, updatedAt: now },
+      });
+      projection = applyToProjection(projection, event);
+    }
     const userMessages = projection.messages.filter((message) => message.role === "user");
     const onlyMaintenanceHistory =
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
