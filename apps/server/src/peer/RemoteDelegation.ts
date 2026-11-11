@@ -40,6 +40,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { forkParked } from "../serverActivation.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 
@@ -123,6 +124,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+  const git = yield* GitVcsDriver.GitVcsDriver;
   const random = yield* SecureRandom.SecureRandom;
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
@@ -186,6 +188,98 @@ const make = Effect.gen(function* () {
     });
   });
 
+  /**
+   * Where a worktree task's checkout there starts: the base the caller named, else
+   * an origin branch that holds the parent's commit now (at its tip, or merged into
+   * the default branch), which the other machine fetches. A commit only on another
+   * remote, say pushed straight to that machine, goes as itself.
+   */
+  const resolveWorktreeBase = Effect.fn("RemoteDelegation.resolveWorktreeBase")(function* (
+    parent: { readonly projectId: ProjectId; readonly worktreePath: string | null },
+    baseRef: string | undefined,
+  ) {
+    if (baseRef !== undefined) {
+      return { type: "worktree", baseRef, startFromOrigin: true } as const;
+    }
+    const cwd =
+      parent.worktreePath ??
+      (yield* projects.getById(parent.projectId).pipe(
+        Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
+        Effect.orElseSucceed(() => undefined),
+      ));
+    const run = (args: ReadonlyArray<string>) =>
+      cwd === undefined
+        ? Effect.undefined
+        : git
+            .execute({
+              operation: "RemoteDelegation.resolveWorktreeBase",
+              cwd,
+              args,
+              allowNonZeroExit: true,
+            })
+            .pipe(
+              Effect.map((result) => (result.exitCode === 0 ? result.stdout : undefined)),
+              Effect.orElseSucceed(() => undefined),
+            );
+    const head = (yield* run(["rev-parse", "--verify", "HEAD^{commit}"]))?.trim();
+    // Asked of origin itself: a tracking ref here can name a branch deleted there since.
+    const listed =
+      head === undefined
+        ? undefined
+        : yield* run(["ls-remote", "--symref", "origin", "HEAD", "refs/heads/*"]);
+    const tips = new Map<string, string>();
+    let defaultBranch: string | undefined;
+    for (const line of (listed ?? "").split("\n")) {
+      const [left = "", right = ""] = line.split("\t");
+      if (left.startsWith("ref: refs/heads/") && right === "HEAD") {
+        defaultBranch = left.slice("ref: refs/heads/".length);
+      } else if (right.startsWith("refs/heads/")) {
+        tips.set(right.slice("refs/heads/".length), left);
+      }
+    }
+    const defaultTip = defaultBranch === undefined ? undefined : tips.get(defaultBranch);
+    const atHead =
+      defaultTip !== undefined && defaultTip === head
+        ? defaultBranch
+        : [...tips].find(([, tip]) => tip === head)?.[0];
+    if (atHead !== undefined) {
+      return { type: "worktree", baseRef: `origin/${atHead}`, startFromOrigin: true } as const;
+    }
+    if (head !== undefined && defaultTip !== undefined) {
+      // A tip not fetched here yet is unknown here; the tracking ref behind it then decides.
+      for (const tip of [defaultTip, `refs/remotes/origin/${defaultBranch}`]) {
+        if ((yield* run(["merge-base", "--is-ancestor", head, tip])) !== undefined) {
+          return {
+            type: "worktree",
+            baseRef: `origin/${defaultBranch}`,
+            startFromOrigin: true,
+          } as const;
+        }
+      }
+    }
+    const elsewhere = (
+      (yield* run([
+        "for-each-ref",
+        "--points-at=HEAD",
+        "--format=%(refname:short)",
+        "refs/remotes",
+      ])) ?? ""
+    )
+      .split("\n")
+      // `origin/HEAD` names another branch, and shortens to `origin`.
+      .some((ref) => ref.includes("/") && !ref.startsWith("origin/") && !ref.endsWith("/HEAD"));
+    if (head !== undefined && elsewhere) {
+      return { type: "worktree", baseRef: head, startFromOrigin: false } as const;
+    }
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message:
+        head !== undefined && listed === undefined
+          ? 'Could not ask origin whether it has this checkout\'s commit. Pass baseRef with a branch that exists there, such as "origin/main".'
+          : 'This checkout\'s commit is not on origin, so the linked environment may not have it. Push it first, or pass baseRef with a branch that exists there, such as "origin/main".',
+    });
+  });
+
   const delegate: RemoteDelegation["Service"]["delegate"] = Effect.fn("RemoteDelegation.delegate")(
     function* (scope, input) {
       const parent = yield* threads.getThreadRecords(scope.thread.threadId, ["runs"]).pipe(
@@ -212,15 +306,17 @@ const make = Effect.gen(function* () {
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
-      // A worktree there would branch from a commit this checkout has and the
-      // other may not, so a remote task runs in that project's checkout.
-      if (input.isolation === "worktree") {
+      if (input.baseRef !== undefined && input.isolation !== "worktree") {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
-            'A task in a linked environment runs in that project\'s checkout; isolation "worktree" is not supported there. Omit isolation, or use t3_thread_launch with environmentId and a worktree workspaceStrategy.',
+            'baseRef starts a new checkout there. Pass isolation "worktree", or omit baseRef.',
         });
       }
+      const workspaceStrategy =
+        input.isolation === "worktree"
+          ? yield* resolveWorktreeBase(parent.thread, input.baseRef)
+          : undefined;
       // The provider and model inherit as they do for a task here. Another
       // provider there has no model to inherit, so the caller names one.
       const inherited = parent.thread.modelSelection;
@@ -261,16 +357,14 @@ const make = Effect.gen(function* () {
       const key = input.clientRequestId ?? (yield* random.uuidV4());
       const task = taskPrompt(input);
       const title = input.title ?? parent.thread.title;
-      const launched = yield* forwarding.call(
-        scope,
-        ProjectToolkit.tools.t3_thread_launch,
-        target.environmentId,
-        {
+      const launched = yield* forwarding
+        .call(scope, ProjectToolkit.tools.t3_thread_launch, target.environmentId, {
           projectId,
           title,
           modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
           ...(runtimeMode === undefined ? {} : { runtimeMode }),
           ...(interactionMode === undefined ? {} : { interactionMode }),
+          ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
           message: task,
           clientRequestId: `delegate:${scope.thread.threadId}:${key}`,
           // The thread there shows it is this thread's subagent, with a way back.
@@ -279,8 +373,20 @@ const make = Effect.gen(function* () {
             threadId: parent.thread.id,
             title: parent.thread.title,
           },
-        },
-      );
+        })
+        .pipe(
+          // That side's advice names its own launch options, not this tool's.
+          Effect.mapError((error) =>
+            workspaceStrategy?.startFromOrigin === false &&
+            error.message.includes(`"${workspaceStrategy.baseRef}"`)
+              ? new OrchestratorMcpFailure({
+                  code: "invalid_request",
+                  message:
+                    'The linked environment does not have this checkout\'s commit, which is not on origin. Push it to origin, or pass baseRef with a branch that exists there, such as "origin/main".',
+                })
+              : error,
+          ),
+        );
       const link = yield* links.get(target.environmentId).pipe(
         Effect.map(Option.getOrUndefined),
         Effect.orElseSucceed(() => undefined),

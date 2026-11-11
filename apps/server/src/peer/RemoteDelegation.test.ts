@@ -92,6 +92,8 @@ interface BoxThread {
   readonly delegatedFrom: Ref.Ref<ThreadLaunch.ThreadLaunchInput["delegatedFrom"] | null>;
   /** The model and modes it was launched with. */
   readonly launchedWith: Ref.Ref<LaunchedWith | null>;
+  /** The checkout it was launched in. */
+  readonly workspaceStrategy: Ref.Ref<ThreadLaunch.ThreadLaunchWorkspaceStrategy | null>;
   /** The first message the thread there was launched with. */
   readonly message: Ref.Ref<string | null>;
   readonly status: Ref.Ref<OrchestrationV2Run["status"]>;
@@ -141,6 +143,7 @@ const makeBoxThread = Effect.gen(function* () {
     ),
     delegatedFrom: yield* Ref.make<ThreadLaunch.ThreadLaunchInput["delegatedFrom"] | null>(null),
     launchedWith: yield* Ref.make<LaunchedWith | null>(null),
+    workspaceStrategy: yield* Ref.make<ThreadLaunch.ThreadLaunchWorkspaceStrategy | null>(null),
     message: yield* Ref.make<string | null>(null),
     status: yield* Ref.make<OrchestrationV2Run["status"]>("running"),
     reply: yield* Ref.make<string | null>("Working…"),
@@ -431,6 +434,18 @@ const boxToolkitLayer = (thread: BoxThread) => {
       ),
   });
   const layerBoxLaunches = Layer.mock(ThreadLaunch.ThreadLaunchService)({
+    // The box has every commit but this one.
+    checkWorktreeBase: ({ projectId, workspaceStrategy }) =>
+      workspaceStrategy.type === "worktree" && workspaceStrategy.baseRef === commitNotOnBox
+        ? Effect.fail(
+            new ThreadLaunch.ThreadLaunchBaseRefError({
+              projectId,
+              projectTitle: "app",
+              workspaceRoot: "/srv/app",
+              baseRef: commitNotOnBox,
+            }),
+          )
+        : Effect.void,
     launch: (input) =>
       Ref.get(thread.runless).pipe(
         Effect.flatMap((runless) =>
@@ -438,6 +453,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
             Effect.andThen(Ref.set(thread.linkOrigin, input.linkOrigin ?? null)),
             Effect.andThen(Ref.set(thread.delegatedFrom, input.delegatedFrom ?? null)),
             Effect.andThen(Ref.set(thread.message, input.initialMessage?.text ?? null)),
+            Effect.andThen(Ref.set(thread.workspaceStrategy, input.workspaceStrategy)),
             Effect.andThen(
               Ref.set(thread.launchedWith, {
                 modelSelection: input.modelSelection,
@@ -538,6 +554,16 @@ const adapter = {
   openSession: () => Effect.die("No provider process needed"),
 } as ProviderAdapter.ProviderAdapterV2["Service"];
 
+interface ParentGit {
+  readonly head: string;
+  /** What origin lists; absent when it cannot be reached. */
+  readonly origin?: string;
+  /** Commits or refs here that hold `head`. */
+  readonly mergedInto?: ReadonlyArray<string>;
+  /** `git for-each-ref` of the remote branches here at `head`. */
+  readonly elsewhere?: string;
+}
+
 /**
  * The laptop: a real orchestrator (in-memory SQLite) whose parent thread has
  * a live run, the real orchestrator toolkit, and RemoteDelegation. Built in
@@ -551,6 +577,8 @@ const makeLaptop = (
   >,
   /** The laptop's links from before a restart, which keep their sessions there. */
   kept?: Context.Context<Layer.Success<ReturnType<typeof layerLinkingEnvironment>>>,
+  /** The parent checkout's git, as resolving a worktree base there reads it. */
+  parentGit: ParentGit = { head: "abc123" },
 ) =>
   Effect.gen(function* () {
     const linking = kept ?? (yield* layerLinkingEnvironment(laptop).pipe(Layer.build));
@@ -598,6 +626,30 @@ const makeLaptop = (
                     ? ({ canonicalKey: "github.com/acme/app" } as RepositoryIdentity)
                     : null,
                 ),
+            }),
+          ),
+          Layer.provide(
+            Layer.mock(GitVcsDriver.GitVcsDriver)({
+              execute: ({ cwd, args }) => {
+                const answer = (stdout: string | undefined) =>
+                  Effect.succeed({
+                    exitCode: stdout === undefined ? 1 : 0,
+                    stdout: stdout ?? "",
+                  } as GitVcsDriver.ExecuteGitResult);
+                if (cwd !== "/home/me/app") return Effect.die(`Unexpected git in ${cwd}`);
+                switch (args[0]) {
+                  case "rev-parse":
+                    return answer(`${parentGit.head}\n`);
+                  case "ls-remote":
+                    return answer(parentGit.origin);
+                  case "merge-base":
+                    return answer(parentGit.mergedInto?.includes(args[3]!) ? "" : undefined);
+                  case "for-each-ref":
+                    return answer(parentGit.elsewhere ?? "");
+                  default:
+                    return Effect.die(`Unexpected git ${args.join(" ")}`);
+                }
+              },
             }),
           ),
         ),
@@ -1126,7 +1178,56 @@ it.effect("a task named only by environment inherits the parent's model, within 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("refuses worktree isolation for a task there before launching anything", () =>
+const commitNotOnBox = "c0ffee";
+/** `git ls-remote --symref origin HEAD 'refs/heads/*'`, with main at 66e944. */
+const originHas = (...branches: ReadonlyArray<string>) =>
+  ["ref: refs/heads/main\tHEAD", "66e944\tHEAD", "66e944\trefs/heads/main", ...branches].join("\n");
+
+it.effect.each<{
+  name: string;
+  baseRef?: string;
+  parentGit?: ParentGit;
+  startsFrom?: { baseRef: string; startFromOrigin: boolean };
+  refusal?: string;
+}>([
+  {
+    name: "starts a worktree task there from the base the caller names",
+    baseRef: "origin/main",
+    startsFrom: { baseRef: "origin/main", startFromOrigin: true },
+  },
+  {
+    name: "starts a worktree task there from the origin branch at the parent's commit",
+    parentGit: { head: "abc123", origin: originHas("abc123\trefs/heads/fix") },
+    startsFrom: { baseRef: "origin/fix", startFromOrigin: true },
+  },
+  {
+    // Its branch here still names a branch merged and deleted there.
+    name: "starts a worktree task there from origin's default branch the parent's commit is in",
+    parentGit: { head: "abc123", origin: originHas(), mergedInto: ["66e944"] },
+    startsFrom: { baseRef: "origin/main", startFromOrigin: true },
+  },
+  {
+    name: "a default branch not fetched here yet is judged by its tracking ref here",
+    parentGit: { head: "abc123", origin: originHas(), mergedInto: ["refs/remotes/origin/main"] },
+    startsFrom: { baseRef: "origin/main", startFromOrigin: true },
+  },
+  {
+    // Pushed straight to the box, say: its name for that remote is not this one.
+    name: "starts a worktree task there from the parent's commit pushed to another remote",
+    parentGit: { head: "abc123", origin: originHas(), elsewhere: "origin\ndell/fix\n" },
+    startsFrom: { baseRef: "abc123", startFromOrigin: false },
+  },
+  {
+    name: "refuses a worktree task there when the parent's commit is not pushed",
+    parentGit: { head: "abc123", origin: originHas(), elsewhere: "origin\n" },
+    refusal: "Push it first",
+  },
+  {
+    name: "refuses a worktree task there when the box lacks the commit pushed elsewhere",
+    parentGit: { head: commitNotOnBox, origin: originHas(), elsewhere: "mine/fix\n" },
+    refusal: "Push it to origin",
+  },
+])("$name", ({ baseRef, parentGit, startsFrom, refusal }) =>
   Effect.scoped(
     Effect.gen(function* () {
       const thread = yield* makeBoxThread;
@@ -1135,18 +1236,25 @@ it.effect("refuses worktree isolation for a task there before launching anything
         ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
       >([]);
       const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
-      const a = yield* makeLaptop(database, offers);
+      const a = yield* makeLaptop(database, offers, undefined, parentGit);
       yield* linkTo(a.links, b, "auto");
       yield* seedParent(a);
 
       const result = yield* a.call("delegate_task", {
-        task: "Run the suite on the box.",
+        task: "Fix the flaky test and open a PR.",
         target: { environmentId: box.environmentId },
         isolation: "worktree",
+        ...(baseRef === undefined ? {} : { baseRef }),
       });
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain("isolation");
-      expect(yield* Ref.get(thread.launched)).toBeNull();
+      if (refusal !== undefined) {
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain(refusal);
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+        return;
+      }
+      expect(result.isError, JSON.stringify(result.content)).toBe(false);
+      expect(yield* Ref.get(thread.workspaceStrategy)).toEqual({ type: "worktree", ...startsFrom });
+      expect(yield* Ref.get(thread.delegatedFrom)).toMatchObject({ threadId: parentThreadId });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
