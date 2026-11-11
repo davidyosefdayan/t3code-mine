@@ -8,7 +8,14 @@ import {
   type MouseEvent,
 } from "react";
 import { flushSync } from "react-dom";
-import { ChevronLeftIcon, ChevronRightIcon, ImageIcon, PlayIcon, TextIcon, XIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ImageIcon,
+  PlayIcon,
+  TextIcon,
+  XIcon,
+} from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";

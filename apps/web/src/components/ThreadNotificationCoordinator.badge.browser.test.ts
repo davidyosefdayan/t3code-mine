@@ -251,7 +251,7 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     state.shells.set("one", shell({ [flag]: true, pendingRequestId: "request-1" }));
     state.shells.set("one", shell({ [flag]: true, pendingRequestId: "request-2" }));
     const title = flag === "hasPendingApprovals" ? "Approval needed" : "Input needed";
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([title, title]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([title, title]);
   },
 );
 
@@ -299,7 +299,7 @@ it.each([false, true])(
       }),
     });
     const monitor = [{ taskId: "watch", kind: "monitor" as const }];
-    const titles = () => TestNotification.sent.map(({ title }) => title);
+    const titles = () => TestNotification.sent.map(({ options }) => options.body);
     state.shells.set(
       "one",
       watching("turn", "completed", "2026-09-13T07:00:01.000Z", false, monitor),
