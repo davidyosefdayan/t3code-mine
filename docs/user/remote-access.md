@@ -360,7 +360,10 @@ an address you trust: the code is sent there.
 An agent can also hand a task to a linked machine with `delegate_task`: it runs
 there as an ordinary thread, in the project with the same repository (or the
 one `target.projectId` names), and this thread wakes with its result when it
-ends, as for any delegated task. It keeps following the task across restarts.
+ends, as for any delegated task. If the thread there runs again later, say when a
+background command it started finishes, each later run reports back as a
+follow-up, as a local child's does, until this thread is stopped or the task is
+cancelled. It keeps following the task across restarts.
 With `isolation: "worktree"`, each task gets its own worktree there, so several
 can run at once. It starts from the branch the agent names (`baseRef`, such as
 `origin/main`), or else from the branch on origin that has this thread's commit

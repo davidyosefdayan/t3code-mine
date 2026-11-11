@@ -46,6 +46,20 @@ import * as PeerLinks from "./PeerLinks.ts";
 
 /** How long one follow of a remote task waits on its thread there before checking again. */
 const FOLLOW_WAIT_MS = 10 * 60 * 1_000;
+/** How long a follower first waits before it looks for a later run of a finished task there. */
+const WATCH_FIRST_DELAY = Duration.seconds(15);
+/** While nothing runs there, it looks less often, backing off to this. */
+const WATCH_MAX_DELAY = Duration.minutes(2);
+/** The pause before a finished task's follower looks there again, after `looks` found nothing; tests step it by hand. */
+export const WatchPause = Context.Reference<(looks: number) => Effect.Effect<void>>(
+  "t3/peer/RemoteDelegation/WatchPause",
+  {
+    defaultValue: () => (looks) =>
+      Effect.sleep(
+        Duration.min(Duration.times(WATCH_FIRST_DELAY, 2 ** Math.min(looks, 8)), WATCH_MAX_DELAY),
+      ),
+  },
+);
 /** A linked environment that stops answering is retried, backing off to this. */
 const FOLLOW_MAX_BACKOFF = Duration.minutes(5);
 /** How a follower retries; tests step it by hand. */
@@ -118,6 +132,7 @@ const isFinal = (error: OrchestratorMcpFailure) =>
 
 const make = Effect.gen(function* () {
   const followRetry = yield* FollowRetrySchedule;
+  const watchPause = yield* WatchPause;
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const links = yield* PeerLinks.PeerLinks;
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -478,6 +493,7 @@ const make = Effect.gen(function* () {
     result: string,
     stoppedThere: "ran-out" | "stopped" | undefined,
     stopCount?: number,
+    lastRunId?: RunId,
   ) {
     const attempt = yield* random.uuidV4();
     yield* threads
@@ -490,6 +506,7 @@ const make = Effect.gen(function* () {
         result,
         ...(stoppedThere === undefined ? {} : { stoppedThere }),
         ...(stopCount === undefined ? {} : { stopCount }),
+        ...(lastRunId === undefined ? {} : { lastRunId }),
       })
       .pipe(
         Effect.catch((error) =>
@@ -547,7 +564,15 @@ const make = Effect.gen(function* () {
    * from the activity view over an earlier reply, without taking another run's.
    * Led by a note when its provider reported running another model than it asked for.
    */
-  const lastReply = Effect.fn("RemoteDelegation.lastReply")(function* (
+  const lastReply = (
+    scope: ThreadScope,
+    remote: OrchestrationV2RemoteTaskChild,
+    runId: RunId | null,
+    failed = false,
+  ) => readRun(scope, remote, runId, failed).pipe(Effect.map(({ reply }) => reply));
+
+  /** `lastReply`, with the run there and the message that started it. */
+  const readRun = Effect.fn("RemoteDelegation.readRun")(function* (
     scope: ThreadScope,
     remote: OrchestrationV2RemoteTaskChild,
     runId: RunId | null,
@@ -555,8 +580,10 @@ const make = Effect.gen(function* () {
   ) {
     let reply: OrchestratorMcpThreadTimelineItem | undefined;
     let error: OrchestratorMcpThreadTimelineItem | undefined;
+    let prompt: OrchestratorMcpThreadTimelineItem | undefined;
     let afterPosition: number | undefined;
     let run: OrchestratorMcpThreadRun | undefined;
+    let runs: ReadonlyArray<OrchestratorMcpThreadRun> = [];
     while (true) {
       const read = yield* forwarding.readThread(scope, remote.environmentId, {
         threadId: remote.threadId,
@@ -565,7 +592,11 @@ const make = Effect.gen(function* () {
         runLimit: 50,
         ...(afterPosition === undefined ? {} : { afterPosition }),
       });
+      if (afterPosition === undefined) runs = read.recentRuns;
       run ??= read.recentRuns.find((candidate) => candidate.runId === runId);
+      prompt =
+        read.items.findLast((item) => item.type === "user_message" && item.runId === runId) ??
+        prompt;
       reply =
         read.items.findLast(
           (item) => item.type === "assistant_message" && (runId === null || item.runId === runId),
@@ -580,7 +611,8 @@ const make = Effect.gen(function* () {
       afterPosition = read.nextPosition;
     }
     reply = error ?? reply;
-    if (reply === undefined) return undefined;
+    const started = { run, runs, prompt: prompt?.text ?? undefined };
+    if (reply === undefined) return { ...started, reply: undefined };
     let text = reply.text ?? "";
     let textOffset = reply.textTruncated ? (reply.nextTextOffset ?? null) : null;
     while (textOffset !== null) {
@@ -595,7 +627,10 @@ const make = Effect.gen(function* () {
       text += part.text ?? "";
       textOffset = part.textTruncated ? (part.nextTextOffset ?? null) : null;
     }
-    return run === undefined ? text : withExecutedModelNote(text, run.model, run.executedModel);
+    return {
+      ...started,
+      reply: run === undefined ? text : withExecutedModelNote(text, run.model, run.executedModel),
+    };
   });
 
   /**
@@ -620,13 +655,13 @@ const make = Effect.gen(function* () {
   const noReply = "(The thread in the linked environment ended without a reply.)";
 
   /**
-   * Waits for the task's run there to end, completes the task here, and stops it there if it
-   * ended here first. A revoked, expired or forgotten link, or a thread or run gone there,
-   * fails the task with nothing left to stop; anything else (the other machine asleep, a
-   * dropped route) is retried with back-off, and so is completing.
+   * Completes the task when its run there ends (or stops it there if it ended here first), then
+   * reports each later run there as a follow-up task until a stop reaches it. A link or thread
+   * gone for good fails the task; anything else, like the other machine asleep, is retried.
    */
-  const follow = (parentThreadId: ThreadId, taskId: NodeId): Effect.Effect<void> =>
-    followOnce(parentThreadId, taskId).pipe(
+  const follow = (parentThreadId: ThreadId, taskId: NodeId): Effect.Effect<void> => {
+    const watch: Watch = { next: undefined, seen: undefined, idle: 0 };
+    return followOnce(parentThreadId, taskId, watch).pipe(
       // `false` means it is still running there: follow again straight away.
       Effect.repeat({ while: (done) => !done }),
       Effect.catchTags({
@@ -642,6 +677,28 @@ const make = Effect.gen(function* () {
       Effect.retry(followRetry),
       Effect.ignoreCause({ log: true }),
     );
+  };
+
+  /** The task here having its result, or once it has one, any change to it, after `sequence`. */
+  const endedHere = (parentThreadId: ThreadId, taskId: NodeId, sequence: number) =>
+    threads
+      .streamStoredEventsFrom({
+        threadId: parentThreadId,
+        afterSequence: sequence,
+        eventType: "subagent.updated",
+      })
+      .pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "subagent.updated" &&
+            stored.event.payload.id === taskId &&
+            stored.event.payload.result !== null,
+        ),
+        Stream.runHead,
+        Effect.flatMap((ended) =>
+          Option.isSome(ended) ? Effect.succeed({ endedHere: true } as const) : Effect.never,
+        ),
+      );
 
   /**
    * One wait on the task's thread there; true once the task here is done.
@@ -651,6 +708,7 @@ const make = Effect.gen(function* () {
   const followOnce = Effect.fn("RemoteDelegation.followOnce")(function* (
     parentThreadId: ThreadId,
     taskId: NodeId,
+    watch: Watch,
   ) {
     const sequence = yield* threads.getThreadEventSequence(parentThreadId);
     const { thread, task } = yield* readTask(parentThreadId, taskId);
@@ -660,6 +718,7 @@ const make = Effect.gen(function* () {
       { threadId: parentThreadId, providerInstanceId: thread.providerInstanceId },
       remote,
     );
+    const changedHere = endedHere(parentThreadId, taskId, sequence);
     // Ended here, maybe while this follower backed off from an unreachable
     // machine or before a restart: it still has to be stopped there. So
     // does one its parent here was stopped after, for what followed there.
@@ -690,26 +749,13 @@ const make = Effect.gen(function* () {
         );
         return yield* settled(parentThreadId, taskId);
       }
-      return true;
+      if (remote.lastRunId === undefined || thread.deletedAt !== null) return true;
+      return yield* watchOnce(parentThreadId, task, remote, scope, watch, {
+        lastRunId: remote.lastRunId,
+        archived: thread.archivedAt !== null,
+        changedHere,
+      });
     }
-    const endedHere = threads
-      .streamStoredEventsFrom({
-        threadId: parentThreadId,
-        afterSequence: sequence,
-        eventType: "subagent.updated",
-      })
-      .pipe(
-        Stream.filter(
-          (stored) =>
-            stored.event.type === "subagent.updated" &&
-            stored.event.payload.id === taskId &&
-            stored.event.payload.result !== null,
-        ),
-        Stream.runHead,
-        Effect.flatMap((ended) =>
-          Option.isSome(ended) ? Effect.succeed({ endedHere: true } as const) : Effect.never,
-        ),
-      );
     const waited = yield* forwarding
       .waitForThread(scope, remote.environmentId, {
         threadId: remote.threadId,
@@ -720,7 +766,7 @@ const make = Effect.gen(function* () {
         // An older peer ignores this and reports the run alone.
         untilDelegatedWorkSettled: true,
       })
-      .pipe(Effect.raceFirst(endedHere));
+      .pipe(Effect.raceFirst(changedHere));
     // The next look reads the result and stops it there.
     if ("endedHere" in waited) return false;
     if (waited.timedOut) return false;
@@ -749,8 +795,115 @@ const make = Effect.gen(function* () {
       terminalStatus(resultRun.status),
       result ?? noReply,
       "ran-out",
+      undefined,
+      // Later runs there report back from the newest one this result covers.
+      waited.resultRun?.runId ?? waited.runId,
     );
-    return yield* settled(parentThreadId, taskId);
+    // The next look watches for those, or sends a stop that landed meanwhile.
+    return false;
+  });
+
+  /**
+   * One step of watching a finished task's thread there for a later run: wait a while and
+   * look for one, or wait on the one found until that thread settles. A later run whose
+   * reply the thread settles with is reported as a follow-up task, which takes over
+   * watching; one that leaves nothing new to report (a monitor's wake) is passed over.
+   */
+  const watchOnce = Effect.fn("RemoteDelegation.watchOnce")(function* (
+    parentThreadId: ThreadId,
+    task: OrchestrationV2Subagent,
+    remote: OrchestrationV2RemoteTaskChild,
+    scope: ThreadScope,
+    watch: Watch,
+    here: {
+      readonly lastRunId: RunId;
+      readonly archived: boolean;
+      readonly changedHere: ReturnType<typeof endedHere>;
+    },
+  ) {
+    if (watch.next === undefined) {
+      const changed = yield* watchPause(watch.idle).pipe(
+        Effect.as(false),
+        Effect.raceFirst(here.changedHere.pipe(Effect.as(true))),
+      );
+      watch.idle += 1;
+      // An archived parent is not woken, so nothing is asked of the other machine for it.
+      if (changed || here.archived) return false;
+      const read = yield* forwarding.readThread(scope, remote.environmentId, {
+        threadId: remote.threadId,
+        limit: 1,
+        runLimit: 50,
+      });
+      const after = watch.seen ?? ordinalAfter(read.recentRuns, here.lastRunId);
+      const next = read.recentRuns
+        .filter((run) => run.ordinal > after && run.status !== "queued")
+        .toSorted((left, right) => left.ordinal - right.ordinal)[0];
+      if (next === undefined) {
+        watch.seen = after;
+        return false;
+      }
+      watch.next = { runId: next.runId, after };
+      watch.idle = 0;
+    }
+    const { runId, after } = watch.next;
+    const waited = yield* forwarding
+      .waitForThread(scope, remote.environmentId, {
+        threadId: remote.threadId,
+        runId,
+        timeoutMs: FOLLOW_WAIT_MS,
+        untilDelegatedWorkSettled: true,
+      })
+      .pipe(Effect.raceFirst(here.changedHere));
+    if ("endedHere" in waited || waited.timedOut || !isTerminal(waited.status)) return false;
+    watch.next = undefined;
+    const resultRun = waited.resultRun ?? { runId: waited.runId ?? runId, status: waited.status };
+    const read = yield* readRun(scope, remote, resultRun.runId, resultRun.status === "failed");
+    const reported = read.runs.find((run) => run.runId === resultRun.runId);
+    // The thread settled with a reply already reported, or older: nothing new until a later run.
+    if (reported === undefined || reported.ordinal <= after) {
+      watch.seen = Math.max(
+        after,
+        read.runs.find((run) => run.runId === (waited.runId ?? runId))?.ordinal ?? after,
+      );
+      return false;
+    }
+    const recorded = yield* threads
+      .dispatch({
+        type: "delegated_task.remote.followup",
+        // One report per run there, however often it is sent.
+        commandId: CommandId.make(
+          `command:remote-task-followup:${parentThreadId}:${remote.threadId}:${resultRun.runId}`,
+        ),
+        parentThreadId,
+        taskId: task.id,
+        runId: resultRun.runId,
+        prompt: read.prompt ?? `A later run in ${remote.label}.`,
+        status: terminalStatus(resultRun.status),
+        result: read.reply ?? noReply,
+      })
+      .pipe(
+        // A stop that took this task off watching meanwhile reports nothing.
+        Effect.catch((error) =>
+          readTask(parentThreadId, task.id).pipe(
+            Effect.flatMap(({ task: current }) =>
+              current?.remoteChild?.lastRunId === undefined ||
+              current.remoteChild.stoppedThere === false
+                ? Effect.undefined
+                : Effect.fail(error),
+            ),
+          ),
+        ),
+      );
+    const followup = recorded?.storedEvents.find(
+      (stored) =>
+        stored.event.type === "subagent.updated" &&
+        stored.event.payload.id !== task.id &&
+        stored.event.payload.remoteChild?.threadId === remote.threadId,
+    );
+    if (followup?.event.type === "subagent.updated") {
+      yield* followOne(parentThreadId, followup.event.payload.id).pipe(Effect.forkIn(followers));
+    }
+    return false;
   });
 
   /**
@@ -816,17 +969,47 @@ const make = Effect.gen(function* () {
         input.clientRequestId ?? (yield* random.uuidV4())
       }`;
       if (task.result !== null) {
+        // Following its thread there for later runs ends too, whichever of its tasks watches.
+        const watcher =
+          remote.lastRunId !== undefined
+            ? task
+            : yield* threads.getThreadRecords(task.threadId, ["subagents"]).pipe(
+                Effect.map(({ subagents }) =>
+                  subagents.find(
+                    (candidate) =>
+                      candidate.remoteChild?.threadId === remote.threadId &&
+                      candidate.remoteChild.lastRunId !== undefined,
+                  ),
+                ),
+                Effect.orElseSucceed(() => undefined),
+              );
         // Best effort: the result stands whether or not the stop gets there.
         yield* stopThere(there, remote, key, reason).pipe(
           Effect.andThen(
-            complete(
-              task.threadId,
-              task.id,
-              terminalStatus(task.status),
-              task.result,
-              "stopped",
-              remote.stopCount,
+            Effect.forEach(
+              watcher === undefined || watcher.id === task.id ? [task] : [task, watcher],
+              (ended) =>
+                complete(
+                  ended.threadId,
+                  ended.id,
+                  terminalStatus(ended.status),
+                  ended.result ?? "",
+                  "stopped",
+                  ended.remoteChild?.stopCount,
+                ),
+              { discard: true },
             ),
+          ),
+          // Not stopped there yet: the watcher's follower owes the stop and keeps sending it.
+          Effect.catch((error) =>
+            watcher === undefined
+              ? Effect.fail(error)
+              : threads.dispatch({
+                  type: "delegated_task.remote.stop",
+                  commandId: CommandId.make(`command:remote-task-stop:${key}:${watcher.id}`),
+                  parentThreadId: watcher.threadId,
+                  taskId: watcher.id,
+                }),
           ),
           Effect.ignoreCause({ log: true }),
         );
@@ -901,6 +1084,24 @@ const make = Effect.gen(function* () {
 
   return RemoteDelegation.of({ delegate, cancel, start });
 });
+
+/** Where a finished task's follower is in watching its thread there for later runs. */
+interface Watch {
+  /** The later run found there, waited on until the thread settles, and the ordinal before it. */
+  next: { readonly runId: RunId; readonly after: number } | undefined;
+  /** The ordinal up to which runs there have nothing new to report; unset, `lastRunId`'s. */
+  seen: number | undefined;
+  /** Looks since a run was last found there, which space out the next one. */
+  idle: number;
+}
+
+/**
+ * The ordinal of `runId` among a thread's latest runs. A run older than all of them is
+ * before every one listed; one missing from a shorter list is gone, so none listed is newer.
+ */
+const ordinalAfter = (runs: ReadonlyArray<OrchestratorMcpThreadRun>, runId: RunId) =>
+  runs.find((run) => run.runId === runId)?.ordinal ??
+  (runs.length >= 50 ? 0 : Math.max(0, ...runs.map((run) => run.ordinal)));
 
 const isTerminal = (status: string) =>
   status === "completed" ||

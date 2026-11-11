@@ -895,6 +895,13 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
    * one owed, so each reaches the thread there once however often it is sent.
    */
   stopCount: Schema.optional(NonNegativeInt),
+  /**
+   * The latest run there this task's result covers, kept while the thread there may run
+   * again, as a child here does when a background command or a message wakes it. Each
+   * later run there becomes a follow-up task. A stop that reaches it, or a follow-up task
+   * taking over, clears it.
+   */
+  lastRunId: Schema.optional(RunId),
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
@@ -3526,6 +3533,24 @@ const OrchestrationV2InternalCommand = Schema.Union([
     stoppedThere: Schema.optional(Schema.Literals(["ran-out", "stopped"])),
     /** The stop generation this report acknowledges; absent for the original unnumbered stop. */
     stopCount: Schema.optional(NonNegativeInt),
+    /** With `ran-out`: the latest run there the result covers, from which its follower watches. */
+    lastRunId: Schema.optional(RunId),
+  }),
+  /**
+   * Reports a later run of a finished remote task's thread there as a follow-up task, as a
+   * child here that runs again does: a new task with that run's result, which wakes the
+   * parent. It takes over watching the thread there from `taskId`. The ids derive from
+   * `commandId`, so a repeated report records nothing new.
+   */
+  Schema.Struct({
+    type: Schema.Literal("delegated_task.remote.followup"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+    runId: RunId,
+    prompt: Schema.String,
+    status: Schema.Literals(["completed", "failed", "cancelled", "interrupted"]),
+    result: Schema.String,
   }),
   /**
    * Owes a stop to the thread there of a remote task that already has its result, as Stop on

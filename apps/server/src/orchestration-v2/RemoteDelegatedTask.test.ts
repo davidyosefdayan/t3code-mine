@@ -342,6 +342,107 @@ it.layer(layerTest)("a delegated task in a linked environment", (it) => {
     }),
   );
 
+  it.effect("reports each later run there as one follow-up task, which takes over watching", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const parent = yield* seedLiveParent("followups");
+      yield* orchestrator.dispatch({
+        type: "delegated_task.remote.request",
+        commandId: CommandId.make("command:remote-delegate:followups"),
+        parentThreadId: parent.threadId,
+        parentRunId: parent.runId,
+        parentNodeId: parent.rootNodeId,
+        task: "Build and test there.",
+        driver: ProviderDriverKind.make("remote"),
+        modelSelection,
+        remoteChild: { ...remoteChild, runId: RunId.make("run:there-1") },
+        completionWake: "always",
+      });
+      const original = (yield* orchestrator.getThreadProjection(parent.threadId)).subagents[0]!;
+      const openFor = projections.getOpenRemoteDelegatedTasks.pipe(
+        Effect.map((open) => open.filter((entry) => entry.parentThreadId === parent.threadId)),
+      );
+      yield* orchestrator.dispatch({
+        type: "delegated_task.remote.complete",
+        commandId: CommandId.make("command:result:followups"),
+        parentThreadId: parent.threadId,
+        taskId: original.id,
+        status: "completed",
+        result: "Build started.",
+        stoppedThere: "ran-out",
+        lastRunId: RunId.make("run:there-1"),
+      });
+      // Finished, it is still followed after a restart, for the thread's later runs.
+      assert.deepEqual(yield* openFor, [{ parentThreadId: parent.threadId, taskId: original.id }]);
+      const offers = yield* Offers;
+      yield* Ref.set(offers, []);
+
+      const report = {
+        type: "delegated_task.remote.followup" as const,
+        commandId: CommandId.make("command:followup:there-2"),
+        parentThreadId: parent.threadId,
+        taskId: original.id,
+        runId: RunId.make("run:there-2"),
+        prompt: "Background command finished: build",
+        status: "completed" as const,
+        result: "Build passed.",
+      };
+      yield* orchestrator.dispatch(report);
+      // Sent again, say after a restart, it records nothing new.
+      yield* orchestrator.dispatch(report);
+      const projection = yield* orchestrator.getThreadProjection(parent.threadId);
+      assert.equal(projection.subagents.length, 2);
+      const followup = projection.subagents.find((task) => task.id !== original.id)!;
+      assert.equal(followup.result, "Build passed.");
+      assert.equal(followup.prompt, "Background command finished: build");
+      assert.deepEqual(followup.remoteChild, {
+        ...remoteChild,
+        runId: RunId.make("run:there-2"),
+        stoppedThere: true,
+        lastRunId: RunId.make("run:there-2"),
+      });
+      const item = projection.turnItems.find(
+        (candidate) => candidate.type === "subagent" && candidate.subagentId === followup.id,
+      );
+      assert.equal(item?.type === "subagent" ? item.result : undefined, "Build passed.");
+      // It wakes the parent as a follow-up from a child here does.
+      assert.deepEqual(
+        projection.runs.find((run) => run.id === parent.runId)?.delegatedCompletion?.delivery
+          ?.taskIds,
+        [original.id, followup.id],
+      );
+      assert.isAbove((yield* Ref.get(offers)).length, 0);
+      // Only the follow-up watches now; the task it took over from reports nothing more.
+      assert.deepEqual(yield* openFor, [{ parentThreadId: parent.threadId, taskId: followup.id }]);
+      const stale = yield* orchestrator
+        .dispatch({ ...report, commandId: CommandId.make("command:followup:stale") })
+        .pipe(Effect.flip);
+      assert.equal(stale._tag, "OrchestratorDispatchError");
+
+      // A stop that reaches the thread there ends watching it.
+      yield* orchestrator.dispatch({
+        type: "delegated_task.remote.complete",
+        commandId: CommandId.make("command:stopped:followups"),
+        parentThreadId: parent.threadId,
+        taskId: followup.id,
+        status: "completed",
+        result: "Build passed.",
+        stoppedThere: "stopped",
+      });
+      assert.deepEqual(yield* openFor, []);
+      const late = yield* orchestrator
+        .dispatch({
+          ...report,
+          taskId: followup.id,
+          commandId: CommandId.make("command:followup:after-stop"),
+          runId: RunId.make("run:there-3"),
+        })
+        .pipe(Effect.flip);
+      assert.equal(late._tag, "OrchestratorDispatchError");
+    }),
+  );
+
   it.effect("wakes its parent with the result when it completes there", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

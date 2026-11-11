@@ -83,6 +83,17 @@ type LaunchedWith = Pick<
   "modelSelection" | "runtimeMode" | "interactionMode"
 >;
 
+/** A run there after the task's own, as a background command's result or a monitor wakes it. */
+interface LaterRun {
+  readonly id: RunId;
+  readonly status: OrchestrationV2Run["status"];
+  /** The message that started it. */
+  readonly prompt: string;
+  readonly reply: string;
+  /** A monitor woke it, so the thread there still answers with the run before. */
+  readonly monitor?: boolean;
+}
+
 /** The thread the box launches for the task, which the test finishes. */
 interface BoxThread {
   readonly launched: Ref.Ref<ThreadId | null>;
@@ -133,6 +144,8 @@ interface BoxThread {
   readonly sent: Ref.Ref<ReadonlyArray<string>>;
   /** Runs as the launch there is answered, before the laptop hears back. */
   readonly afterLaunch: Ref.Ref<Effect.Effect<void>>;
+  /** Runs there after the task's own, listed and waited on with their own ids. */
+  readonly laterRuns: SubscriptionRef.SubscriptionRef<ReadonlyArray<LaterRun>>;
 }
 
 const makeBoxThread = Effect.gen(function* () {
@@ -169,6 +182,7 @@ const makeBoxThread = Effect.gen(function* () {
     releaseStop: yield* Deferred.make<void>(),
     sent: yield* Ref.make<ReadonlyArray<string>>([]),
     afterLaunch: yield* Ref.make<Effect.Effect<void>>(Effect.void),
+    laterRuns: yield* SubscriptionRef.make<ReadonlyArray<LaterRun>>([]),
   } satisfies BoxThread;
 });
 
@@ -225,11 +239,11 @@ const boxToolkitLayer = (thread: BoxThread) => {
         ...(linkOrigin === null ? {} : { linkOrigin }),
       };
     });
-  const runOf = (status: OrchestrationV2Run["status"]) =>
+  const runOf = (status: OrchestrationV2Run["status"], id = runId, ordinal = 1) =>
     ({
-      id: runId,
+      id,
       threadId: ThreadId.make("thread:box"),
-      ordinal: 1,
+      ordinal,
       status,
       modelSelection,
       activeAttemptId: "attempt:box",
@@ -243,11 +257,14 @@ const boxToolkitLayer = (thread: BoxThread) => {
       const status = yield* Ref.get(thread.status);
       const runless = yield* Ref.get(thread.runless);
       const model = yield* Ref.get(thread.executedModel);
+      const later = yield* SubscriptionRef.get(thread.laterRuns);
       return shell === null
         ? (null as never)
         : {
             ...idleThreadProjection(shell),
-            runs: runless ? [] : [runOf(status)],
+            runs: runless
+              ? []
+              : [runOf(status), ...later.map((run, index) => runOf(run.status, run.id, index + 2))],
             providerTurns: (model === null
               ? []
               : [{ runAttemptId: "attempt:box", ordinal: 1, model }]) as never,
@@ -271,6 +288,33 @@ const boxToolkitLayer = (thread: BoxThread) => {
     waitForThread: (input) =>
       Effect.gen(function* () {
         yield* Ref.update(thread.waitedFor, (seen) => [...seen, input.runId]);
+        if ((yield* SubscriptionRef.get(thread.laterRuns)).some((run) => run.id === input.runId)) {
+          const ended = Option.flatten(
+            yield* SubscriptionRef.changes(thread.laterRuns).pipe(
+              Stream.map((runs) => runs.find((run) => run.id === input.runId)),
+              Stream.filter((run) => run !== undefined && run.status === "completed"),
+              Stream.runHead,
+              Effect.timeoutOption(input.timeoutMs),
+            ),
+          );
+          // Settled, the thread answers with its latest run a monitor did not wake.
+          const answer = (yield* SubscriptionRef.get(thread.laterRuns)).findLast(
+            (run) => run.status === "completed" && run.monitor !== true,
+          );
+          return {
+            threadId: input.threadId,
+            run: { id: input.runId, status: Option.isSome(ended) ? "completed" : "running" },
+            timedOut: Option.isNone(ended),
+            ...(Option.isSome(ended)
+              ? {
+                  resultRun: {
+                    id: answer?.id ?? runId,
+                    status: answer === undefined ? yield* Ref.get(thread.status) : "completed",
+                  },
+                }
+              : {}),
+          } as never;
+        }
         // A thread with no run has nothing to wait for.
         if (yield* Ref.get(thread.runless)) {
           return { threadId: input.threadId, run: null, timedOut: false };
@@ -324,6 +368,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
         const later = yield* Ref.get(thread.laterReply);
         const error = yield* Ref.get(thread.error);
         const laterError = yield* Ref.get(thread.laterError);
+        const laterRuns = yield* SubscriptionRef.get(thread.laterRuns);
         // One item per page, with errors available only in the activity view.
         const replies = [
           ...(reply === null
@@ -359,11 +404,28 @@ const boxToolkitLayer = (thread: BoxThread) => {
                   type: "error",
                 },
               ]),
+          ...laterRuns.flatMap((run) => [
+            {
+              id: TurnItemId.make(`item:${run.id}:prompt`),
+              runId: run.id,
+              text: run.prompt,
+              type: "user_message",
+            },
+            {
+              id: TurnItemId.make(`item:${run.id}:reply`),
+              runId: run.id,
+              text: run.reply,
+              type: "assistant_message",
+            },
+          ]),
         ].map((entry, position) => ({ ...entry, position }));
         const visible =
           options.itemId === undefined
             ? replies.filter(
-                (entry) => options.view === "activity" || entry.type === "assistant_message",
+                (entry) =>
+                  options.view === "activity" ||
+                  entry.type === "assistant_message" ||
+                  entry.type === "user_message",
               )
             : replies.filter((entry) => entry.id === options.itemId);
         const matching = visible
@@ -393,7 +455,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
               ...(type === "error"
                 ? { type, failure: { message: text } }
                 : {
-                    type: "assistant_message" as const,
+                    type,
                     messageId: MessageId.make(`message:${id}`),
                     text,
                     streaming: false,
@@ -1288,6 +1350,250 @@ it.effect("follows an open task again after the laptop restarts", () =>
       yield* after.remote.start();
       const task = yield* taskResult(after, delegated.taskId);
       expect(task).toMatchObject({ status: "completed", result: "Finished while you were away." });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+/** A finished task's follower, paused before each look there until the test lets it look. */
+const steppedWatch = Effect.gen(function* () {
+  const paused = yield* Queue.unbounded<void>();
+  const look = yield* Queue.unbounded<void>();
+  const pause = () => Queue.offer(paused, undefined).pipe(Effect.andThen(Queue.take(look)));
+  return { paused, look, pause };
+});
+
+/** Waits until the parent here has a follow-up task with `result` from the thread there. */
+const followupResult = (
+  laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>,
+  originalTaskId: NodeId,
+  result: string,
+) =>
+  laptopEnv.orchestrator
+    .streamStoredEventsFrom({
+      threadId: parentThreadId,
+      afterSequence: 0,
+      eventType: "subagent.updated",
+    })
+    .pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "subagent.updated" &&
+          stored.event.payload.id !== originalTaskId &&
+          stored.event.payload.result === result,
+      ),
+      Stream.runHead,
+      Effect.map((stored) =>
+        Option.isSome(stored) && stored.value.event.type === "subagent.updated"
+          ? stored.value.event.payload
+          : undefined,
+      ),
+    );
+
+it.effect(
+  "a task there reports each later run back once, across a restart, until its parent stops it",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread);
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
+        const watch = yield* steppedWatch;
+        const laptopAgain = makeLaptop(database, offers, linking).pipe(
+          Effect.provideService(RemoteDelegation.WatchPause, watch.pause),
+        );
+        const runThere = (run: LaterRun) =>
+          SubscriptionRef.update(thread.laterRuns, (runs) => [...runs, run]);
+        const wakesOf = (seen: ReadonlyArray<{ readonly threadId: ThreadId }>) =>
+          seen.filter((offer) => offer.threadId === parentThreadId).length;
+        // Wakes are offered once their result commits, so wait for the count to get there.
+        const wakes = (count: number) =>
+          SubscriptionRef.changes(offers).pipe(
+            Stream.filter((seen) => wakesOf(seen) >= count),
+            Stream.runHead,
+            Effect.andThen(SubscriptionRef.get(offers)),
+            Effect.map(wakesOf),
+          );
+        const tasksFor = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+          laptopEnv.orchestrator
+            .getThreadProjection(parentThreadId)
+            .pipe(Effect.map(({ subagents }) => subagents));
+        const buildRun = RunId.make("run:box-build-finished");
+        const monitorRun = RunId.make("run:box-monitor");
+        const testsRun = RunId.make("run:box-tests-finished");
+
+        const { delegated, buildReport } = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const before = yield* laptopAgain;
+            yield* linkTo(before.links, b, "full-access");
+            yield* seedParent(before);
+            const delegated = yield* delegateToBox(before);
+            // Its first run ends while the build it started runs on in the background.
+            yield* Ref.set(thread.reply, "Started the build; it runs in the background.");
+            yield* Ref.set(thread.status, "completed");
+            yield* Deferred.succeed(thread.finished, undefined);
+            expect(yield* taskResult(before, delegated.taskId)).toMatchObject({
+              status: "completed",
+              result: "Started the build; it runs in the background.",
+            });
+            expect(yield* wakes(1)).toBe(1);
+
+            // The build finishing wakes it there for a second run, which reports back.
+            yield* Queue.take(watch.paused);
+            yield* runThere({
+              id: buildRun,
+              status: "completed",
+              prompt: "Background command finished: build",
+              reply: "The build passed; the tests run next.",
+            });
+            yield* Queue.offer(watch.look, undefined);
+            const buildReport = yield* followupResult(
+              before,
+              delegated.taskId,
+              "The build passed; the tests run next.",
+            );
+            expect(buildReport).toMatchObject({
+              status: "completed",
+              prompt: "Background command finished: build",
+              childThreadId: null,
+              remoteChild: {
+                threadId: delegated.remoteChild.threadId,
+                runId: buildRun,
+                lastRunId: buildRun,
+              },
+            });
+            expect(buildReport?.completionDelivery?.state).not.toBe("disposed");
+            expect(yield* wakes(2)).toBe(2);
+            // The follow-up watches the thread there now, in place of the task.
+            const original = (yield* tasksFor(before)).find((task) => task.id === delegated.taskId);
+            expect(original?.remoteChild?.lastRunId).toBeUndefined();
+
+            // A monitor's wake there leaves nothing new to report.
+            yield* Queue.take(watch.paused);
+            yield* runThere({
+              id: monitorRun,
+              status: "completed",
+              prompt: "Monitor: 120 of 400 tests done",
+              reply: "Still running the tests.",
+              monitor: true,
+            });
+            yield* Queue.offer(watch.look, undefined);
+            yield* Queue.take(watch.paused);
+            expect(yield* tasksFor(before)).toHaveLength(2);
+            return { delegated, buildReport: buildReport! };
+          }),
+        );
+
+        // The tests finish there while the laptop is down, with the final report.
+        yield* runThere({
+          id: testsRun,
+          status: "completed",
+          prompt: "Background command finished: tests",
+          reply: "All 400 tests pass. Ready to merge.",
+        });
+
+        const after = yield* laptopAgain;
+        expect(yield* after.projections.getOpenRemoteDelegatedTasks).toEqual([
+          { parentThreadId, taskId: buildReport.id },
+        ]);
+        yield* after.remote.start();
+        yield* Queue.take(watch.paused);
+        yield* Queue.offer(watch.look, undefined);
+        const finalReport = yield* followupResult(
+          after,
+          delegated.taskId,
+          "All 400 tests pass. Ready to merge.",
+        );
+        expect(finalReport).toMatchObject({
+          status: "completed",
+          prompt: "Background command finished: tests",
+          remoteChild: { runId: testsRun, lastRunId: testsRun },
+        });
+        expect(yield* wakes(3)).toBe(3);
+        // Each run there reported once: the build's was not reported again after the restart.
+        const reports = (yield* tasksFor(after)).map((task) => task.result);
+        expect(reports).toEqual([
+          "Started the build; it runs in the background.",
+          "The build passed; the tests run next.",
+          "All 400 tests pass. Ready to merge.",
+        ]);
+
+        // Stopping the parent stops the thread there and ends following it.
+        yield* Queue.take(watch.paused);
+        yield* after.threads.stopDelegatedTasks({
+          threadId: parentThreadId,
+          commandId: CommandId.make("command:stop:laptop-parent-after-reports"),
+        });
+        for (const task of [delegated.taskId, buildReport.id, finalReport!.id]) {
+          yield* stoppedThere(after, task);
+        }
+        expect(yield* after.projections.getOpenRemoteDelegatedTasks).toEqual([]);
+        expect((yield* tasksFor(after)).map((task) => task.remoteChild?.lastRunId)).toEqual([
+          undefined,
+          undefined,
+          undefined,
+        ]);
+        // The parent's live run took each report into its wake, once each.
+        const parentRun = (yield* after.orchestrator.getThreadProjection(parentThreadId)).runs.find(
+          (run) => run.id === parentRunId,
+        );
+        expect(parentRun?.delegatedCompletion?.delivery?.taskIds).toEqual([
+          delegated.taskId,
+          buildReport.id,
+          finalReport!.id,
+        ]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("cancelling a task there that has its result ends reporting its later runs", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const watch = yield* steppedWatch;
+      const a = yield* makeLaptop(database, offers).pipe(
+        Effect.provideService(RemoteDelegation.WatchPause, watch.pause),
+      );
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedParent(a);
+      const delegated = yield* delegateToBox(a);
+      yield* Ref.set(thread.status, "completed");
+      yield* Deferred.succeed(thread.finished, undefined);
+      yield* taskResult(a, delegated.taskId);
+      yield* Queue.take(watch.paused);
+      yield* SubscriptionRef.update(thread.laterRuns, (runs) => [
+        ...runs,
+        {
+          id: RunId.make("run:box-second"),
+          status: "completed" as const,
+          prompt: "Background command finished",
+          reply: "Second run done.",
+        },
+      ]);
+      yield* Queue.offer(watch.look, undefined);
+      yield* followupResult(a, delegated.taskId, "Second run done.");
+
+      // The agent cancels the task it started, not the follow-up that watches now.
+      const cancelled = yield* a.call("task_cancel", {
+        taskId: delegated.taskId,
+        clientRequestId: "cancel-after-followup",
+      });
+      expect(cancelled.isError, JSON.stringify(cancelled.content)).toBe(false);
+      expect(yield* Ref.get(thread.stops)).toEqual(["thread.stop", "delegated-tasks"]);
+      expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
+      const { subagents } = yield* a.threads.getThreadRecords(parentThreadId, ["subagents"]);
+      expect(subagents.map((task) => [task.result, task.remoteChild?.lastRunId])).toEqual([
+        ["Working…", undefined],
+        ["Second run done.", undefined],
+      ]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
