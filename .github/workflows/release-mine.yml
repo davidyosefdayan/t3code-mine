@@ -150,7 +150,10 @@ jobs:
             --verbose
           )
           if [[ "${{ matrix.platform }}" == "win" ]]; then
-            T3CODE_DESKTOP_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" vp run dist:desktop:artifact "${args[@]}"
+            # Upstream caps the installer at 80 loose files; the fork's 12 theme icons and
+            # 0.1.9's voice libraries go past it.
+            T3CODE_WINDOWS_PAYLOAD_FILE_LIMIT=120 \
+              T3CODE_DESKTOP_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" vp run dist:desktop:artifact "${args[@]}"
           else
             env -u GITHUB_REPOSITORY vp run dist:desktop:artifact "${args[@]}"
           fi

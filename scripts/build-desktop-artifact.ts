@@ -4066,8 +4066,13 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
 
   if (options.platform === "win") {
+    // Personal build: the fork's release sets this, since its theme icons ship as loose files.
+    const fileLimit = yield* Config.Int("T3CODE_WINDOWS_PAYLOAD_FILE_LIMIT").pipe(
+      Config.withDefault(WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT),
+    );
     yield* validateWindowsPackagedPayload({
       stageDistDir,
+      fileLimit,
       appExecutableName: `${resolveDesktopProductName(appVersion)}.exe`,
       targetArch: options.arch,
       appVersion,
