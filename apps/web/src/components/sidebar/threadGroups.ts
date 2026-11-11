@@ -77,23 +77,25 @@ export function sidebarThreadState(
 }
 
 /** Personal build: how Pinned and Open list their chats. Custom is the order you drag. */
-export const THREAD_LIST_SORTS = ["custom", "activity", "newest"] as const;
+export const THREAD_LIST_SORTS = ["custom", "activity", "created"] as const;
 export type ThreadListSort = (typeof THREAD_LIST_SORTS)[number];
+export const THREAD_SORT_DIRECTIONS = ["newest", "oldest"] as const;
+export type ThreadSortDirection = (typeof THREAD_SORT_DIRECTIONS)[number];
 
 // The same moment the row's time shows, so the list reads in that order.
 const lastActivityMs = (thread: EnvironmentThreadShell) =>
   firstValidTimestampMs(resolveThreadActivityTimestamp(thread) ?? thread.createdAt);
 
-/** Latest activity (the time each row shows) or newest first (when the chat was created). */
+/** By last activity (the time each row shows) or by when the chat was created. */
 export function sortThreadsBy<T extends EnvironmentThreadShell>(
   threads: readonly T[],
   sort: Exclude<ThreadListSort, "custom">,
+  direction: ThreadSortDirection,
 ): T[] {
-  return threads.toSorted((left, right) =>
-    sort === "activity"
-      ? lastActivityMs(right) - lastActivityMs(left)
-      : firstValidTimestampMs(right.createdAt) - firstValidTimestampMs(left.createdAt),
-  );
+  const timeOf =
+    sort === "activity" ? lastActivityMs : (thread: T) => firstValidTimestampMs(thread.createdAt);
+  const sign = direction === "newest" ? -1 : 1;
+  return threads.toSorted((left, right) => sign * (timeOf(left) - timeOf(right)));
 }
 
 // Homes keep your order, and anything that arrives without a drag (a new

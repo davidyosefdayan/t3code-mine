@@ -107,7 +107,9 @@ import {
   sortPinnedHome,
   sortThreadsBy,
   THREAD_LIST_SORTS,
+  THREAD_SORT_DIRECTIONS,
   type ThreadListSort,
+  type ThreadSortDirection,
   sortWaitingOnYouBySince,
   sortWorkingByLastSend,
   useCollapsedSidebarGroups,
@@ -311,12 +313,19 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const UNREAD_ONLY_KEY = "t3code:sidebar:unread-only";
-const THREAD_SORT_KEY = "t3code:sidebar:thread-sort";
+// v2: "Newest first" became "Date created" with its own direction, so old values don't decode.
+const THREAD_SORT_KEY = "t3code:sidebar:thread-sort-v2";
 const THREAD_SORT_SCHEMA = Schema.Literals(THREAD_LIST_SORTS);
 const THREAD_SORT_OPTIONS = [
   { value: "custom", label: "Custom order" },
-  { value: "activity", label: "Latest activity" },
+  { value: "activity", label: "Last activity" },
+  { value: "created", label: "Date created" },
+] as const;
+const THREAD_SORT_DIRECTION_KEY = "t3code:sidebar:thread-sort-direction";
+const THREAD_SORT_DIRECTION_SCHEMA = Schema.Literals(THREAD_SORT_DIRECTIONS);
+const THREAD_SORT_DIRECTION_OPTIONS = [
   { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
 ] as const;
 
 // Personal build: the shared tracker, so Working, unread, the badge, and the beep agree.
@@ -345,6 +354,7 @@ interface SidebarThreadPartitionInput {
   readonly sortActiveBySend: boolean;
   /** Personal build: Pinned and Open in the order you set, or by activity or age. */
   readonly sort: ThreadListSort;
+  readonly sortDirection: ThreadSortDirection;
   // Snooze wakes, the queued-turn grace and the Working group's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -416,6 +426,7 @@ function useSidebarThreads(input: {
   readonly keepEmptyFolders: (group: SidebarProjectSnapshot) => boolean;
   readonly unreadOnly: boolean;
   readonly threadSort: ThreadListSort;
+  readonly threadSortDirection: ThreadSortDirection;
 }) {
   const {
     projectScopeKey,
@@ -430,6 +441,7 @@ function useSidebarThreads(input: {
     keepEmptyFolders: keepEmpty,
     unreadOnly,
     threadSort,
+    threadSortDirection,
   } = input;
   const inboxReturnsVersion = useSyncExternalStore(inboxReturns.subscribe, inboxReturns.version);
   const nowMinute = useNowMinute();
@@ -470,6 +482,7 @@ function useSidebarThreads(input: {
     optimisticDrop,
     sortActiveBySend: folderGroups !== null,
     sort: threadSort,
+    sortDirection: threadSortDirection,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
   // Personal build: "Unread only" keeps what the Dock badge counts, plus the
@@ -732,12 +745,13 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   // Availability gates dragging only; sorting must stay consistent across clients.
   // Personal build: Pinned and Open keep the order you set, with new arrivals
   // at the bottom; nothing re-sorts.
-  const sortedPinned = sort === "custom" ? sortPinnedHome(pinned) : sortThreadsBy(pinned, sort);
+  const sortedPinned =
+    sort === "custom" ? sortPinnedHome(pinned) : sortThreadsBy(pinned, sort, input.sortDirection);
   const sortedActive = sortActiveBySend
     ? sortWorkingThreadsBySend(active)
     : sort === "custom"
       ? sortOpenHome(active)
-      : sortThreadsBy(active, sort);
+      : sortThreadsBy(active, sort, input.sortDirection);
   return {
     waitingOnYouThreads: sortWaitingOnYouBySince(waitingOnYou),
     pinnedThreads:
@@ -1306,6 +1320,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     "custom" as ThreadListSort,
     THREAD_SORT_SCHEMA,
   );
+  const [threadSortDirection, setThreadSortDirection] = useLocalStorage(
+    THREAD_SORT_DIRECTION_KEY,
+    "newest" as ThreadSortDirection,
+    THREAD_SORT_DIRECTION_SCHEMA,
+  );
   const {
     waitingOnYouThreads,
     pinnedThreads,
@@ -1363,6 +1382,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
     unreadOnly,
     threadSort,
+    threadSortDirection,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -2965,6 +2985,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   defaultValue="custom"
                   options={THREAD_SORT_OPTIONS}
                   onChange={setThreadSort}
+                  direction={
+                    threadSort === "custom"
+                      ? undefined
+                      : {
+                          value: threadSortDirection,
+                          options: THREAD_SORT_DIRECTION_OPTIONS,
+                          onChange: setThreadSortDirection,
+                        }
+                  }
                 />
               }
               filterChips={[

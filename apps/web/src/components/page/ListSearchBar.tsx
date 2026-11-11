@@ -15,6 +15,7 @@ import {
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
 import { SidebarInput } from "../ui/sidebar";
@@ -157,13 +158,22 @@ export function ListFilterButton({ active, ...props }: { active: boolean }) {
 }
 
 /** The sort icon in a `ListSearchBar`; lit while the order isn't the default. */
-export function ListSortMenu<Value extends string>(props: {
+export function ListSortMenu<Value extends string, Direction extends string = string>(props: {
   value: Value;
   defaultValue: Value;
   options: ReadonlyArray<ListSortOption<Value>>;
   onChange: (value: Value) => void;
+  /** A second choice, such as newest or oldest first, for sorts that have one. */
+  direction?:
+    | {
+        value: Direction;
+        options: ReadonlyArray<ListSortOption<Direction>>;
+        onChange: (value: Direction) => void;
+      }
+    | undefined;
 }) {
   const current = props.options.find((option) => option.value === props.value);
+  const direction = props.direction;
   return (
     <Menu>
       <MenuTrigger
@@ -193,6 +203,22 @@ export function ListSortMenu<Value extends string>(props: {
             ))}
           </MenuRadioGroup>
         </MenuGroup>
+        {direction ? <MenuSeparator /> : null}
+        {direction ? (
+          <MenuGroup>
+            <MenuGroupLabel>Order</MenuGroupLabel>
+            <MenuRadioGroup
+              value={direction.value}
+              onValueChange={(next) => direction.onChange(next as Direction)}
+            >
+              {direction.options.map((option) => (
+                <MenuRadioItem key={option.value} value={option.value}>
+                  <span className="truncate">{option.label}</span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuGroup>
+        ) : null}
       </MenuPopup>
     </Menu>
   );
