@@ -916,9 +916,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         aria-hidden
         className={cn(
           "min-w-0 flex-1 truncate text-start text-sm transition-opacity motion-reduce:transition-none",
-          // Personal build: like a messages app, unread chats read bold;
-          // everything else steps back.
-          "font-semibold",
+          // Personal build: like Slack and Gmail, only unread chats read bold.
+          showsAsUnread ? "font-semibold" : "font-normal",
           "text-sidebar-foreground",
           isRegeneratingTitle && "opacity-55",
         )}

@@ -109,6 +109,7 @@ export function startThreadNotifications(
     pending.clear();
   };
 
+  // Completions fire from a timer, so read settings, focus and route when presenting.
   const present = (
     environmentId: EnvironmentId,
     state: NotificationState,
@@ -197,8 +198,9 @@ export function startThreadNotifications(
       // body, since the latest finished reply predates the question or failure.
       const notification = new Notification(thread.title, {
         body:
-          (kind === "completion" ? sidebarMessagePreview(thread.latestVisibleMessage?.text) : null) ??
-          title,
+          (kind === "completion"
+            ? sidebarMessagePreview(thread.latestVisibleMessage?.text)
+            : null) ?? title,
         tag: threadNotificationTag(environmentId, thread.id),
         silent: true,
         // Windows drops clicks after a toast moves into Notification Center.
@@ -316,6 +318,7 @@ export function startThreadNotifications(
           observeThreads(environmentId, entry, threads);
           return;
         }
+        entry.gate.cancelPending();
         entry.reconnecting = true;
         entry.gate.pause();
       },

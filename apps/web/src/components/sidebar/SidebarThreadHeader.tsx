@@ -1,17 +1,5 @@
-/**
- * The sidebar header: the search field (with the project scope inside it)
- * and the new-thread button beside it.
- *
- * Search owns the row's text and spans it. Project scope collapses to an icon
- * that sits with new-project and new-thread as a segmented group at the end.
- * The scope icon swaps to the project favicon while a project is selected,
- * so the header still names the scope after the row that showed it is gone.
- *
- * The scope picker itself is passed in: its combobox state lives with the rest
- * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
- * the picker's popup can anchor to that width rather than to its 28px trigger.
- */
-import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+/** The sidebar header: search (with the unread filter and project scope inside it) and the new-thread button. */
+import { CircleDotIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -26,6 +14,8 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
+  unreadOnly: boolean;
+  onUnreadOnlyChange: (unreadOnly: boolean) => void;
   hasProjects: boolean;
   projectScope: ReactNode;
   /** Receives the click so Shift+click can skip the project picker. */
@@ -45,6 +35,8 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
+  unreadOnly,
+  onUnreadOnlyChange,
   hasProjects,
   projectScope,
   onNewThread,
@@ -73,8 +65,7 @@ export function SidebarThreadHeader({
     // the list), and compose as its own button beside it, like a messages
     // app. Adding a project lives in the scope menu.
     <div className="flex items-center gap-1.5">
-      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground"
-      >
+      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
         <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
@@ -111,7 +102,18 @@ export function SidebarThreadHeader({
             <XIcon className="size-3" />
           </Button>
         ) : null}
-        {hasProjects ? projectScope : null}
+        {/* Personal build: like Mail's filter, show only unread threads. */}
+        <span className="flex shrink-0">
+          <SidebarHeaderIconButton
+            label={unreadOnly ? "Show all threads" : "Show only unread threads"}
+            isActive={unreadOnly}
+            aria-pressed={unreadOnly}
+            onClick={() => onUnreadOnlyChange(!unreadOnly)}
+          >
+            <CircleDotIcon />
+          </SidebarHeaderIconButton>
+          {hasProjects ? projectScope : null}
+        </span>
       </div>
       {/* Its own filled square beside the field, like a compose button. */}
       <span className="flex shrink-0 rounded-lg bg-chip">
@@ -154,7 +156,7 @@ export function SidebarHeaderIconButton({
   children?: ReactNode;
 } & Omit<
   ComponentProps<typeof SidebarMenuButton>,
-  "children" | "className" | "tooltip" | "isActive" | "aria-label"
+  "children" | "className" | "tooltip" | "aria-label"
 >) {
   return (
     <Tooltip>

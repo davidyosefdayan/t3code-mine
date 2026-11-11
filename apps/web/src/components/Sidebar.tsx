@@ -141,6 +141,7 @@ import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { threadNeedsYou } from "./needsYouCount";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   useEnvironmentIdentities,
@@ -334,6 +335,7 @@ const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
+const UNREAD_ONLY_KEY = "t3code:sidebar:unread-only";
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -427,6 +429,7 @@ function useSidebarThreads(input: {
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
   readonly keepEmptyFolders: (group: SidebarProjectSnapshot) => boolean;
+  readonly unreadOnly: boolean;
 }) {
   const {
     projectScopeKey,
@@ -439,6 +442,7 @@ function useSidebarThreads(input: {
     routeRowThreadKey,
     folderGroups,
     keepEmptyFolders: keepEmpty,
+    unreadOnly,
   } = input;
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
@@ -472,7 +476,8 @@ function useSidebarThreads(input: {
   const settledVisibleCount =
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
-  const partition = partitionSidebarThreads({
+  const localLastVisitedAtByKey = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const fullPartition = partitionSidebarThreads({
     threads,
     scopedProjectKeys,
     delegatedUnderParent,
@@ -482,6 +487,27 @@ function useSidebarThreads(input: {
     sortActiveBySend: folderGroups !== null,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
+  // Personal build: "Unread only" keeps what the Dock badge counts, plus the
+  // open chat, so reading it doesn't pull it out from under you.
+  const keepInUnreadView = (thread: EnvironmentThreadShell) =>
+    threadShellKey(thread) === routeRowThreadKey ||
+    threadNeedsYou(
+      thread,
+      serverConfigs.get(thread.environmentId)?.environment.capabilities,
+      localLastVisitedAtByKey,
+      `${nowMinute}:00.000Z`,
+    );
+  const partition = unreadOnly
+    ? {
+        ...fullPartition,
+        waitingOnYouThreads: fullPartition.waitingOnYouThreads.filter(keepInUnreadView),
+        pinnedThreads: fullPartition.pinnedThreads.filter(keepInUnreadView),
+        activeThreads: fullPartition.activeThreads.filter(keepInUnreadView),
+        workingThreads: fullPartition.workingThreads.filter(keepInUnreadView),
+        snoozedThreads: fullPartition.snoozedThreads.filter(keepInUnreadView),
+        settledThreads: fullPartition.settledThreads.filter(keepInUnreadView),
+      }
+    : fullPartition;
 
   const {
     waitingOnYouThreads,
@@ -494,13 +520,14 @@ function useSidebarThreads(input: {
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledShelfExpanded && !unreadOnly,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
-  const settledCount =
-    settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const settledCount = unreadOnly
+    ? settledThreads.length
+    : settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -1336,6 +1363,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const [unreadOnly, setUnreadOnly] = useLocalStorage(UNREAD_ONLY_KEY, false, Schema.Boolean);
   const {
     waitingOnYouThreads,
     pinnedThreads,
@@ -1391,6 +1419,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+    unreadOnly,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -1966,7 +1995,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
     }
-    items.push({ kind: "marker", marker: "settled-header" });
+    if (!unreadOnly || settledCount > 0) items.push({ kind: "marker", marker: "settled-header" });
     const settledRows = rowsOf(renderedSettledThreads, "settled");
     items.push({ kind: "marker", marker: "settled-placeholder" });
     items.push(...settledRows);
@@ -2005,11 +2034,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   ].join("\0");
   const listMotionAnimate =
     dragState === null && sidebarListItems.length + visibleDraftSessionCount > 0;
-  // Personal build: on first load, shells arrive before each server's
-  // capabilities, and those decide which group a row belongs to. Motion waits
-  // until both have landed so startup sorting snaps into place instead of
-  // shuffling. The commit that completes the data is itself a re-sort, so
-  // motion starts only on the pass after it.
+  // Personal build: capabilities decide a row's group and arrive after the shells,
+  // so motion waits for both, starting the pass after the one that completes them,
+  // and startup sorting snaps into place instead of shuffling.
   const shellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const sidebarDataSettled =
     shellsBootstrapped && threads.every((thread) => serverConfigs.has(thread.environmentId));
@@ -2965,6 +2992,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         fixedHeader={
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
+              unreadOnly={unreadOnly}
+              onUnreadOnlyChange={setUnreadOnly}
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
@@ -3427,20 +3456,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         );
                       };
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
-                      const items: ReactNode[] = [
-                        <SidebarDraftBlock
-                          key="draft-sessions"
-                          projectByKey={projectByKey}
-                          projectDisplayNameByKey={projectDisplayNameByKey}
-                          scopedProjectKeys={scopedProjectKeys}
-                          routeDraftId={routeDraftIdForRows}
-                          onNavigateToDraft={navigateToDraft}
-                          onDraftContextMenu={handleDraftContextMenu}
-                          providerEntriesByEnvironment={providerEntriesByEnvironment}
-                          expanded={!collapsedGroups.isCollapsed("drafts")}
-                          onToggle={() => collapsedGroups.toggle("drafts")}
-                        />,
-                      ];
+                      const items: ReactNode[] = unreadOnly
+                        ? []
+                        : [
+                            <SidebarDraftBlock
+                              key="draft-sessions"
+                              projectByKey={projectByKey}
+                              projectDisplayNameByKey={projectDisplayNameByKey}
+                              scopedProjectKeys={scopedProjectKeys}
+                              routeDraftId={routeDraftIdForRows}
+                              onNavigateToDraft={navigateToDraft}
+                              onDraftContextMenu={handleDraftContextMenu}
+                              providerEntriesByEnvironment={providerEntriesByEnvironment}
+                              expanded={!collapsedGroups.isCollapsed("drafts")}
+                              onToggle={() => collapsedGroups.toggle("drafts")}
+                            />,
+                          ];
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
                           // Folders draw active rows in their own place below.
@@ -3653,7 +3684,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               </DndContext>
             </TooltipProvider>
           ) : null}
-          {!isSearchingThreads &&
+          {unreadOnly &&
+          !isSearchingThreads &&
+          waitingOnYouThreads.length +
+            pinnedThreads.length +
+            activeThreads.length +
+            workingThreads.length +
+            snoozedThreads.length +
+            settledCount ===
+            0 ? (
+            <div className="px-2 py-6 text-center text-xs text-muted-foreground/60">
+              No unread threads
+            </div>
+          ) : null}
+          {!unreadOnly &&
+          !isSearchingThreads &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
           waitingOnYouThreads.length +

@@ -124,9 +124,29 @@ interface NeedsYouCapabilities {
   readonly threadSettlement?: boolean;
 }
 
-/** How many threads are waiting on you or unread, by the sidebar's rules,
-    across every project, pins included. Snoozed, settled, archived, and
-    subagent threads don't count, nor do unread ones still working. */
+/** Waiting on you or unread, by the sidebar's rules. Snoozed, settled, and
+    working threads don't count. Callers rule out archived and subagent
+    threads. */
+export function threadNeedsYou(
+  thread: EnvironmentThreadShell,
+  capabilities: NeedsYouCapabilities | undefined,
+  localLastVisitedAtByKey: Readonly<Record<string, string>>,
+  now: string,
+): boolean {
+  if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) return false;
+  if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") return false;
+  if (threadWaitingOnYou(thread) !== null) return true;
+  if (isSidebarThreadWorking(thread)) return false;
+  const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const lastVisitedAt = resolveThreadLastVisitedAt(
+    thread.lastVisitedAt,
+    localLastVisitedAtByKey[key],
+  );
+  return isThreadUnread(thread, lastVisitedAt, now);
+}
+
+/** How many threads are waiting on you or unread, across every project,
+    pins included. */
 export function countThreadsNeedingYou(
   threads: readonly EnvironmentThreadShell[],
   capabilitiesOf: (thread: EnvironmentThreadShell) => NeedsYouCapabilities | undefined,
@@ -134,24 +154,9 @@ export function countThreadsNeedingYou(
   now: string,
   delegatedUnderParent: ReadonlySet<string> = new Set(),
 ): number {
-  let count = 0;
-  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
-    const capabilities = capabilitiesOf(thread);
-    if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) continue;
-    if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") continue;
-    if (threadWaitingOnYou(thread) !== null) {
-      count += 1;
-      continue;
-    }
-    if (isSidebarThreadWorking(thread)) continue;
-    const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-    const lastVisitedAt = resolveThreadLastVisitedAt(
-      thread.lastVisitedAt,
-      localLastVisitedAtByKey[key],
-    );
-    if (isThreadUnread(thread, lastVisitedAt, now)) count += 1;
-  }
-  return count;
+  return filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent).filter((thread) =>
+    threadNeedsYou(thread, capabilitiesOf(thread), localLastVisitedAtByKey, now),
+  ).length;
 }
 
 /** The count for the Dock badge and the rail's Threads dot. */
