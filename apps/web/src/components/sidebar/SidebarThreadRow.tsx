@@ -1,5 +1,6 @@
 import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
+import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import {
   activeSurfaceClassName,
@@ -609,9 +610,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
   // Personal build: unread covers a finished turn, an approval, question, or
-  // failure you haven't looked at, and a woken snooze (the row's dot).
-  // "Mark as read" or opening the thread clears any of them.
-  const showsAsUnread = isWoke || isYourTurnUnseen(thread, lastVisitedAt);
+  // failure you haven't looked at, and a woken snooze. Like the Dock badge, a
+  // chat still working or waiting isn't unread yet. Reading clears it.
+  const showsAsUnread =
+    !isSidebarThreadWorking(thread) && (isWoke || isYourTurnUnseen(thread, lastVisitedAt));
   const canToggleRead = yourTurnSince(thread) !== null || isWoke;
   const handleToggleReadClick = (event: ReactMouseEvent) => {
     event.preventDefault();
