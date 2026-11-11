@@ -1,29 +1,49 @@
-import { CoinsIcon, GaugeIcon } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
+import { ProviderDriverKind } from "@t3tools/contracts";
 import { useLocation, useRouter } from "@tanstack/react-router";
+import { LayoutGridIcon } from "lucide-react";
 
+import { environmentPresentations } from "../../state/presentation";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { PageSidebarNav } from "../sidebar/PageSidebarNav";
-import { readUsagePagePreferences, rememberUsageView } from "./usagePagePreferences";
+import { readUsagePagePreferences, rememberUsagePage } from "./usagePagePreferences";
+import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
+import { useUsageLimitSummaries } from "./UsageRailIcon";
 
-type UsageView = "limits" | "cost" | "tokens";
+const PAGE_ORDER: readonly string[] = [
+  PROVIDER_PRESENTATION.claude.driverKind,
+  PROVIDER_PRESENTATION.codex.driverKind,
+  ...PROVIDER_ORDER.map((kind) => PROVIDER_PRESENTATION[kind].driverKind),
+];
 
-function isUsageView(value: unknown): value is UsageView {
-  return value === "limits" || value === "cost" || value === "tokens";
-}
-
-// Personal build: the Usage page's two views, Limits (what is left) and Spend
-// (API-equivalent cost and tokens). The selection lives in the URL (?metric=),
-// read loosely so the sidebar can render a frame apart from the page.
+// Personal build: the Usage page's sidebar. All providers, then a page per
+// provider you have, each with its weekly limit left. The page lives in the
+// URL (?provider=), read loosely so the sidebar can render apart from the page.
 export function UsageSidebarNav() {
   const router = useRouter();
-  const saved = readUsagePagePreferences();
-  const searchMetric = useLocation({
-    select: (location) => (location.search as { readonly metric?: unknown }).metric,
+  const searchProvider = useLocation({
+    select: (location) => (location.search as { readonly provider?: unknown }).provider,
   });
-  const metric = isUsageView(searchMetric) ? searchMetric : saved.metric;
-  const onLimits = metric === "limits";
-  const show = (view: UsageView) => {
-    rememberUsageView(view);
-    void router.navigate({ href: `/usage?metric=${view}` });
+  const current =
+    typeof searchProvider === "string" && searchProvider
+      ? searchProvider
+      : (readUsagePagePreferences().provider ?? "all");
+  const summaries = useUsageLimitSummaries();
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
+  const installed = new Set<string>(
+    [...presentations.values()].flatMap((presentation) =>
+      (presentation.serverConfig?.providers ?? [])
+        .filter((provider) => provider.enabled && provider.installed)
+        .map((provider) => provider.driver),
+    ),
+  );
+  for (const summary of summaries) installed.add(summary.driver);
+  const drivers = PAGE_ORDER.filter(
+    (driver, index) => installed.has(driver) && PAGE_ORDER.indexOf(driver) === index,
+  );
+  const show = (view: string) => {
+    rememberUsagePage(view);
+    void router.navigate({ href: `/usage?provider=${encodeURIComponent(view)}` });
   };
   return (
     <PageSidebarNav
@@ -31,19 +51,33 @@ export function UsageSidebarNav() {
         {
           items: [
             {
-              id: "limits",
-              label: "Limits",
-              icon: GaugeIcon,
-              active: onLimits,
-              onSelect: () => show("limits"),
+              id: "all",
+              label: "All providers",
+              icon: LayoutGridIcon,
+              active: current === "all",
+              onSelect: () => show("all"),
             },
-            {
-              id: "spend",
-              label: "Spend",
-              icon: CoinsIcon,
-              active: !onLimits,
-              onSelect: () => show(saved.spendMetric ?? "cost"),
-            },
+            ...drivers.map((driver) => {
+              const label =
+                Object.values(PROVIDER_PRESENTATION).find((entry) => entry.driverKind === driver)
+                  ?.label ?? driver;
+              const summary = summaries.find((entry) => entry.driver === driver);
+              return {
+                id: driver,
+                label,
+                icon: (
+                  <ProviderInstanceIcon
+                    driverKind={ProviderDriverKind.make(driver)}
+                    displayName={label}
+                    className="size-4"
+                    iconClassName="size-4"
+                  />
+                ),
+                active: current === driver,
+                onSelect: () => show(driver),
+                ...(summary ? { trailing: `${summary.remainingPercent}% left` } : {}),
+              };
+            }),
           ],
         },
       ]}

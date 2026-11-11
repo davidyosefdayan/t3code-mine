@@ -10,6 +10,9 @@ import { cn } from "../../lib/utils";
 /** Insets that line a section title up with the text inside its card. */
 const INSET = "px-3 sm:px-4";
 
+/** The card surface, for a card that is itself a control. */
+export const PAGE_CARD_SURFACE = "min-w-0 rounded-xl border border-border/60 bg-card/40 shadow-xs/5";
+
 export function PageSection({
   title,
   description,
@@ -61,7 +64,7 @@ export function PageCard({
 }) {
   return (
     <div
-      className={cn("min-w-0 rounded-xl border border-border/60 bg-card/40 shadow-xs/5", className)}
+      className={cn(PAGE_CARD_SURFACE, className)}
     >
       {title ? (
         <div className={cn("flex items-baseline justify-between gap-3 pt-3.5", INSET)}>

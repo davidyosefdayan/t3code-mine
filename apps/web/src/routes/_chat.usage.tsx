@@ -1,39 +1,34 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { UsagePage } from "../components/usage/UsagePage";
-import { METRIC_OPTIONS, type UsageMetric } from "../components/usage/usageShortcuts";
 
-// Personal build: the view lives in the URL so the Usage sidebar (Limits,
-// Spend) and the page share it.
+// Personal build: the page lives in the URL so the Usage sidebar (All
+// providers, then one page per provider) and the page share it.
 export interface UsageSearch {
-  /** Selected view. Absent falls back to the saved preference. */
-  readonly metric?: UsageMetric;
-  /** Provider tab under Limits, by driver kind. Absent opens the tightest provider. */
+  /** A provider's driver kind, or `all`. Absent falls back to the saved page. */
   readonly provider?: string;
+  /** The unit charts show. Absent falls back to the saved unit. */
+  readonly metric?: "cost" | "tokens";
 }
 
 export const Route = createFileRoute("/_chat/usage")({
   validateSearch: (raw: Record<string, unknown>): UsageSearch => ({
-    ...(METRIC_OPTIONS.some((option) => option.value === raw.metric)
-      ? { metric: raw.metric as UsageMetric }
-      : {}),
-    ...(raw.metric === "limits" && typeof raw.provider === "string" && raw.provider
-      ? { provider: raw.provider }
-      : {}),
+    ...(typeof raw.provider === "string" && raw.provider ? { provider: raw.provider } : {}),
+    ...(raw.metric === "cost" || raw.metric === "tokens" ? { metric: raw.metric } : {}),
   }),
   component: UsageRoute,
 });
 
 function UsageRoute() {
-  const { metric, provider } = Route.useSearch();
+  const { provider, metric } = Route.useSearch();
   const navigate = Route.useNavigate();
   return (
     <UsagePage
-      {...(metric ? { metric } : {})}
-      {...(provider ? { provider } : {})}
-      onViewChange={(next, nextProvider) =>
+      {...(provider ? { view: provider } : {})}
+      {...(metric ? { unit: metric } : {})}
+      onNavigate={(next) =>
         void navigate({
-          search: { metric: next, ...(nextProvider ? { provider: nextProvider } : {}) },
+          search: { provider: next.view, ...(next.unit ? { metric: next.unit } : {}) },
         })
       }
     />

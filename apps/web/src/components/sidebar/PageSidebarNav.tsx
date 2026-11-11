@@ -1,4 +1,4 @@
-import { isValidElement, type ComponentType, type ReactElement } from "react";
+import { isValidElement, type ComponentType, type ReactElement, type ReactNode } from "react";
 
 import {
   SidebarContent,
@@ -15,6 +15,8 @@ export interface PageSidebarItem {
   readonly icon: ComponentType | ReactElement;
   readonly active: boolean;
   readonly onSelect: () => void;
+  /** A short fact at the row's end, such as a provider's limit left. */
+  readonly trailing?: ReactNode;
 }
 
 export interface PageSidebarSection {
@@ -41,7 +43,12 @@ export function PageSidebarNav({ sections }: { sections: ReadonlyArray<PageSideb
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton isActive={item.active} onClick={item.onSelect}>
                     {isValidElement(Icon) ? Icon : <Icon />}
-                    <span className="truncate">{item.label}</span>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.trailing ? (
+                      <span className="shrink-0 text-xs text-sidebar-muted-foreground tabular-nums">
+                        {item.trailing}
+                      </span>
+                    ) : null}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );

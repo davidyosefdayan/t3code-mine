@@ -2,7 +2,7 @@
  * Personal build: Usage → Limits. The weekly forecast (will it last until the
  * reset?) leads; under it, where the week went, by project, model, and chat.
  */
-import type { EnvironmentId, ServerProvider, UsageProviderKind } from "@t3tools/contracts";
+import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
   collectLimitPools,
@@ -11,15 +11,7 @@ import {
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  AlertTriangleIcon,
-  ArrowUpRightIcon,
-  CheckCircle2Icon,
-  CircleAlertIcon,
-  Clock3Icon,
-  LightbulbIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { TerminalIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
@@ -27,42 +19,28 @@ import { cn } from "../../lib/utils";
 import { useUsageBreakdown } from "../../state/usage";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { PageCard, PageMessage, PageSection, PageStat } from "../page/PageSection";
-import { providerClients } from "../settings/providerDriverMeta";
+import {
+  PAGE_CARD_SURFACE,
+  PageCard,
+  PageMessage,
+  PageSection,
+  PageStat,
+} from "../page/PageSection";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   type ChatShare,
   computeLimitInsights,
-  type ForecastStatus,
   formatPoints,
-  type Insight,
   type LimitInsights,
   mergeBreakdownSessions,
 } from "./limitInsights";
 import { barColor, useLimitPresentations } from "./UsageLimits";
 import { PoolSection, SegmentPopoverScope, UsageLimitsExtras } from "./UsageLimitsPooled";
-import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
+import { STATUS, type WeeklyTarget, weeklyTargetOf } from "./weeklyLimit";
 
 const HOUR = 60 * 60 * 1000;
-const MINUTE = 60 * 1000;
-
-/** Providers whose transcripts the server reads per session, so their week can be explained. */
-const BREAKDOWN_KINDS: ReadonlySet<UsageProviderKind> = new Set(["claude", "codex", "grok"]);
-
-function breakdownKindOf(driver: ServerProvider["driver"]): UsageProviderKind | null {
-  const kind = PROVIDER_ORDER.find((entry) => PROVIDER_PRESENTATION[entry].driverKind === driver);
-  return kind !== undefined && BREAKDOWN_KINDS.has(kind) ? kind : null;
-}
-
-function driverLabel(driver: ServerProvider["driver"]): string {
-  return providerClients.get(driver)?.label ?? String(driver);
-}
-
-/** Ids of the account-wide weekly window, ahead of model-scoped ones like `seven_day_opus`. */
-const MAIN_WEEKLY_IDS = new Set(["seven_day", "secondary", "weekly"]);
 
 /**
  * Categorical slots for projects, light and dark steps of one validated
@@ -80,99 +58,132 @@ const PROJECT_SLOTS = 6;
 const projectColor = (index: number) =>
   index < PROJECT_SLOTS ? `var(--project-${index})` : "var(--muted-foreground)";
 
-interface WeeklyTarget {
-  readonly driver: ServerProvider["driver"];
-  /** Null when the server cannot say which chats used it; the forecast still works. */
-  readonly kind: UsageProviderKind | null;
-  readonly label: string;
-  readonly window: LimitPoolWindow;
-  readonly startMs: number;
-  readonly resetsAtMs: number;
-}
-
-function weeklyTargetOf(pool: LimitPool): WeeklyTarget | null {
-  const weekly = pool.windows.filter((window) => window.kind === "weekly");
-  const window = weekly.find((candidate) => MAIN_WEEKLY_IDS.has(candidate.id)) ?? weekly[0];
-  if (!window) return null;
-  let startMs = Number.POSITIVE_INFINITY;
-  let resetsAtMs = 0;
-  for (const member of window.members) {
-    const resetsAt = member.window.resetsAt ? Date.parse(member.window.resetsAt) : Number.NaN;
-    const minutes = member.window.windowDurationMins;
-    if (!Number.isFinite(resetsAt) || !minutes) continue;
-    startMs = Math.min(startMs, resetsAt - minutes * MINUTE);
-    resetsAtMs = Math.max(resetsAtMs, resetsAt);
-  }
-  if (!Number.isFinite(startMs) || resetsAtMs === 0) return null;
-  return {
-    driver: pool.driver,
-    kind: breakdownKindOf(pool.driver),
-    label: driverLabel(pool.driver),
-    window,
-    startMs,
-    resetsAtMs,
-  };
-}
-
 /**
- * Usage → Limits. The overview answers "can I keep working?" for every
- * provider at once; a provider tab explains that provider's week: the
- * forecast, where it went, and every limit window.
+ * One provider's week: the forecast, then where it went. Nothing when the
+ * provider reports no weekly limit; its page then shows only its history.
  */
-export function UsageLimitsDashboard({
+export function UsageProviderLimits({
   provider,
-  onSelectProvider,
   selectedEnvironmentIds,
-  hiddenProviders,
   now,
 }: {
-  readonly provider: string | null;
-  readonly onSelectProvider: (driver: string) => void;
+  /** Driver kind, such as `claudeAgent`. */
+  readonly provider: string;
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-  readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
   /** Advanced on explicit refresh rather than ticking; a live clock would repaint for nothing. */
   readonly now: number;
 }) {
-  const selected = useLimitPresentations(selectedEnvironmentIds, hiddenProviders);
-  const pools = collectLimitPools(collectLimitAccounts(selected), now);
-  // Without a pick, open on the provider closest to running out.
-  const pool =
-    pools.find((candidate) => candidate.driver === provider) ??
-    pools.toSorted((left, right) => remainingOf(left) - remainingOf(right))[0];
-
+  const selected = useLimitPresentations(selectedEnvironmentIds, NO_HIDDEN);
+  const pool = collectLimitPools(collectLimitAccounts(selected), now).find(
+    (candidate) => candidate.driver === provider,
+  );
+  if (!pool) return null;
   return (
     <div className={cn("flex flex-col gap-8", PROJECT_COLORS)}>
-      {pool ? (
-        <div className="flex flex-col gap-6">
-          {pools.length > 1 ? (
-            <ProviderTabs
-              pools={pools}
-              selectedDriver={pool.driver}
-              now={now}
-              selectedEnvironmentIds={selectedEnvironmentIds}
-              onSelect={onSelectProvider}
-            />
-          ) : null}
-          <ProviderView
-            key={pool.driver}
-            pool={pool}
-            now={now}
-            selectedEnvironmentIds={selectedEnvironmentIds}
-          />
-        </div>
-      ) : (
-        <PageMessage>
-          No provider on the selected environments reports subscription limits.
-        </PageMessage>
-      )}
+      <ProviderView pool={pool} now={now} selectedEnvironmentIds={selectedEnvironmentIds} />
+    </div>
+  );
+}
+
+const NO_HIDDEN: ReadonlySet<UsageProviderKind> = new Set();
+
+/** Every provider's week at a glance; each card opens that provider's page. */
+export function UsageLimitsOverview({
+  selectedEnvironmentIds,
+  now,
+  onSelectProvider,
+}: {
+  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
+  readonly now: number;
+  readonly onSelectProvider: (driver: string) => void;
+}) {
+  const selected = useLimitPresentations(selectedEnvironmentIds, NO_HIDDEN);
+  const pools = collectLimitPools(collectLimitAccounts(selected), now).filter(
+    (pool) => weeklyTargetOf(pool) !== null,
+  );
+  return (
+    <div className="flex flex-col gap-8">
+      {pools.length > 0 ? (
+        <PageSection title="This week">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {pools.map((pool) => (
+              <ProviderSummaryCard
+                key={pool.driver}
+                pool={pool}
+                now={now}
+                selectedEnvironmentIds={selectedEnvironmentIds}
+                onSelect={() => onSelectProvider(pool.driver)}
+              />
+            ))}
+          </div>
+        </PageSection>
+      ) : null}
       <UsageLimitsExtras presentations={selected} />
     </div>
   );
 }
 
-/** Share left in the window the overview leads with: the weekly one when there is one. */
-function remainingOf(pool: LimitPool): number {
-  return (weeklyTargetOf(pool)?.window ?? pool.windows[0])?.remainingPercent ?? 100;
+function ProviderSummaryCard({
+  pool,
+  now,
+  selectedEnvironmentIds,
+  onSelect,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
+  readonly onSelect: () => void;
+}) {
+  const target = weeklyTargetOf(pool);
+  const { insights, isPending } = useWeeklyInsights(target, now, selectedEnvironmentIds);
+  if (!target || !insights) return null;
+  const { forecast } = insights;
+  const session = pool.windows.find((window) => window.kind === "session");
+  const color = barColor(pool.driver);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        PAGE_CARD_SURFACE,
+        "flex cursor-pointer flex-col gap-3 px-3 py-3.5 text-start outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-4",
+      )}
+    >
+      <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <ProviderInstanceIcon
+          driverKind={pool.driver}
+          displayName={target.label}
+          className="size-4"
+          iconClassName="size-3.5"
+        />
+        {target.label}
+      </span>
+      <PageStat label="Left this week" value={`${target.window.remainingPercent}%`} />
+      <span className="h-1.5 rounded-full bg-muted">
+        <span
+          className="block h-full rounded-full"
+          style={{ width: `${target.window.remainingPercent}%`, backgroundColor: color }}
+        />
+      </span>
+      <span className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+        <span
+          className={cn(
+            forecast.status === "runsOut" && "text-destructive-foreground",
+            forecast.status === "tight" && "text-warning-foreground",
+          )}
+        >
+          {isPending
+            ? "\u00a0"
+            : forecast.runsOutAtMs !== null
+              ? `May run out ${formatWeekdayTime(forecast.runsOutAtMs)}`
+              : STATUS[forecast.status].label}
+        </span>
+        {session ? (
+          <span className="tabular-nums">5-hour: {session.remainingPercent}% left</span>
+        ) : null}
+      </span>
+    </button>
+  );
 }
 
 /** The weekly forecast and breakdown for one target; the overview and the provider tab share the query. */
@@ -205,79 +216,6 @@ function useWeeklyInsights(
       )
     : null;
   return { insights, isPending: breakdown.isPending && breakdown.answers.length === 0 };
-}
-
-/** One tab per provider that reports limits, each with its share left and a warning when needed. */
-function ProviderTabs({
-  pools,
-  selectedDriver,
-  now,
-  selectedEnvironmentIds,
-  onSelect,
-}: {
-  readonly pools: readonly LimitPool[];
-  readonly selectedDriver: string;
-  readonly now: number;
-  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-  readonly onSelect: (driver: string) => void;
-}) {
-  return (
-    <ToggleGroup
-      aria-label="Provider"
-      variant="segmented"
-      className="self-start"
-      value={[selectedDriver]}
-      onValueChange={(next) => {
-        if (next[0]) onSelect(next[0]);
-      }}
-    >
-      {pools.map((pool) => (
-        <ProviderTab
-          key={pool.driver}
-          pool={pool}
-          now={now}
-          selectedEnvironmentIds={selectedEnvironmentIds}
-        />
-      ))}
-    </ToggleGroup>
-  );
-}
-
-function ProviderTab({
-  pool,
-  now,
-  selectedEnvironmentIds,
-}: {
-  readonly pool: LimitPool;
-  readonly now: number;
-  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-}) {
-  const target = weeklyTargetOf(pool);
-  const { insights, isPending } = useWeeklyInsights(target, now, selectedEnvironmentIds);
-  const label = driverLabel(pool.driver);
-  const status = isPending ? undefined : insights?.forecast.status;
-  const warn = status === "runsOut" || status === "tight";
-  return (
-    <Toggle value={pool.driver}>
-      <ProviderInstanceIcon
-        driverKind={pool.driver}
-        displayName={label}
-        className="size-4"
-        iconClassName="size-3.5"
-      />
-      {label}
-      <span className="text-muted-foreground tabular-nums">{remainingOf(pool)}% left</span>
-      {warn ? (
-        <AlertTriangleIcon
-          aria-label={STATUS[status].label}
-          className={cn(
-            "size-3.5",
-            status === "runsOut" ? "text-destructive-foreground" : "text-warning-foreground",
-          )}
-        />
-      ) : null}
-    </Toggle>
-  );
 }
 
 function nextResetIn(window: LimitPoolWindow, now: number): string {
@@ -349,22 +287,13 @@ function WeeklyLimitView({
       />
       {target.kind === null ? null : (
         <PageSection
-          title="Usage breakdown"
-          description={
-            <>
-              Estimated percentages of your weekly limit since {formatWeekday(target.startMs)}. The{" "}
-              {target.window.usedPercent}% used is divided among recorded chats based on cost.
-              Missing activity can make these estimates too high.
-            </>
-          }
+          title="Where it went"
+          description={`Estimated shares of this week's limit since ${formatWeekday(target.startMs)}.`}
         >
           {isPending ? (
             <UsageBreakdownSkeleton />
           ) : insights.chats.length === 0 ? (
-            <PageMessage>
-              No {target.label} chat records found for this week in the selected environments. Your
-              provider's reported usage may include activity that is not recorded here.
-            </PageMessage>
+            <PageMessage>No {target.label} chats recorded this week.</PageMessage>
           ) : (
             <UsageBreakdown insights={insights} color={color} now={now} />
           )}
@@ -373,20 +302,6 @@ function WeeklyLimitView({
     </>
   );
 }
-
-const STATUS: Record<
-  ForecastStatus,
-  {
-    readonly label: string;
-    readonly variant: "info" | "success" | "warning" | "error";
-    readonly icon: typeof CheckCircle2Icon;
-  }
-> = {
-  early: { label: "Forecast pending", variant: "info", icon: Clock3Icon },
-  onTrack: { label: "On track", variant: "success", icon: CheckCircle2Icon },
-  tight: { label: "High projected usage", variant: "warning", icon: CircleAlertIcon },
-  runsOut: { label: "May reach limit before reset", variant: "error", icon: AlertTriangleIcon },
-};
 
 /** The forecast in one sentence, shared by the overview card and the provider tab. */
 function ForecastSentence({
@@ -482,14 +397,7 @@ function ForecastSection({
         )
       }
     >
-      <PageCard
-        footer={
-          <p>
-            Percentages are of your full weekly limit. The daily allowance spreads your remaining
-            usage evenly until reset. It is not a separate daily limit.
-          </p>
-        }
-      >
+      <PageCard>
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
             <div className="flex min-w-0 flex-[1_1_20rem] flex-col gap-2">
@@ -542,19 +450,15 @@ function ForecastSection({
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
             <PageStat
-              label="Used today, estimated"
-              value={estimate(
-                forecast.today === null ? "Unavailable" : `≈${formatPoints(forecast.today)}`,
-              )}
+              label="Used today"
+              value={estimate(forecast.today === null ? "–" : formatPoints(forecast.today))}
             />
             <PageStat
-              label="Last 24 hours, estimated"
-              value={estimate(
-                forecast.last24h === null ? "Unavailable" : `≈${formatPoints(forecast.last24h)}`,
-              )}
+              label="Last 24 hours"
+              value={estimate(forecast.last24h === null ? "–" : formatPoints(forecast.last24h))}
             />
             <PageStat
-              label="Average daily use"
+              label="Average per day"
               value={estimate(
                 forecast.status === "early"
                   ? "After 24 hours"
@@ -562,7 +466,7 @@ function ForecastSection({
               )}
             />
             <PageStat
-              label="Available per day until reset"
+              label="Available per day"
               value={estimate(formatPoints(forecast.dailyBudget))}
             />
           </div>
@@ -855,63 +759,11 @@ function UsageBreakdown({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      {insights.insights.length > 0 ? <Insights insights={insights.insights} /> : null}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <ProjectsCard insights={insights} />
         <ModelsCard insights={insights} color={color} />
       </div>
       <ChatsCard insights={insights} color={color} now={now} />
-    </div>
-  );
-}
-
-function Insights({ insights }: { readonly insights: readonly Insight[] }) {
-  const navigate = useNavigate();
-  return (
-    <div className="flex flex-col gap-3">
-      {insights.map((insight) => {
-        const Icon = insight.tone === "warning" ? AlertTriangleIcon : LightbulbIcon;
-        const session = insight.session;
-        return (
-          <div
-            key={insight.id}
-            className={cn(
-              "flex gap-3 rounded-xl border px-3 py-3.5 sm:px-4",
-              insight.tone === "warning"
-                ? "border-warning/30 bg-warning-surface"
-                : "border-border/60 bg-card/40 shadow-xs/5",
-            )}
-          >
-            <Icon
-              aria-hidden
-              className={cn(
-                "mt-0.5 size-4 shrink-0",
-                insight.tone === "warning" ? "text-warning-foreground" : "text-muted-foreground",
-              )}
-            />
-            <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-sm font-medium text-foreground">{insight.title}</p>
-              <p className="text-xs text-muted-foreground">{insight.body}</p>
-              {session?.threadId ? (
-                <Button
-                  size="xs"
-                  variant="outline"
-                  className="mt-1.5 w-fit"
-                  onClick={() =>
-                    void navigate({
-                      to: "/$environmentId/$threadId",
-                      params: { environmentId: session.environmentId, threadId: session.threadId! },
-                    })
-                  }
-                >
-                  Open chat
-                  <ArrowUpRightIcon aria-hidden />
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -957,7 +809,7 @@ function ProjectsCard({ insights }: { readonly insights: LimitInsights }) {
         {rows.map((row) => (
           <li
             key={row.key}
-            className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 text-sm"
+            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 text-sm"
           >
             <span
               aria-hidden
@@ -965,9 +817,6 @@ function ProjectsCard({ insights }: { readonly insights: LimitInsights }) {
               style={{ backgroundColor: row.color }}
             />
             <span className="truncate text-foreground">{row.label}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {row.chats} {row.chats === 1 ? "chat" : "chats"}
-            </span>
             <span className="w-14 text-end font-medium text-foreground tabular-nums">
               ≈{formatPoints(row.points)}
             </span>
@@ -1099,16 +948,6 @@ function ChatRow({
             style={{ backgroundColor: dotColor }}
           />
           <span className="truncate">{chat.projectLabel}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0 tabular-nums">
-            {chat.responses} {chat.responses === 1 ? "response" : "responses"}
-          </span>
-          {chat.models.length > 0 ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{chat.models.join(", ")}</span>
-            </>
-          ) : null}
         </span>
       </span>
       <span className="hidden w-40 shrink-0 sm:block">

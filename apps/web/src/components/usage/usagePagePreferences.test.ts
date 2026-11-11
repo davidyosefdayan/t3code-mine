@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   readUsagePagePreferences,
-  rememberUsageView,
+  rememberUsagePage,
   saveUsagePagePreferences,
 } from "./usagePagePreferences";
 
@@ -48,16 +48,15 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 7 });
   });
 
-  // The rail opens Usage on the saved view, so a sidebar switch must save it.
-  it("remembers the view chosen from the Usage sidebar", () => {
+  // The rail opens Usage on the saved page, so a sidebar switch must save it.
+  it("remembers the page chosen from the Usage sidebar", () => {
     saveUsagePagePreferences({ metric: "tokens", windowDays: 7, spendMetric: "tokens" });
-    rememberUsageView("limits");
+    rememberUsagePage("claudeAgent");
     expect(readUsagePagePreferences()).toEqual({
-      metric: "limits",
+      metric: "tokens",
       windowDays: 7,
       spendMetric: "tokens",
+      provider: "claudeAgent",
     });
-    rememberUsageView("cost");
-    expect(readUsagePagePreferences()).toMatchObject({ metric: "cost", spendMetric: "cost" });
   });
 });
