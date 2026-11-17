@@ -240,6 +240,7 @@ export const make = Effect.gen(function* () {
       storageCleanup: true,
       storageCleanupRun: true,
       databaseStorage: true,
+      storageWorktrees: true,
       otlpEndpointCheck: true,
       secretSourceCheck: true,
       projectWorktreeCleanup: true,

@@ -109,6 +109,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   storageCleanup: Schema.optionalKey(Schema.Boolean),
   storageCleanupRun: Schema.optionalKey(Schema.Boolean),
   databaseStorage: Schema.optionalKey(Schema.Boolean),
+  /** Personal build: Settings → Storage lists worktree folders and can free or delete them. */
+  storageWorktrees: Schema.optionalKey(Schema.Boolean),
   otlpEndpointCheck: Schema.optionalKey(Schema.Boolean),
   /** Serves `server.checkSecretSource`; hide the secret check where it is absent. */
   secretSourceCheck: Schema.optionalKey(Schema.Boolean),
