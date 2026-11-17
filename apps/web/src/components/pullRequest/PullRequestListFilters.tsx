@@ -22,7 +22,7 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
-import { type ElementType, useState } from "react";
+import { type ElementType, type ReactElement, useState } from "react";
 
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { useDebouncedValue } from "~/state/queries";
@@ -540,7 +540,10 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId,
   unavailable,
   onProject,
+  renderTrigger,
 }: {
+  /** Personal build: a trigger of the page's own, such as the sidebar search bar's filter icon. */
+  renderTrigger?: (filterCount: number) => ReactElement;
   onOpenChange?: (open: boolean) => void;
   state: PullRequestListState;
   stateOptions: ReadonlyArray<PullRequestFilterOption<PullRequestListState>>;
@@ -614,17 +617,21 @@ export function PullRequestFiltersMenu({
   ];
   return (
     <Menu onOpenChange={onOpenChange}>
-      <MenuTrigger render={<Button variant="outline" />}>
-        <ListFilterIcon className="size-4" />
-        <span>
-          <T>Filters</T>
-        </span>
-        {filterCount > 0 ? (
-          <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
-            {filterCount}
+      {renderTrigger ? (
+        <MenuTrigger render={renderTrigger(filterCount)} />
+      ) : (
+        <MenuTrigger render={<Button variant="outline" />}>
+          <ListFilterIcon className="size-4" />
+          <span>
+            <T>Filters</T>
           </span>
-        ) : null}
-      </MenuTrigger>
+          {filterCount > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
+              {filterCount}
+            </span>
+          ) : null}
+        </MenuTrigger>
+      )}
       <MenuPopup align="end" side="bottom">
         <PullRequestFilterRadioSubmenu
           label={gt("State", { $context: "pull request filter" })}

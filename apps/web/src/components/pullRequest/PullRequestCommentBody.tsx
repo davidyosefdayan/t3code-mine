@@ -21,7 +21,14 @@ export function PullRequestCommentBody({
       <div
         ref={clip}
         id={id}
-        className={cn("relative", !expanded && "max-h-[240px] overflow-hidden")}
+        className={cn(
+          "relative",
+          !expanded && "max-h-[240px] overflow-hidden",
+          // Personal build: a mask, not a painted gradient, so it fades into translucent themes too.
+          overflowing &&
+            !expanded &&
+            "[mask-image:linear-gradient(to_bottom,black_calc(100%-2.5rem),transparent)]",
+        )}
         onFocusCapture={() => setExpanded(true)}
       >
         <div
@@ -34,12 +41,6 @@ export function PullRequestCommentBody({
         >
           <PullRequestMarkdown {...props} />
         </div>
-        {overflowing && !expanded ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent"
-          />
-        ) : null}
       </div>
       {overflowing ? (
         <Button

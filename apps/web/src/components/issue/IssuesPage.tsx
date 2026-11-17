@@ -27,6 +27,7 @@ import {
   CalendarArrowDownIcon,
   CircleCheckIcon,
   ClockIcon,
+  ExternalLinkIcon,
   LayersIcon,
   PenLineIcon,
   Plug2Icon,
@@ -58,6 +59,8 @@ import { m, type MessageResolver } from "~/i18n/messages";
 import { resolveFilterOptions } from "../pullRequest/pullRequestListOptions";
 import { IssueFiltersMenu } from "./IssueListFilterPickers";
 import { IssuesSidebarList } from "./IssuesSidebarList";
+import { Page, PageEmpty } from "../page/Page";
+import { SidebarGroupButton } from "../sidebar/ThreadRowParts";
 import { keepOnlySelectedSurface } from "../page/singleOpenSurface";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { useIssuesSidebarSlot } from "./issuesSidebarSlot";
@@ -413,6 +416,38 @@ export function IssuesPage() {
           ) ?? null)
       : null;
 
+  // Personal build: the header says which issue is open; the sidebar already says "Issues".
+  const issuePagePath = (
+    surface: NonNullable<typeof panelSurface>,
+    entry: typeof panelListEntry,
+  ): ReadonlyArray<ReactNode> =>
+    surface.kind === "pull-request"
+      ? [
+          <span key="repository" className="truncate">
+            {surface.repository}
+          </span>,
+          <span key="number">#{surface.number}</span>,
+        ]
+      : surface.kind !== "issue"
+        ? []
+        : [
+            <span key="scope" className="truncate">
+              {surface.scope}
+            </span>,
+            entry ? (
+              <a
+                key="key"
+                href={entry.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 hover:underline"
+              >
+                {entry.displayKey}
+                <ExternalLinkIcon aria-hidden className="size-3 text-muted-foreground" />
+              </a>
+            ) : null,
+          ];
+
   const selectSurfaceInUrl = (surface: RightPanelSurface | null) =>
     updateSearch(
       surface?.kind === "issue"
@@ -518,6 +553,12 @@ export function IssuesPage() {
   const showTracker = groups.length > 1;
   const noneAnswered = list.answers.length === 0;
 
+  const [collapsedTrackers, setCollapsedTrackers] = useState<ReadonlySet<string>>(new Set());
+  const toggleTracker = (key: string) => {
+    const next = new Set(collapsedTrackers);
+    if (!next.delete(key)) next.add(key);
+    setCollapsedTrackers(next);
+  };
   const listBody: ReactNode = !issuesSupported ? (
     <PullRequestsUnavailableState
       title={gt("Issues unavailable")}
@@ -562,7 +603,7 @@ export function IssuesPage() {
       </EmptyHeader>
     </Empty>
   ) : (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col">
       {list.error ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-xs">
           <span>
@@ -579,93 +620,106 @@ export function IssuesPage() {
         const presentation = issueTrackerPresentation(group.tracker.tracker);
         const showScope = new Set(group.rows.map((row) => row.scope.toLowerCase())).size > 1;
         return (
-          <section key={issueTrackerKey(group.tracker)} className="flex flex-col gap-1">
-            <h2 className="flex items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
-              <presentation.Icon aria-hidden className="size-3.5" />
-              {presentation.providerName}
-              {presentation.providerName.toLowerCase() !== group.tracker.host ? (
-                <span className="font-normal">· {group.tracker.host}</span>
-              ) : null}
-              <span className="font-normal">
-                ·{" "}
-                {gt("{count, plural, one {{count} project} other {{count} projects}}", {
-                  count: group.tracker.projectCount,
-                })}
-              </span>
-            </h2>
-            {!group.tracker.configured ? (
-              <p className="px-3 text-sm text-muted-foreground">
-                {group.tracker.detail === null
-                  ? gt("This tracker cannot be read right now.")
-                  : issueTrackerDetailText(group.tracker.detail, resolve)}
-              </p>
-            ) : null}
-            {group.errors.map((error) => (
-              <p
-                key={`${error.environmentId}:${error.projectTitle}`}
-                className="px-3 text-xs text-destructive"
-              >
-                {error.projectTitle}: {error.message}
-              </p>
-            ))}
-            {group.tracker.configured && group.rows.length === 0 && group.errors.length === 0 ? (
-              <p className="px-3 text-sm text-muted-foreground">
-                {debouncedQuery ? (
-                  <T>Nothing matches that.</T>
-                ) : (
-                  <T>No issues under these filters.</T>
-                )}
-              </p>
-            ) : null}
-            {group.rows.map((row) => {
-              const key = issueEntryKey(row);
-              const selected =
-                renderedSurface?.kind === "issue" &&
-                renderedSurface.environmentId === row.environmentId &&
-                issueEntryKey({
-                  ...renderedSurface,
-                  host: renderedSurface.host ?? "",
-                  projectId: renderedSurface.projectId as ProjectId,
-                }) === key;
-              return (
-                <IssueRow
-                  key={`${row.environmentId}:${key}`}
-                  entry={row}
-                  selected={selected}
-                  showScope={showScope}
-                  showTracker={showTracker}
-                  {...(capableEnvironments.length > 1 && environmentLabels.has(row.environmentId)
-                    ? { environmentLabel: environmentLabels.get(row.environmentId) }
-                    : {})}
-                  onSelect={selectEntry}
-                />
-              );
-            })}
-            {group.more.map((environmentId) => {
-              const moreFailure = held.get(environmentId)?.moreFailure ?? null;
-              return (
-                <Fragment key={environmentId}>
-                  {moreFailure === null ? null : (
-                    <p className="px-3 text-xs text-destructive">{moreFailure}</p>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost-muted"
-                    className="self-start"
-                    disabled={loadingMore !== null}
-                    onClick={() => void loadMore(environmentId, group.tracker.host)}
+          // Personal build: the tracker's title is the thread list's group title, and folds it.
+          <section
+            key={issueTrackerKey(group.tracker)}
+            aria-label={presentation.providerName}
+            className="flex flex-col gap-0.5 pt-3"
+          >
+            <SidebarGroupButton
+              label={
+                // The tracker's own site needs no host; a self-hosted one does.
+                [
+                  presentation.providerName.toLowerCase(),
+                  `${presentation.providerName.toLowerCase()}.com`,
+                ].includes(group.tracker.host)
+                  ? presentation.providerName
+                  : `${presentation.providerName} · ${group.tracker.host}`
+              }
+              count={group.rows.length}
+              expanded={!collapsedTrackers.has(issueTrackerKey(group.tracker))}
+              onToggle={() => toggleTracker(issueTrackerKey(group.tracker))}
+            />
+            {collapsedTrackers.has(issueTrackerKey(group.tracker)) ? null : (
+              <>
+                {!group.tracker.configured ? (
+                  <p className="px-3 text-sm text-muted-foreground">
+                    {group.tracker.detail === null
+                      ? gt("This tracker cannot be read right now.")
+                      : issueTrackerDetailText(group.tracker.detail, resolve)}
+                  </p>
+                ) : null}
+                {group.errors.map((error) => (
+                  <p
+                    key={`${error.environmentId}:${error.projectTitle}`}
+                    className="px-3 text-xs text-destructive"
                   >
-                    {loadingMore === `${environmentId} ${group.tracker.host}` ? (
-                      <T>Loading…</T>
-                    ) : moreFailure === null ? (
-                      <T>Load more</T>
+                    {error.projectTitle}: {error.message}
+                  </p>
+                ))}
+                {group.tracker.configured &&
+                group.rows.length === 0 &&
+                group.errors.length === 0 ? (
+                  <p className="px-3 text-sm text-muted-foreground">
+                    {debouncedQuery ? (
+                      <T>Nothing matches that.</T>
                     ) : (
-                      <T>Retry</T>
+                      <T>No issues under these filters.</T>
                     )}
-                  </Button>
-                </Fragment>
-              );
-            })}
+                  </p>
+                ) : null}
+                {group.rows.map((row) => {
+                  const key = issueEntryKey(row);
+                  const selected =
+                    renderedSurface?.kind === "issue" &&
+                    renderedSurface.environmentId === row.environmentId &&
+                    issueEntryKey({
+                      ...renderedSurface,
+                      host: renderedSurface.host ?? "",
+                      projectId: renderedSurface.projectId as ProjectId,
+                    }) === key;
+                  return (
+                    <IssueRow
+                      key={`${row.environmentId}:${key}`}
+                      entry={row}
+                      selected={selected}
+                      showScope={showScope}
+                      showTracker={showTracker}
+                      {...(capableEnvironments.length > 1 &&
+                      environmentLabels.has(row.environmentId)
+                        ? { environmentLabel: environmentLabels.get(row.environmentId) }
+                        : {})}
+                      onSelect={selectEntry}
+                    />
+                  );
+                })}
+                {group.more.map((environmentId) => {
+                  const moreFailure = held.get(environmentId)?.moreFailure ?? null;
+                  return (
+                    <Fragment key={environmentId}>
+                      {moreFailure === null ? null : (
+                        <p className="px-3 text-xs text-destructive">{moreFailure}</p>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost-muted"
+                        className="self-start"
+                        disabled={loadingMore !== null}
+                        onClick={() => void loadMore(environmentId, group.tracker.host)}
+                      >
+                        {loadingMore === `${environmentId} ${group.tracker.host}` ? (
+                          <T>Loading…</T>
+                        ) : moreFailure === null ? (
+                          <T>Load more</T>
+                        ) : (
+                          <T>Retry</T>
+                        )}
+                      </Button>
+                    </Fragment>
+                  );
+                })}
+              </>
+            )}
           </section>
         );
       })}
@@ -679,65 +733,65 @@ export function IssuesPage() {
   ) => (
     <PullRequestMarkdownPanelContext value={ref}>
       {surface.kind === "issue" ? (
-      <IssueDetailPanel
-        key={`${environmentId}:${surface.id}`}
-        environmentId={environmentId}
-        listEntry={panelListEntry}
-        reference={{
-          projectId: surface.projectId as ProjectId,
-          tracker: surface.tracker as IssueTrackerKind,
-          ...(surface.host ? { host: surface.host } : {}),
-          scope: surface.scope,
-          key: surface.key,
-        }}
-        onSelectPullRequest={(reference) => {
-          // Personal build: with one item open at a time, a linked pull request
-          // opens on Pull requests, so Back returns to this issue.
-          if (sidebarSlot !== null) {
-            void navigate({
-              to: "/pull-requests",
-              search: {
-                ...readPullRequestListPreferences(),
-                repository: reference.repository,
-                number: reference.number,
-                selectedProjectId: reference.projectId,
-                selectedEnvironmentId: environmentId,
-                selectedHost: reference.host,
-              },
+        <IssueDetailPanel
+          key={`${environmentId}:${surface.id}`}
+          environmentId={environmentId}
+          listEntry={panelListEntry}
+          reference={{
+            projectId: surface.projectId as ProjectId,
+            tracker: surface.tracker as IssueTrackerKind,
+            ...(surface.host ? { host: surface.host } : {}),
+            scope: surface.scope,
+            key: surface.key,
+          }}
+          onSelectPullRequest={(reference) => {
+            // Personal build: with one item open at a time, a linked pull request
+            // opens on Pull requests, so Back returns to this issue.
+            if (sidebarSlot !== null) {
+              void navigate({
+                to: "/pull-requests",
+                search: {
+                  ...readPullRequestListPreferences(),
+                  repository: reference.repository,
+                  number: reference.number,
+                  selectedProjectId: reference.projectId,
+                  selectedEnvironmentId: environmentId,
+                  selectedHost: reference.host,
+                },
+              });
+              return;
+            }
+            useRightPanelStore.getState().openPullRequest(ref, {
+              projectId: reference.projectId,
+              repository: reference.repository,
+              number: reference.number,
+              ...(reference.host === undefined ? {} : { host: reference.host }),
+              environmentId: environmentId,
             });
-            return;
+          }}
+          onSelectIssue={({ host, ...reference }) =>
+            selectEntry({
+              ...reference,
+              ...(host === undefined ? {} : { host }),
+              environmentId: environmentId,
+            })
           }
-          useRightPanelStore.getState().openPullRequest(ref, {
-            projectId: reference.projectId,
-            repository: reference.repository,
-            number: reference.number,
-            ...(reference.host === undefined ? {} : { host: reference.host }),
-            environmentId: environmentId,
-          });
-        }}
-        onSelectIssue={({ host, ...reference }) =>
-          selectEntry({
-            ...reference,
-            ...(host === undefined ? {} : { host }),
-            environmentId: environmentId,
-          })
-        }
-      />
-    ) : (
-      <PullRequestDetailPanel
-        key={surface.id}
-        getShortcutContext={getShortcutContext}
-        shortcutsEnabled={panelSurface?.id === surface.id}
-        environmentId={environmentId}
-        reference={{
-          projectId: (surface as PullRequestSurface).projectId as ProjectId,
-          repository: (surface as PullRequestSurface).repository,
-          number: (surface as PullRequestSurface).number,
-          ...((surface as PullRequestSurface).host
-            ? { host: (surface as PullRequestSurface).host }
-            : {}),
-        }}
-      />
+        />
+      ) : (
+        <PullRequestDetailPanel
+          key={surface.id}
+          getShortcutContext={getShortcutContext}
+          shortcutsEnabled={panelSurface?.id === surface.id}
+          environmentId={environmentId}
+          reference={{
+            projectId: (surface as PullRequestSurface).projectId as ProjectId,
+            repository: (surface as PullRequestSurface).repository,
+            number: (surface as PullRequestSurface).number,
+            ...((surface as PullRequestSurface).host
+              ? { host: (surface as PullRequestSurface).host }
+              : {}),
+          }}
+        />
       )}
     </PullRequestMarkdownPanelContext>
   );
@@ -866,17 +920,21 @@ export function IssuesPage() {
           sidebarSlot,
         )}
         {/* One issue at a time, like a chat on Threads: no tabs. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          {showingIssue && panelSurface && panelEnvironmentId !== null && rightPanelRef !== null ? (
+        {showingIssue && panelSurface && panelEnvironmentId !== null && rightPanelRef !== null ? (
+          <Page path={issuePagePath(panelSurface, panelListEntry)}>
             <div className="flex min-h-0 flex-1 flex-col">
               {detailFor(panelSurface, panelEnvironmentId, rightPanelRef)}
             </div>
-          ) : (
-            <p className="m-auto px-6 text-sm text-muted-foreground">
-              <T>Pick an issue from the list to open it here.</T>
-            </p>
-          )}
-        </div>
+          </Page>
+        ) : (
+          <Page path={[]}>
+            <PageEmpty
+              icon={<IssueGlyph.issue />}
+              title={<T>No issue open</T>}
+              description={<T>Pick one from the list to open it here.</T>}
+            />
+          </Page>
+        )}
       </>
     );
 

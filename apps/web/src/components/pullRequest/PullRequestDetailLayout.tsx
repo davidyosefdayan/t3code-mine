@@ -98,6 +98,7 @@ export function PullRequestDetailTabBar<Tab extends string>({
   onValueChange,
   onTabIntent,
   inert,
+  placement = "panel",
   children,
 }: {
   tabs: ReadonlyArray<{ readonly value: Tab; readonly label: string }>;
@@ -105,6 +106,8 @@ export function PullRequestDetailTabBar<Tab extends string>({
   onValueChange?: (tab: Tab) => void;
   onTabIntent?: (tab: Tab) => void;
   inert?: boolean;
+  /** Personal build: "header" sits in a page header, bare, beside where you are. */
+  placement?: "panel" | "header";
   children?: ReactNode;
 }) {
   const gt = useGT();
@@ -114,7 +117,11 @@ export function PullRequestDetailTabBar<Tab extends string>({
   useEffect(() => () => clearTimeout(pointerIntent.current), []);
   return (
     <nav
-      className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2"
+      className={
+        placement === "header"
+          ? "flex shrink-0 items-center"
+          : "col-span-2 flex min-w-0 flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2"
+      }
       aria-label={gt("Pull request tabs")}
       inert={inert}
     >

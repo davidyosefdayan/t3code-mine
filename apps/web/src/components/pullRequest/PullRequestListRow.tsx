@@ -17,7 +17,7 @@ import {
 } from "./pullRequestPresentation";
 
 export const PULL_REQUEST_ROW_CLASS =
-  "group/pr-row flex w-full items-center gap-2 rounded-md py-1 pr-1 text-left";
+  "group/pr-row flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-1 text-left";
 
 export const PULL_REQUEST_ROW_NUMBER_CLASS =
   "shrink-0 font-mono text-xs tabular-nums text-muted-foreground";

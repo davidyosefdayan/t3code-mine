@@ -73,6 +73,7 @@ import {
   pullRequestCompletionScope,
 } from "./PullRequestMarkdownTextarea";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { observeResize } from "~/lib/observeResize";
 
 import { changeRequestTermKind, type ChangeRequestTermKind } from "./changeRequestTerm";
 
@@ -820,6 +821,7 @@ function ReviewVerdictEvent({
 }
 
 export function PullRequestTimelineTab({
+  lead,
   revealUrl,
   onRevealSettled,
   scrollerRef,
@@ -832,6 +834,8 @@ export function PullRequestTimelineTab({
   onAddToChat,
   onRefresh,
 }: {
+  /** Personal build: the page's title block, scrolled with the timeline. */
+  lead?: ReactNode;
   /** A clicked link to scroll to and mark, until onRevealSettled reports it shown. */
   revealUrl?: string | undefined;
   onRevealSettled?: ((revealUrl: string) => void) | undefined;
@@ -977,6 +981,7 @@ export function PullRequestTimelineTab({
         data-workspace-focus-default
         className="scrollbar-gutter-both h-full overflow-y-auto px-4 py-5 outline-none"
       >
+        {lead ? <div className="mx-auto w-full max-w-3xl">{lead}</div> : null}
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
           <PullRequestGlyph.pullRequest className="mb-2 size-5" />
           <p className="text-xs">
@@ -1003,17 +1008,35 @@ export function PullRequestTimelineTab({
       tabIndex={-1}
       data-workspace-focus-default
       className="scrollbar-gutter-both h-full px-4 outline-none"
-      contentContainerClassName="relative mx-auto w-full max-w-3xl before:absolute before:bottom-10 before:left-[15px] before:top-6 before:w-px before:bg-border/45"
+      contentContainerClassName="relative mx-auto w-full max-w-3xl before:absolute before:bottom-10 before:left-[15px] before:top-[calc(var(--timeline-lead-height,0px)+1.5rem)] before:w-px before:bg-border/45"
       ListHeaderComponent={
-        anchor !== null && targetIndex < 0 && revealUrl === undefined ? (
-          <p role="status" className="py-4 text-xs text-muted-foreground">
-            <T>The linked item is not in the loaded activity.</T>
-          </p>
-        ) : (
-          <div className="h-5" />
-        )
+        <>
+          {lead ? <TimelineLead>{lead}</TimelineLead> : null}
+          {anchor !== null && targetIndex < 0 && revealUrl === undefined ? (
+            <p role="status" className="py-4 text-xs text-muted-foreground">
+              <T>The linked item is not in the loaded activity.</T>
+            </p>
+          ) : (
+            <div className="h-5" />
+          )}
+        </>
       }
       ListFooterComponent={<div className="h-5" />}
     />
   );
+}
+
+/**
+ * Personal build: a title block above the events. The connector line behind the rows starts
+ * below it, so the content container learns its height.
+ */
+function TimelineLead({ children }: { readonly children: ReactNode }) {
+  const measure = (lead: HTMLDivElement | null) => {
+    const container = lead?.parentElement?.closest<HTMLElement>("[class*='max-w-3xl']");
+    if (!lead || !container) return;
+    return observeResize(lead, () =>
+      container.style.setProperty("--timeline-lead-height", `${lead.offsetHeight}px`),
+    );
+  };
+  return <div ref={measure}>{children}</div>;
 }

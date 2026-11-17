@@ -1,4 +1,6 @@
 import { useGT } from "gt-react";
+/** The sidebar header: search (with sort and filters inside it) and the new-thread button. */
+import { ListFilterChips, type ListFilterChip } from "../page/ListSearchBar";
 import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
@@ -14,8 +16,14 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
-  hasProjects: boolean;
-  projectScope: ReactNode;
+  /** Personal build: one filter menu (state and project), like Pull requests. */
+  filterMenu: ReactNode;
+  /** Personal build: the sort icon, beside the filters in the search field. */
+  sortControl: ReactNode;
+  /** Personal build: the filters that are on, as removable chips under the search. */
+  filterChips: ReadonlyArray<ListFilterChip>;
+  onClearFilters: () => void;
+  /** Receives the click so Shift+click can skip the project picker. */
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
@@ -32,8 +40,10 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
-  hasProjects,
-  projectScope,
+  filterMenu,
+  sortControl,
+  filterChips,
+  onClearFilters,
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
@@ -57,47 +67,57 @@ export function SidebarThreadHeader({
     : gt("New thread");
 
   return (
-    <div className="flex items-center gap-1">
-      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
-        <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
-        <SidebarInput
-          ref={searchInputRef}
-          nativeInput
-          type="search"
-          value={searchQuery}
-          onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder={gt("Search", { $context: "search field placeholder" })}
-          aria-label={gt("Search threads")}
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={resultsVisible}
-          aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
-          aria-activedescendant={
-            activeResultExists
-              ? `sidebar-thread-search-result-${activeSearchResultIndex}`
-              : undefined
-          }
-          className="min-w-0 flex-1"
-        />
-        {isSearching ? (
-          <Button
-            type="button"
-            size="icon-micro"
-            variant="ghost-muted"
-            className="shrink-0"
-            aria-label={gt("Clear thread search")}
-            onClick={() => {
-              onClearSearch();
-              searchInputRef.current?.focus();
-            }}
-          >
-            <XIcon className="size-3" />
-          </Button>
-        ) : null}
+    // Personal build: search with the project scope inside it (both narrow
+    // the list), and compose as its own button beside it, like a messages
+    // app. Adding a project lives in the scope menu.
+    <div className="flex items-start gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex h-8 min-w-0 items-center gap-2 rounded-lg bg-chip ps-2.5 pe-0.5 text-sm text-sidebar-muted-foreground">
+          <SearchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
+          <SidebarInput
+            ref={searchInputRef}
+            nativeInput
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
+            onKeyDown={onSearchKeyDown}
+            placeholder={gt("Search", { $context: "search field placeholder" })}
+            aria-label={gt("Search threads")}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={resultsVisible}
+            aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
+            aria-activedescendant={
+              activeResultExists
+                ? `sidebar-thread-search-result-${activeSearchResultIndex}`
+                : undefined
+            }
+            className="min-w-0 flex-1"
+          />
+          {isSearching ? (
+            <Button
+              type="button"
+              size="icon-micro"
+              variant="ghost-muted"
+              className="shrink-0"
+              aria-label={gt("Clear thread search")}
+              onClick={() => {
+                onClearSearch();
+                searchInputRef.current?.focus();
+              }}
+            >
+              <XIcon className="size-3" />
+            </Button>
+          ) : null}
+          <span className="flex shrink-0">
+            {sortControl}
+            {filterMenu}
+          </span>
+        </div>
+        <ListFilterChips chips={filterChips} onClear={onClearFilters} />
       </div>
-      <div className="flex shrink-0 items-center">
-        {hasProjects ? projectScope : null}
+      {/* Its own filled square beside the field, like a compose button. */}
+      <span className="flex shrink-0 rounded-lg bg-chip">
         <SidebarHeaderIconButton
           label={gt("New thread")}
           tooltip={
@@ -116,12 +136,13 @@ export function SidebarThreadHeader({
               newThreadLabel
             )
           }
+          className="size-8"
           disabled={newThreadDisabled}
           onClick={onNewThread}
         >
           <SquarePenIcon />
         </SidebarHeaderIconButton>
-      </div>
+      </span>
     </div>
   );
 }
@@ -139,7 +160,7 @@ export function SidebarHeaderIconButton({
   children?: ReactNode;
 } & Omit<
   ComponentProps<typeof SidebarMenuButton>,
-  "children" | "className" | "tooltip" | "isActive" | "aria-label"
+  "children" | "className" | "tooltip" | "aria-label"
 >) {
   return (
     <Tooltip>
