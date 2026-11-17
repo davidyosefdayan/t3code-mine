@@ -137,6 +137,12 @@ export interface VisitThreadInput extends ThreadCommandInput {
 }
 
 export type MarkThreadUnreadInput = ThreadCommandInput;
+export type ClearThreadWaitingOnYouInput = ThreadCommandInput;
+export interface SetThreadAutoCompactInput extends ThreadCommandInput {
+  readonly enabled?: boolean;
+  /** Tokens before Claude compacts this chat; null follows the provider setting. */
+  readonly window?: number | null;
+}
 
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecoveryUpdate | null;
@@ -680,6 +686,31 @@ export const markThreadUnread = Effect.fn("EnvironmentCommands.markThreadUnread"
     threadId: input.threadId,
   });
 });
+
+/** Personal build: the user takes a chat out of Needs you without replying. */
+export const clearThreadWaitingOnYou = Effect.fn("EnvironmentCommands.clearThreadWaitingOnYou")(
+  function* (input: ClearThreadWaitingOnYouInput) {
+    return yield* dispatch({
+      type: "thread.waiting-on-you.set",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      waitingOnYou: null,
+    });
+  },
+);
+
+/** Personal build: the chat's own idle compaction switch and compact limit. */
+export const setThreadAutoCompact = Effect.fn("EnvironmentCommands.setThreadAutoCompact")(
+  function* (input: SetThreadAutoCompactInput) {
+    return yield* dispatch({
+      type: "thread.auto-compact.set",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+      ...(input.window === undefined ? {} : { window: input.window }),
+    });
+  },
+);
 
 export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadMetadata")(
   function* (input: UpdateThreadMetadataInput) {

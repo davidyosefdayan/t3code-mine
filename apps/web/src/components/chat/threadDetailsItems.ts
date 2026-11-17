@@ -13,7 +13,8 @@ export const THREAD_DETAILS_ITEMS = [
   { id: "lineage", label: "Lineage", defaultVisible: true },
   { id: "sideChats", label: "Side chats", defaultVisible: true },
   { id: "usage", label: "Usage limits", defaultVisible: false },
-  { id: "context", label: "Context window", defaultVisible: false },
+  // Personal build: on by default, so the cache countdown and auto-compact plan show without setup.
+  { id: "context", label: "Context window", defaultVisible: true },
 ] as const;
 
 export type ThreadDetailsItemId = (typeof THREAD_DETAILS_ITEMS)[number]["id"];
@@ -25,11 +26,9 @@ type ThreadDetailsItemSettings = Pick<
   "threadDetailsItems" | "threadDetailsUsageEnabled"
 >;
 
-// People who turned on the retired Labs toggle keep Usage and Context until they change them here.
+// People who turned on the retired Labs toggle keep Usage until they change it here.
 function defaultVisible(item: ThreadDetailsItem, settings: ThreadDetailsItemSettings) {
-  return item.id === "usage" || item.id === "context"
-    ? settings.threadDetailsUsageEnabled
-    : item.defaultVisible;
+  return item.id === "usage" ? settings.threadDetailsUsageEnabled : item.defaultVisible;
 }
 
 export function resolveThreadDetailsVisibility(
