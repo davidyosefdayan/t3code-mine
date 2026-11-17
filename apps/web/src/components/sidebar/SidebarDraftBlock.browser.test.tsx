@@ -28,6 +28,9 @@ function DraftBlock(props: {
       routeDraftId={routeDraftId}
       onNavigateToDraft={vi.fn()}
       onDraftContextMenu={vi.fn()}
+      providerEntriesByEnvironment={new Map()}
+      expanded
+      onToggle={vi.fn()}
     />
   );
 }

@@ -241,13 +241,15 @@ function setup() {
   };
 }
 
+// Personal build: notifications lead with the chat's title; the kind is the body.
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "alerts on %s and closes the alert when notifications are disabled",
   async (flag) => {
     await using app = setup();
     app.start();
     state.shells.set("one", shell({ [flag]: true }));
-    expect(state.badge).toHaveBeenLastCalledWith(1);
+    // Personal build: the Dock badge counts chats that need you (NeedsYouDockBadge), not alerts.
+    expect(TestNotification.sent).toHaveLength(1);
     const notification = TestNotification.sent[0]!;
     notification.dispatchEvent(new Event("click"));
     expect(state.navigate).toHaveBeenCalledWith({
@@ -256,7 +258,6 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.mode = "sound";
     app.changeSettings();
-    expect(state.badge).toHaveBeenLastCalledWith(0);
     expect(notification.close).toHaveBeenCalled();
   },
 );
@@ -276,7 +277,7 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     state.shells.set("one", waiting("turn-2", "request-1"));
     state.shells.set("one", waiting("turn-2", "request-2"));
     const title = flag === "hasPendingApprovals" ? "Approval needed" : "Input needed";
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([title, title]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([title, title]);
   },
 );
 
@@ -290,7 +291,8 @@ it("presents completion notifications and sound as soon as the shell completes",
       latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
     }),
   );
-  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Thread completed"]);
+  // Personal build: a notification leads with the chat's title.
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Test thread"]);
   expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
 });
 
@@ -336,7 +338,7 @@ it.each([false, true])(
       }),
     });
     const monitor = [{ taskId: "watch", kind: "monitor" as const }];
-    const titles = () => TestNotification.sent.map(({ title }) => title);
+    const titles = () => TestNotification.sent.map(({ options }) => options.body);
     state.shells.set(
       "one",
       watching("turn", "completed", "2026-09-13T07:00:01.000Z", false, monitor),
@@ -402,14 +404,14 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     });
     state.shells.set("one", shell(completed, asking, offline, done));
 
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       "Thread completed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
     ]);
     state.shells.set("one", { ...shell(completed, asking, offline, done), status: "cached" });
     state.shells.set("one", shell(completed, asking, offline, done));
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual([
       "Approval needed",
       "Thread completed",
       flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
@@ -427,9 +429,9 @@ it.each([false, true])(
     });
     state.shells.set("one", completed);
     state.shells.set("one", { ...completed, status: "cached" });
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual(["Thread completed"]);
     state.shells.set("one", continued ? shell() : completed);
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ options }) => options.body)).toEqual(["Thread completed"]);
   },
 );
 

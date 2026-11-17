@@ -1136,8 +1136,9 @@ it("opening Settings without a page event closes the composer model picker and p
   await expect.element(search).toBeVisible();
 
   // The desktop menu's open-settings accelerator navigates with no key or pointer event in the page.
+  // Personal build: Settings is a page, not upstream's dialog.
   await act(() => router.navigate({ to: "/settings" }));
-  await expect.element(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await expect.element(page.getByRole("main", { name: "Settings" })).toBeVisible();
   await expect.element(search).not.toBeInTheDocument();
 
   await act(() => router.navigate({ to: "/draft/$draftId", params: { draftId } }));
@@ -1146,6 +1147,6 @@ it("opening Settings without a page event closes the composer model picker and p
   const permissions = page.getByText("Allow commands and edits without prompts.").last();
   await expect.element(permissions).toBeVisible();
   await act(() => router.navigate({ to: "/settings" }));
-  await expect.element(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await expect.element(page.getByRole("main", { name: "Settings" })).toBeVisible();
   await expect.element(permissions).not.toBeInTheDocument();
 });

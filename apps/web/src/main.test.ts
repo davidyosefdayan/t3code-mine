@@ -2,6 +2,8 @@ import { expect, it, vi } from "vite-plus/test";
 
 vi.mock("./appInit", () => ({ startAppServices: () => ({ load: async () => {} }) }));
 vi.mock("./AppRoot", () => ({ AppRoot: () => null }));
+// Personal build: main.tsx holds the boot splash, which needs a real DOM.
+vi.mock("./bootSplash", () => ({ holdBootSplash: () => {} }));
 vi.mock("./i18n/runtime", () => ({ whenLocaleReady: async () => {} }));
 vi.mock("react-dom/client", () => ({ default: { createRoot: () => ({ render: () => {} }) } }));
 

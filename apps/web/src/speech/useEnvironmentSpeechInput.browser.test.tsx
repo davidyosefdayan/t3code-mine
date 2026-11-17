@@ -493,9 +493,14 @@ it("finishes an off-screen recording with the keyboard while Settings is open", 
       <GlobalVoiceInputIndicator hidden />
     </>,
   );
-  await expect.element(page.getByRole("dialog", { name: "Settings" })).toHaveFocus();
-  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-  await expect.element(page.getByRole("button", { name: "Finish voice input" })).toHaveFocus();
+  // Personal build: Settings is a page, so Tab moves on from its controls to the voice controls.
+  const finish = page.getByRole("button", { name: "Finish voice input" });
+  await expect.element(finish).toBeVisible();
+  (page.getByRole("button", { name: "Settings control" }).element() as HTMLElement).focus();
+  for (let step = 0; step < 4 && document.activeElement !== finish.element(); step += 1) {
+    await userEvent.keyboard("{Tab}");
+  }
+  await expect.element(finish).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(mocks.storedDraft).toBe("Earlier text dictated"));
 });

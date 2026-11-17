@@ -2,10 +2,9 @@ import { redirect, useLocation } from "@tanstack/react-router";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { act, render } from "../../test/render";
+import { render } from "../../test/render";
 import { useCommitOnBlur } from "../hooks/useCommitOnBlur";
 import { AppRouteModal } from "./AppRouteModal";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 
 vi.mock("./chat/GlobalVoiceInputIndicator", () => ({ GlobalVoiceInputIndicator: () => null }));
 
@@ -29,7 +28,7 @@ describe("AppRouteModal", () => {
     expect(onCommit).toHaveBeenCalledWith("Keep titles short");
   });
 
-  // regression: #42075. Navigation: Back (mod+[) leaves the Settings route without closing the dialog.
+  // regression: #42075. Navigation: Back (mod+[) leaves the Settings route without closing it.
   it("commits a focused field when the route goes back", async () => {
     const onCommit = vi.fn();
     function SettingsRoute() {
@@ -52,89 +51,12 @@ describe("AppRouteModal", () => {
     await page.getByRole("textbox", { name: "Instructions" }).fill("Keep titles short");
     screen.router!.history.back();
 
-    await expect.element(page.getByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("textbox", { name: "Instructions" }))
+      .not.toBeInTheDocument();
     expect(onCommit).toHaveBeenCalledWith("Keep titles short");
   });
 
-  it("returns focus to the opener when Esc closes it", async () => {
-    const opener = <button type="button">Open usage</button>;
-    await using screen = await render(opener, { router: "/" });
-    const openerButton = screen.getByRole("button", { name: "Open usage" });
-    (openerButton.element() as HTMLElement).focus();
-
-    await screen.rerender(
-      <>
-        {opener}
-        <AppRouteModal label="Usage">
-          <p>Usage</p>
-        </AppRouteModal>
-      </>,
-    );
-    await expect.element(page.getByRole("dialog", { name: "Usage" })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-
-    await expect.element(page.getByRole("dialog", { name: "Usage" })).not.toBeInTheDocument();
-    await expect.element(openerButton).toHaveFocus();
-  });
-
-  it("stays open when Esc belongs to a modal outside Base UI", async () => {
-    await using _screen = await render(
-      <AppRouteModal label="Settings">
-        <CommitOnBlurField onCommit={() => undefined} />
-      </AppRouteModal>,
-      { router: "/settings/general" },
-    );
-    const settings = page.getByRole("dialog", { name: "Settings" });
-    // Base UI takes initial focus a frame after opening; let it land before Clerk's modal takes focus.
-    await expect.element(settings).toHaveFocus();
-    // Clerk renders its account modal in its own root and dismisses on a document Esc listener.
-    const foreignModal = document.body.appendChild(document.createElement("input"));
-    using _foreignModal = { [Symbol.dispose]: () => foreignModal.remove() };
-
-    foreignModal.focus();
-    await userEvent.keyboard("{Escape}");
-
-    await expect.element(settings).toHaveAttribute("data-open");
-  });
-
-  it("stays open when a held Esc repeats after closing a nested menu", async () => {
-    await using _screen = await render(
-      <AppRouteModal label="Usage">
-        <Menu>
-          <MenuTrigger>All providers</MenuTrigger>
-          <MenuPopup>
-            <MenuItem>Claude</MenuItem>
-          </MenuPopup>
-        </Menu>
-      </AppRouteModal>,
-      { router: "/usage" },
-    );
-    const usage = page.getByRole("dialog", { name: "Usage" });
-    const trigger = page.getByRole("button", { name: "All providers" });
-    await expect.element(usage).toHaveFocus();
-
-    (trigger.element() as HTMLElement).focus();
-    await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByRole("menu")).toBeVisible();
-
-    await userEvent.keyboard("{Escape}");
-    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-    await expect.element(trigger).toHaveFocus();
-    await expect.element(usage).toHaveAttribute("data-open");
-
-    await act(() =>
-      trigger.element().dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Escape",
-          repeat: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
-    await expect.element(usage).toHaveAttribute("data-open");
-
-    await userEvent.keyboard("{Escape}");
-    await expect.element(usage).not.toBeInTheDocument();
-  });
+  // Personal build: Settings and Usage are pages, not upstream's modal, so its focus and
+  // foreign-Esc cases do not apply.
 });

@@ -1,4 +1,5 @@
 import { claimThreadOpen } from "@t3tools/client-runtime/state/thread-search";
+import { RETURN_TO_VIEW_DWELL_MS } from "@t3tools/client-runtime/state/thread-visits";
 import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { Atom } from "effect/reactivity";
@@ -127,5 +128,8 @@ it("does not mark a run that finishes in a background window as seen", async () 
   document.dispatchEvent(new Event("visibilitychange"));
   window.dispatchEvent(new Event("focus"));
 
+  // Personal build: coming back must stay on the chat a moment before it counts as read.
+  expect(visitedThreadIds()).toEqual(["c"]);
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS);
   expect(visitedThreadIds()).toEqual(["c", "c"]);
 });
