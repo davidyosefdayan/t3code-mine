@@ -103,6 +103,7 @@ import { PullRequestConversationGhost } from "./PullRequestGhosts";
 import { sectionCollapseAnchorScrollTop } from "./pullRequestSummaryScroll.logic";
 
 import { changeRequestTermKind } from "./changeRequestTerm";
+import { PAGE_READING_COLUMN, PAGE_SCROLLER, useInPage } from "../page/Page";
 
 function reviewerKey(login: string): string {
   return login.toLowerCase();
@@ -401,6 +402,7 @@ export function PullRequestSection({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const inPage = useInPage();
   // A reveal opens at once: the opening animation would move what was just scrolled to.
   const [open, setOpen] = useState<boolean | "revealed">(
     revealCount > 0 ? "revealed" : defaultOpen,
@@ -438,7 +440,12 @@ export function PullRequestSection({
     >
       <div
         ref={headingRef}
-        className="sticky top-0 z-10 flex w-full items-center bg-background pr-4"
+        className={cn(
+          "flex w-full items-center pr-4",
+          // Personal build: a page's header already stays put, and a sticky title over a
+          // translucent theme would float over the text it scrolls past.
+          !inPage && "sticky top-0 z-10 bg-background",
+        )}
       >
         <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
           <span>{title}</span>
@@ -466,6 +473,7 @@ const CommentFilterSchema = Schema.Struct({ bots: Schema.Boolean, resolved: Sche
 const DEFAULT_COMMENT_FILTER: typeof CommentFilterSchema.Type = { bots: false, resolved: false };
 
 export function PullRequestSummaryTab({
+  lead,
   revealUrl,
   onRevealSettled,
   scrollerRef,
@@ -484,6 +492,8 @@ export function PullRequestSummaryTab({
   onRefresh,
   onRefreshChecks = onRefresh,
 }: {
+  /** Personal build: the page's title block, scrolled with the tab. */
+  lead?: ReactNode;
   /** A clicked link to scroll to, until onRevealSettled reports it shown. */
   revealUrl?: string | undefined;
   onRevealSettled?: ((revealUrl: string) => void) | undefined;
@@ -506,6 +516,7 @@ export function PullRequestSummaryTab({
 }) {
   const gt = useGT();
   const resolve = useMessages();
+  const inPage = useInPage();
   const fixFindingLabel = requestedFixFindingLabel ?? gt("Fix in a thread");
   const fixCheckLabel =
     requestedFixCheckLabel ?? gt("Fix", { $context: "verb, fix a review finding" });
@@ -871,9 +882,13 @@ export function PullRequestSummaryTab({
         scrollRef.current = node;
         scrollerRef(node);
       }}
-      className="h-full overflow-y-auto"
+      className={cn(
+        "h-full overflow-y-auto",
+        inPage && ["pb-16", PAGE_SCROLLER, PAGE_READING_COLUMN],
+      )}
       data-pull-request-summary-scroll
     >
+      {lead}
       <section className="px-4 pt-2.5 pb-1">
         <div className="space-y-2">
           <PullRequestMetaRow icon={<UsersIcon className="size-3.5" />} label={gt("Reviewers")}>

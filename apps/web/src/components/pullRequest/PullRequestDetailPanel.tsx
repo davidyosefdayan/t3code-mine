@@ -45,6 +45,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 
@@ -114,6 +115,7 @@ import { openOnHostLabel } from "./pullRequestLinkContextMenu";
 import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
 import { pullRequestMarkdownPlugins } from "./pullRequestMarkdown.logic";
 import { PullRequestComposer } from "./PullRequestComposer";
+import { PageHeaderActions, PageHeaderTabs, useInPage } from "../page/Page";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
@@ -540,7 +542,9 @@ export function PullRequestDetailPanel({
   const [condensedByTab, setCondensedByTab] = useState<
     Partial<Record<PullRequestDetailTab, boolean>>
   >({});
-  const condensed = condensedByTab[tab] ?? false;
+  // Personal build: in a page the header never changes while you scroll.
+  const inPage = useInPage();
+  const condensed = !inPage && (condensedByTab[tab] ?? false);
   const scrollerByTab = useRef<Partial<Record<PullRequestDetailTab, HTMLElement | null>>>({});
   // Fresh ref callbacks would detach and reattach every scroller on each render.
   const [scrollerRefs] = useState(() => ({
@@ -1545,6 +1549,204 @@ export function PullRequestDetailPanel({
     );
   }
 
+  const headerBody = detail ? (
+    <PullRequestDetailHeaderBody
+      title={
+        <PullRequestTitleEditor
+          environmentId={environmentId}
+          reference={reference}
+          pullRequestKey={pullRequestKey}
+          detail={detail}
+          canWriteSourceControl={canWriteSourceControl}
+        />
+      }
+      author={<PullRequestActorLabel actor={detail.author} profileUrl={authorProfileUrl} />}
+      updated={
+        <span>
+          <T context="followed by a relative time such as 5m ago or just now">
+            updated{" "}
+            <Var>
+              <RelativeTime timestamp={detail.updatedAt} />
+            </Var>
+          </T>
+        </span>
+      }
+      checkout={
+        checkoutCommand ? (
+          <PullRequestCopyableCode
+            key={checkoutCommand}
+            value={checkoutCommand}
+            target={{
+              target: `${terminology.singular} checkout command`,
+              unavailableMessage: msg(
+                "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} checkout command.",
+                { term: changeRequestTermKind(terminology) },
+              ),
+              failureMessage: msg(
+                "Failed to copy {term, select, mr {merge request} cr {change request} other {pull request}} checkout command to the clipboard.",
+                { term: changeRequestTermKind(terminology) },
+              ),
+            }}
+            copyLabel={gt("Copy checkout command")}
+            copiedLabel={gt("Checkout command copied")}
+            className="ml-auto font-mono"
+            tooltipSide="bottom"
+            onError={reportCheckoutCommandError}
+          />
+        ) : null
+      }
+      base={
+        <PullRequestBaseBranch
+          baseBranch={detail.baseBranch}
+          freshness={freshness}
+          stacked={isStackedPullRequest}
+          pending={actionPending}
+          onUpdate={(method) => void perform("update-branch", undefined, method)}
+        />
+      }
+      head={
+        <PullRequestCopyableCode
+          key={detail.headBranch}
+          value={detail.headBranch}
+          target={{
+            target: "branch name",
+            unavailableMessage: msg("Clipboard API is unavailable while copying branch name."),
+            failureMessage: msg("Failed to copy branch name to the clipboard."),
+          }}
+          copyLabel={gt(
+            "Copy {term, select, mr {merge request} cr {change request} other {pull request}} branch",
+            { term: changeRequestTermKind(terminology) },
+          )}
+          copiedLabel={gt("Branch name copied")}
+        />
+      }
+      files={gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
+        count: detail.changedFiles,
+        formatted: detail.changedFiles.toLocaleString(),
+      })}
+      diffStat={
+        <PullRequestChangeBreakdownStat
+          environmentId={environmentId}
+          reference={reference}
+          additions={detail.additions}
+          deletions={detail.deletions}
+          className="shrink-0 font-mono text-xs"
+          eager
+        />
+      }
+    />
+  ) : null;
+  const tabExtras = detail ? (
+    <>
+      {tab === "summary" ? (
+        showsApproveWorkflows ? (
+          <PullRequestApproveWorkflowsButton
+            pullRequestKey={pullRequestKey}
+            pendingAction={pendingAction}
+            perform={perform}
+          />
+        ) : (
+          <PullRequestChecksStatusLine
+            className="text-muted-foreground"
+            aria-label={
+              checksSummary
+                ? gt("Checks: {summary}", { summary: checksSummary })
+                : gt("Checks", { $context: "CI checks section" })
+            }
+            icon={
+              checksState !== null ? (
+                <PullRequestChecksPopover
+                  checks={detail.checks}
+                  stale={checksStale}
+                  checksState={checksState}
+                  threadRef={threadRef}
+                />
+              ) : (
+                <CircleDotIcon aria-hidden className="size-3.5" />
+              )
+            }
+            label={checksSummary}
+          />
+        )
+      ) : tab === "timeline" ? (
+        <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          <PullRequestMetaLine
+            className={cn(
+              "whitespace-nowrap text-2xs transition-opacity",
+              (activityPending || activityError) && "opacity-35",
+            )}
+          >
+            <span
+              className="inline-flex items-center gap-1"
+              aria-label={
+                activityError
+                  ? gt("Comments unavailable")
+                  : gt("{count, plural, one {{formatted} comment} other {{formatted} comments}}", {
+                      count: detail.commentCount,
+                      formatted: detail.commentCount.toLocaleString(),
+                    })
+              }
+            >
+              <MessageSquareIcon aria-hidden className="size-3" />
+              {activityError ? "-" : activityPending ? "…" : detail.commentCount.toLocaleString()}
+            </span>
+            <span
+              className="inline-flex items-center gap-1"
+              aria-label={
+                activityError
+                  ? gt("Commits unavailable")
+                  : gt("{count, plural, one {{formatted} commit} other {{formatted} commits}}", {
+                      count: detail.commits.length,
+                      formatted: detail.commits.length.toLocaleString(),
+                    })
+              }
+            >
+              <GitCommitHorizontalIcon aria-hidden className="size-3" />
+              {activityError ? "-" : activityPending ? "…" : detail.commits.length.toLocaleString()}
+            </span>
+            {approvalCount > 0 ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1",
+                  pullRequestReviewOutcomeToneClassName("approved"),
+                )}
+              >
+                <PullRequestReviewOutcomeIcon outcome="approved" className="size-3" />
+                <span aria-hidden>{approvalCount.toLocaleString()}</span>
+                <span className="sr-only">
+                  {gt("{count, plural, one {{formatted} approval} other {{formatted} approvals}}", {
+                    count: approvalCount,
+                    formatted: approvalCount.toLocaleString(),
+                  })}
+                </span>
+              </span>
+            ) : null}
+          </PullRequestMetaLine>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            aria-label={
+              timelineOrder === "newest"
+                ? gt("Show oldest activity first")
+                : gt("Show newest activity first")
+            }
+            onClick={() => setTimelineOrder((value) => (value === "newest" ? "oldest" : "newest"))}
+          >
+            <ArrowDownUpIcon aria-hidden className="size-3" />
+            {timelineOrder === "newest" ? gt("Newest first") : gt("Oldest first")}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  ) : null;
+  // Personal build: in a page only the header stays; the title scrolls at the top of the tab.
+  const pageLead =
+    inPage && detail ? (
+      <div>
+        {headerBody}
+        <div className="flex min-w-0 items-center gap-2 px-4 pb-1">{tabExtras}</div>
+      </div>
+    ) : undefined;
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
       {threadPickerOpen && detail ? (
@@ -1558,135 +1760,164 @@ export function PullRequestDetailPanel({
           onPickerOpenChange={setThreadPickerOpen}
         />
       ) : null}
+      {inPage && detail ? (
+        <PageHeaderTabs>
+          <PullRequestDetailTabBar
+            tabs={visibleTabs}
+            value={tab}
+            onValueChange={selectTab}
+            onTabIntent={(item) => {
+              if (item !== "code") return;
+              void loadCodeTab();
+              setCodeIntentKey(pullRequestKey);
+            }}
+            placement="header"
+          />
+        </PageHeaderTabs>
+      ) : null}
       <div
         className={cn(
           "@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2",
           detail && "border-b border-border/60",
           !detail && !onClose && "hidden",
+          inPage && "hidden",
         )}
       >
-        <PullRequestDetailCrumbs
-          detail={detail}
-          toneClassName={statePresentation?.toneClassName ?? null}
-          condensed={condensed}
-          repositoryUrl={repositoryUrl}
-          openOnHostText={openOnHostText}
-          onBack={onBack}
-        />
-        <div className="mr-4 flex h-7 shrink-0 select-none items-center justify-end gap-1">
-          {detail ? (
-            <TooltipProvider delay={150} closeDelay={150} timeout={400}>
-              {context === "page" ? (
-                <PullRequestThreadLinks
-                  display="count"
+        {inPage ? null : (
+          <PullRequestDetailCrumbs
+            detail={detail}
+            toneClassName={statePresentation?.toneClassName ?? null}
+            condensed={condensed}
+            repositoryUrl={repositoryUrl}
+            openOnHostText={openOnHostText}
+            onBack={onBack}
+          />
+        )}
+        <PageActionsWhenInPage inPage={inPage}>
+          <div
+            className={cn(
+              "flex shrink-0 select-none items-center justify-end gap-1",
+              inPage ? "contents" : "mr-4 h-7",
+            )}
+          >
+            {detail ? (
+              <TooltipProvider delay={150} closeDelay={150} timeout={400}>
+                {context === "page" ? (
+                  <PullRequestThreadLinks
+                    display="count"
+                    environmentId={environmentId}
+                    reference={reference}
+                    url={detail.url}
+                    threadRef={null}
+                  />
+                ) : null}
+                {!nativeStack && supportsStackActions && nativeStackQuery.error ? (
+                  <Button variant="ghost" size="xs" onClick={nativeStackQuery.refresh}>
+                    <T>Retry stack lookup</T>
+                  </Button>
+                ) : null}
+                {nativeStack ? (
+                  <PullRequestStackMenu
+                    hostLabel={hostClient.label}
+                    terminology={terminology}
+                    stack={nativeStack}
+                    notice={nativeStackQuery.notice}
+                    onRetry={nativeStackQuery.error ? nativeStackQuery.refresh : undefined}
+                    reference={reference}
+                    environmentId={environmentId}
+                    onSelect={onSelectPullRequest}
+                    mergeMethod={selectedMergeMethod}
+                    stale={!nativeStackQuery.isFresh}
+                    canMerge={
+                      supportsStackActions && can("merge") && allowedMergeMethods.length > 0
+                    }
+                    canRebase={
+                      supportsStackActions && detail.viewerPermissions.stackRebase === true
+                    }
+                    onActed={() => {
+                      refreshDetail();
+                      onActed?.();
+                    }}
+                  />
+                ) : null}
+                <PullRequestPrimaryAction
+                  mergeBlockedReason={mergeBlockedReason}
+                  pullRequestKey={pullRequestKey}
+                  primaryAction={primaryAction}
+                  autoMergeArmed={autoMergeArmed}
+                  armedAutoMergeLabel={armedAutoMergeLabel}
+                  pendingAutoMergeLabel={pendingAutoMergeLabel}
+                  selectedMergeMethod={selectedMergeMethod}
+                  selectedMergeMethodLabel={selectedMergeMethodLabel}
+                  statePresentation={statePresentation}
+                  pendingAction={pendingAction}
+                  perform={perform}
+                  resolveConflicts={resolveConflictsControl}
+                />
+                {checkoutControl}
+                <PullRequestActionsMenu
                   environmentId={environmentId}
                   reference={reference}
-                  url={detail.url}
-                  threadRef={null}
-                />
-              ) : null}
-              {!nativeStack && supportsStackActions && nativeStackQuery.error ? (
-                <Button variant="ghost" size="xs" onClick={nativeStackQuery.refresh}>
-                  <T>Retry stack lookup</T>
-                </Button>
-              ) : null}
-              {nativeStack ? (
-                <PullRequestStackMenu
-                  hostLabel={hostClient.label}
+                  pullRequestKey={pullRequestKey}
+                  detail={detail}
                   terminology={terminology}
-                  stack={nativeStack}
-                  notice={nativeStackQuery.notice}
-                  onRetry={nativeStackQuery.error ? nativeStackQuery.refresh : undefined}
-                  reference={reference}
-                  environmentId={environmentId}
-                  onSelect={onSelectPullRequest}
-                  mergeMethod={selectedMergeMethod}
-                  stale={!nativeStackQuery.isFresh}
-                  canMerge={supportsStackActions && can("merge") && allowedMergeMethods.length > 0}
-                  canRebase={supportsStackActions && detail.viewerPermissions.stackRebase === true}
-                  onActed={() => {
-                    refreshDetail();
-                    onActed?.();
-                  }}
+                  linkThreadRef={
+                    threadRef ??
+                    (typeof composerDraftTarget === "object" ? composerDraftTarget : null)
+                  }
+                  onThreadPickerOpenChange={setThreadPickerOpen}
+                  refreshing={refreshing}
+                  refreshFromHost={refreshFromHost}
+                  handoff={handoff}
+                  attachesToComposer={attachTarget !== null}
+                  askAboutPullRequest={askAboutPullRequest}
+                  explainPullRequest={explainPullRequest}
+                  canFixFindings={canFixFindings}
+                  startFixFindings={startFixFindings}
+                  handoffLabels={handoffLabels}
+                  canWriteGuide={reviewGuidesEnabled && guideWriter.canWrite}
+                  guideRunning={guideWriter.running}
+                  guideWritten={guideWriter.data?.guide != null}
+                  writeGuide={writeGuide}
+                  pickableEnvironments={pickableEnvironments}
+                  actingEnvironmentId={actingEnvironmentId}
+                  onActingEnvironmentChange={selectActingEnvironment}
+                  can={can}
+                  autoMergeArmed={autoMergeArmed}
+                  showsDraftToggle={showsDraftToggle}
+                  showsMergeNow={showsMergeNow}
+                  showsAutoMerge={showsAutoMerge}
+                  showsMergeMethods={showsMergeMethods}
+                  allowedMergeMethods={allowedMergeMethods}
+                  selectedMergeMethod={selectedMergeMethod}
+                  onSelectMergeMethod={selectMergeMethod}
+                  showsDeleteBranch={showsDeleteBranch}
+                  environmentConnected={environmentConnected}
+                  canWriteSourceControl={canWriteSourceControl}
+                  onMaintainerEditsSaved={refreshDetail}
+                  confirmDeleteBranch={confirmDeleteBranch}
+                  pendingAction={pendingAction}
+                  perform={perform}
+                  openOnHostText={openOnHostText}
+                  copyReference={copyReference}
                 />
-              ) : null}
-              <PullRequestPrimaryAction
-                mergeBlockedReason={mergeBlockedReason}
-                pullRequestKey={pullRequestKey}
-                primaryAction={primaryAction}
-                autoMergeArmed={autoMergeArmed}
-                armedAutoMergeLabel={armedAutoMergeLabel}
-                pendingAutoMergeLabel={pendingAutoMergeLabel}
-                selectedMergeMethod={selectedMergeMethod}
-                selectedMergeMethodLabel={selectedMergeMethodLabel}
-                statePresentation={statePresentation}
-                pendingAction={pendingAction}
-                perform={perform}
-                resolveConflicts={resolveConflictsControl}
-              />
-              {checkoutControl}
-              <PullRequestActionsMenu
-                environmentId={environmentId}
-                reference={reference}
-                pullRequestKey={pullRequestKey}
-                detail={detail}
-                terminology={terminology}
-                linkThreadRef={
-                  threadRef ??
-                  (typeof composerDraftTarget === "object" ? composerDraftTarget : null)
-                }
-                onThreadPickerOpenChange={setThreadPickerOpen}
-                refreshing={refreshing}
-                refreshFromHost={refreshFromHost}
-                handoff={handoff}
-                attachesToComposer={attachTarget !== null}
-                askAboutPullRequest={askAboutPullRequest}
-                explainPullRequest={explainPullRequest}
-                canFixFindings={canFixFindings}
-                startFixFindings={startFixFindings}
-                handoffLabels={handoffLabels}
-                canWriteGuide={reviewGuidesEnabled && guideWriter.canWrite}
-                guideRunning={guideWriter.running}
-                guideWritten={guideWriter.data?.guide != null}
-                writeGuide={writeGuide}
-                pickableEnvironments={pickableEnvironments}
-                actingEnvironmentId={actingEnvironmentId}
-                onActingEnvironmentChange={selectActingEnvironment}
-                can={can}
-                autoMergeArmed={autoMergeArmed}
-                showsDraftToggle={showsDraftToggle}
-                showsMergeNow={showsMergeNow}
-                showsAutoMerge={showsAutoMerge}
-                showsMergeMethods={showsMergeMethods}
-                allowedMergeMethods={allowedMergeMethods}
-                selectedMergeMethod={selectedMergeMethod}
-                onSelectMergeMethod={selectMergeMethod}
-                showsDeleteBranch={showsDeleteBranch}
-                environmentConnected={environmentConnected}
-                canWriteSourceControl={canWriteSourceControl}
-                onMaintainerEditsSaved={refreshDetail}
-                confirmDeleteBranch={confirmDeleteBranch}
-                pendingAction={pendingAction}
-                perform={perform}
-                openOnHostText={openOnHostText}
-                copyReference={copyReference}
-              />
-            </TooltipProvider>
-          ) : null}
-          {onClose ? (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={gt(
-                "Collapse {term, select, mr {merge request} cr {change request} other {pull request}} panel",
-                { term: changeRequestTermKind(terminology) },
-              )}
-              onClick={onClose}
-            >
-              <PanelRightIcon className="size-3.5" />
-            </Button>
-          ) : null}
-        </div>
+              </TooltipProvider>
+            ) : null}
+            {onClose ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={gt(
+                  "Collapse {term, select, mr {merge request} cr {change request} other {pull request}} panel",
+                  { term: changeRequestTermKind(terminology) },
+                )}
+                onClick={onClose}
+              >
+                <PanelRightIcon className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        </PageActionsWhenInPage>
 
         <div
           className={cn(
@@ -1795,101 +2026,11 @@ export function PullRequestDetailPanel({
             )}
             inert={condensed}
           >
-            {detail ? (
-              <PullRequestDetailHeaderBody
-                title={
-                  <PullRequestTitleEditor
-                    environmentId={environmentId}
-                    reference={reference}
-                    pullRequestKey={pullRequestKey}
-                    detail={detail}
-                    canWriteSourceControl={canWriteSourceControl}
-                  />
-                }
-                author={
-                  <PullRequestActorLabel actor={detail.author} profileUrl={authorProfileUrl} />
-                }
-                updated={
-                  <span>
-                    <T context="followed by a relative time such as 5m ago or just now">
-                      updated{" "}
-                      <Var>
-                        <RelativeTime timestamp={detail.updatedAt} />
-                      </Var>
-                    </T>
-                  </span>
-                }
-                checkout={
-                  checkoutCommand ? (
-                    <PullRequestCopyableCode
-                      key={checkoutCommand}
-                      value={checkoutCommand}
-                      target={{
-                        target: `${terminology.singular} checkout command`,
-                        unavailableMessage: msg(
-                          "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} checkout command.",
-                          { term: changeRequestTermKind(terminology) },
-                        ),
-                        failureMessage: msg(
-                          "Failed to copy {term, select, mr {merge request} cr {change request} other {pull request}} checkout command to the clipboard.",
-                          { term: changeRequestTermKind(terminology) },
-                        ),
-                      }}
-                      copyLabel={gt("Copy checkout command")}
-                      copiedLabel={gt("Checkout command copied")}
-                      className="ml-auto font-mono"
-                      tooltipSide="bottom"
-                      onError={reportCheckoutCommandError}
-                    />
-                  ) : null
-                }
-                base={
-                  <PullRequestBaseBranch
-                    baseBranch={detail.baseBranch}
-                    freshness={freshness}
-                    stacked={isStackedPullRequest}
-                    pending={actionPending}
-                    onUpdate={(method) => void perform("update-branch", undefined, method)}
-                  />
-                }
-                head={
-                  <PullRequestCopyableCode
-                    key={detail.headBranch}
-                    value={detail.headBranch}
-                    target={{
-                      target: "branch name",
-                      unavailableMessage: msg(
-                        "Clipboard API is unavailable while copying branch name.",
-                      ),
-                      failureMessage: msg("Failed to copy branch name to the clipboard."),
-                    }}
-                    copyLabel={gt(
-                      "Copy {term, select, mr {merge request} cr {change request} other {pull request}} branch",
-                      { term: changeRequestTermKind(terminology) },
-                    )}
-                    copiedLabel={gt("Branch name copied")}
-                  />
-                }
-                files={gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
-                  count: detail.changedFiles,
-                  formatted: detail.changedFiles.toLocaleString(),
-                })}
-                diffStat={
-                  <PullRequestChangeBreakdownStat
-                    environmentId={environmentId}
-                    reference={reference}
-                    additions={detail.additions}
-                    deletions={detail.deletions}
-                    className="shrink-0 font-mono text-xs"
-                    eager
-                  />
-                }
-              />
-            ) : null}
+            {inPage ? null : headerBody}
           </div>
         </div>
 
-        {detail ? (
+        {detail && !inPage ? (
           <PullRequestDetailTabBar
             tabs={visibleTabs}
             value={tab}
@@ -1900,121 +2041,7 @@ export function PullRequestDetailPanel({
               setCodeIntentKey(pullRequestKey);
             }}
           >
-            {tab === "summary" ? (
-              showsApproveWorkflows ? (
-                <PullRequestApproveWorkflowsButton
-                  pullRequestKey={pullRequestKey}
-                  pendingAction={pendingAction}
-                  perform={perform}
-                />
-              ) : (
-                <PullRequestChecksStatusLine
-                  className="text-muted-foreground"
-                  aria-label={
-                    checksSummary
-                      ? gt("Checks: {summary}", { summary: checksSummary })
-                      : gt("Checks", { $context: "CI checks section" })
-                  }
-                  icon={
-                    checksState !== null ? (
-                      <PullRequestChecksPopover
-                        checks={detail.checks}
-                        stale={checksStale}
-                        checksState={checksState}
-                        threadRef={threadRef}
-                      />
-                    ) : (
-                      <CircleDotIcon aria-hidden className="size-3.5" />
-                    )
-                  }
-                  label={checksSummary}
-                />
-              )
-            ) : tab === "timeline" ? (
-              <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                <PullRequestMetaLine
-                  className={cn(
-                    "whitespace-nowrap text-2xs transition-opacity",
-                    (activityPending || activityError) && "opacity-35",
-                  )}
-                >
-                  <span
-                    className="inline-flex items-center gap-1"
-                    aria-label={
-                      activityError
-                        ? gt("Comments unavailable")
-                        : gt(
-                            "{count, plural, one {{formatted} comment} other {{formatted} comments}}",
-                            {
-                              count: detail.commentCount,
-                              formatted: detail.commentCount.toLocaleString(),
-                            },
-                          )
-                    }
-                  >
-                    <MessageSquareIcon aria-hidden className="size-3" />
-                    {activityError
-                      ? "-"
-                      : activityPending
-                        ? "…"
-                        : detail.commentCount.toLocaleString()}
-                  </span>
-                  <span
-                    className="inline-flex items-center gap-1"
-                    aria-label={
-                      activityError
-                        ? gt("Commits unavailable")
-                        : gt(
-                            "{count, plural, one {{formatted} commit} other {{formatted} commits}}",
-                            {
-                              count: detail.commits.length,
-                              formatted: detail.commits.length.toLocaleString(),
-                            },
-                          )
-                    }
-                  >
-                    <GitCommitHorizontalIcon aria-hidden className="size-3" />
-                    {activityError
-                      ? "-"
-                      : activityPending
-                        ? "…"
-                        : detail.commits.length.toLocaleString()}
-                  </span>
-                  {approvalCount > 0 ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1",
-                        pullRequestReviewOutcomeToneClassName("approved"),
-                      )}
-                    >
-                      <PullRequestReviewOutcomeIcon outcome="approved" className="size-3" />
-                      <span aria-hidden>{approvalCount.toLocaleString()}</span>
-                      <span className="sr-only">
-                        {gt(
-                          "{count, plural, one {{formatted} approval} other {{formatted} approvals}}",
-                          { count: approvalCount, formatted: approvalCount.toLocaleString() },
-                        )}
-                      </span>
-                    </span>
-                  ) : null}
-                </PullRequestMetaLine>
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  aria-label={
-                    timelineOrder === "newest"
-                      ? gt("Show oldest activity first")
-                      : gt("Show newest activity first")
-                  }
-                  onClick={() =>
-                    setTimelineOrder((value) => (value === "newest" ? "oldest" : "newest"))
-                  }
-                >
-                  <ArrowDownUpIcon aria-hidden className="size-3" />
-                  {timelineOrder === "newest" ? gt("Newest first") : gt("Oldest first")}
-                </Button>
-              </div>
-            ) : null}
+            {tabExtras}
           </PullRequestDetailTabBar>
         ) : null}
       </div>
@@ -2030,6 +2057,7 @@ export function PullRequestDetailPanel({
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
         onScrollCapture={(event) => {
           const scroller = scrollerByTab.current[tab];
+          if (inPage) return;
           if (event.target !== scroller || scroller === null || scroller === undefined) return;
           const top = scroller.scrollTop;
           const previous = condensedByTab[tab] ?? false;
@@ -2081,6 +2109,7 @@ export function PullRequestDetailPanel({
             {mountedTabs.has("summary") ? (
               <div className={cn("absolute inset-0", tab !== "summary" && "invisible")}>
                 <PullRequestSummaryTab
+                  lead={pageLead}
                   scrollerRef={scrollerRefs.summary}
                   revealUrl={tab === "summary" ? revealUrl : undefined}
                   onRevealSettled={settleReveal}
@@ -2146,6 +2175,7 @@ export function PullRequestDetailPanel({
                   />
                 ) : (
                   <PullRequestTimelineTab
+                    lead={pageLead}
                     scrollerRef={scrollerRefs.timeline}
                     revealUrl={tab === "timeline" ? revealUrl : undefined}
                     onRevealSettled={settleReveal}
@@ -2222,4 +2252,15 @@ export function PullRequestDetailPanel({
       ) : null}
     </div>
   );
+}
+
+/** Personal build: in a page, the panel's actions sit in the page's header. */
+function PageActionsWhenInPage({
+  inPage,
+  children,
+}: {
+  readonly inPage: boolean;
+  readonly children: ReactNode;
+}) {
+  return inPage ? <PageHeaderActions>{children}</PageHeaderActions> : children;
 }

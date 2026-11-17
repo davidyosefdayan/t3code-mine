@@ -66,8 +66,14 @@ import {
   PullRequestMetaLine,
   PullRequestStateGlyph,
 } from "../pullRequest/pullRequestPresentation";
+import {
+  PAGE_READING_COLUMN,
+  PAGE_SCROLLER,
+  PageHeaderActions,
+  useInPage,
+} from "../page/Page";
 import { IssueCommentComposer } from "./IssueCommentComposer";
-import { IssueDetailGhost } from "./IssueDetailGhost";
+import { IssueDetailGhost, IssuePageGhost } from "./IssueDetailGhost";
 import { IssueThreadLinks } from "./IssueThreadLinks";
 import { ReactionBar } from "../pullRequest/PullRequestReactions";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
@@ -393,6 +399,7 @@ export function IssueDetailPanel({
 }) {
   const gt = useGT();
   const messages = useMessages();
+  const inPage = useInPage();
   const detailAtom = issueEnvironment.detail({ environmentId, input: reference });
   const detailQuery = useEnvironmentQuery(detailAtom);
   const registry = useContext(RegistryContext);
@@ -423,7 +430,7 @@ export function IssueDetailPanel({
         />
       );
     }
-    return <IssueDetailGhost seed={listEntry} />;
+    return inPage ? <IssuePageGhost seed={listEntry} /> : <IssueDetailGhost seed={listEntry} />;
   }
 
   const timeline: ReadonlyArray<TimelineItem> = [
@@ -537,55 +544,140 @@ export function IssueDetailPanel({
       </span>
     );
 
+  const identity = (
+    <>
+      <span className="min-w-0 truncate font-medium text-muted-foreground">{detail.scope}</span>
+      <InlineButton
+        className={cn("shrink-0 font-medium", currentState.toneClassName)}
+        aria-label={gt("Open {issue} on {provider}", {
+          issue: detail.displayKey,
+          provider: tracker.providerName,
+        })}
+        render={<a href={detail.url} target="_blank" rel="noopener noreferrer" />}
+      >
+        {detail.displayKey}
+        <ExternalLinkIcon aria-hidden className="size-2.5" />
+      </InlineButton>
+    </>
+  );
+  const headerActions = (
+    <>
+      {stateControl}
+      <IssueThreadLinks
+        key={`${environmentId}:${detail.url}`}
+        environmentId={environmentId}
+        reference={{ ...reference, host: reference.host ?? detail.host }}
+        issue={detail}
+        threadRef={threadRef}
+      />
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label={gt("Refresh issue")}
+        disabled={detailQuery.isPending}
+        onClick={() =>
+          void pager.refresh(registry, () =>
+            executeAtomQuery(registry, detailAtom, { refresh: true, reportFailure: false }),
+          )
+        }
+      >
+        <RefreshIcon size="sm" refreshing={detailQuery.isPending} />
+      </Button>
+    </>
+  );
+  // Personal build: in a page the title stays put while the rest scrolls, as on a pull request.
+  const titleBlock = (
+    <>
+      {editing === "title" ? (
+        <form
+          className="mt-1 flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const next = titleDraft.trim();
+            if (next.length > 0 && next !== detail.title) void save({ title: next });
+            else setEditing(null);
+          }}
+        >
+          <Input
+            autoFocus
+            aria-label={gt("Issue title")}
+            value={titleDraft}
+            disabled={saving}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setEditing(null);
+            }}
+          />
+          <Button type="submit" size="sm" disabled={saving}>
+            <T>Save</T>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={saving}
+            onClick={() => setEditing(null)}
+          >
+            <T>Cancel</T>
+          </Button>
+        </form>
+      ) : (
+        <PullRequestDetailTitleRow className="group mt-1 gap-1">
+          <h2 className="min-w-0 flex-1 text-base font-semibold leading-snug">{detail.title}</h2>
+          {canEdit ? (
+            <PullRequestEditButton
+              aria-label={gt("Edit title")}
+              onClick={() => {
+                setTitleDraft(detail.title);
+                setEditing("title");
+              }}
+            />
+          ) : null}
+        </PullRequestDetailTitleRow>
+      )}
+
+      <PullRequestMetaLine className="mt-2 min-h-5 text-xs text-muted-foreground">
+        <PullRequestActorLabel actor={detail.author} />
+        <span>
+          <T>
+            opened <Var>{formatRelativeTimeLabel(detail.createdAt, undefined, messages)}</Var>
+          </T>
+        </span>
+        {detail.closedAt ? (
+          <span>
+            <T>
+              closed <Var>{formatRelativeTimeLabel(detail.closedAt, undefined, messages)}</Var>
+            </T>
+          </span>
+        ) : null}
+        {detail.writable ? null : (
+          <span>
+            <T>Read-only</T>
+          </span>
+        )}
+      </PullRequestMetaLine>
+    </>
+  );
   return (
     <div className="relative flex h-full min-h-0 flex-col">
+      {inPage ? <PageHeaderActions>{headerActions}</PageHeaderActions> : null}
       <div
         className={cn(
           "min-h-0 flex-1 overflow-y-auto",
-          // Room for the floating composer, so the last comment can scroll clear of it.
-          detail.capabilities.comment && "pb-32",
+          // Room for the floating composer (a button in a page), so the last comment scrolls clear.
+          detail.capabilities.comment && (inPage ? "pb-16" : "pb-32"),
+          inPage && [PAGE_SCROLLER, PAGE_READING_COLUMN],
         )}
         data-pull-request-summary-scroll
       >
         <div className="px-4 pb-1">
-          <PullRequestDetailTitleRow className="h-7 gap-1 text-sm sm:text-xs">
-            <span className="min-w-0 truncate font-medium text-muted-foreground">
-              {detail.scope}
-            </span>
-            <InlineButton
-              className={cn("shrink-0 font-medium", currentState.toneClassName)}
-              aria-label={gt("Open {issue} on {provider}", {
-                issue: detail.displayKey,
-                provider: tracker.providerName,
-              })}
-              render={<a href={detail.url} target="_blank" rel="noopener noreferrer" />}
-            >
-              {detail.displayKey}
-              <ExternalLinkIcon aria-hidden className="size-2.5" />
-            </InlineButton>
-            <span className="flex-1" />
-            {stateControl}
-            <IssueThreadLinks
-              key={`${environmentId}:${detail.url}`}
-              environmentId={environmentId}
-              reference={{ ...reference, host: reference.host ?? detail.host }}
-              issue={detail}
-              threadRef={threadRef}
-            />
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={gt("Refresh issue")}
-              disabled={detailQuery.isPending}
-              onClick={() =>
-                void pager.refresh(registry, () =>
-                  executeAtomQuery(registry, detailAtom, { refresh: true, reportFailure: false }),
-                )
-              }
-            >
-              <RefreshIcon size="sm" refreshing={detailQuery.isPending} />
-            </Button>
-          </PullRequestDetailTitleRow>
+          {inPage ? null : (
+            <PullRequestDetailTitleRow className="h-7 gap-1 text-sm sm:text-xs">
+              {identity}
+              <span className="flex-1" />
+              {headerActions}
+            </PullRequestDetailTitleRow>
+          )}
 
           {detailQuery.error !== null && !detailQuery.isPending ? (
             <div className="mt-2">
@@ -596,76 +688,7 @@ export function IssueDetailPanel({
             </div>
           ) : null}
 
-          {editing === "title" ? (
-            <form
-              className="mt-1 flex items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const next = titleDraft.trim();
-                if (next.length > 0 && next !== detail.title) void save({ title: next });
-                else setEditing(null);
-              }}
-            >
-              <Input
-                autoFocus
-                aria-label={gt("Issue title")}
-                value={titleDraft}
-                disabled={saving}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setEditing(null);
-                }}
-              />
-              <Button type="submit" size="sm" disabled={saving}>
-                <T>Save</T>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={saving}
-                onClick={() => setEditing(null)}
-              >
-                <T>Cancel</T>
-              </Button>
-            </form>
-          ) : (
-            <PullRequestDetailTitleRow className="group mt-1 gap-1">
-              <h2 className="min-w-0 flex-1 text-base font-semibold leading-snug">
-                {detail.title}
-              </h2>
-              {canEdit ? (
-                <PullRequestEditButton
-                  aria-label={gt("Edit title")}
-                  onClick={() => {
-                    setTitleDraft(detail.title);
-                    setEditing("title");
-                  }}
-                />
-              ) : null}
-            </PullRequestDetailTitleRow>
-          )}
-
-          <PullRequestMetaLine className="mt-2 min-h-5 text-xs text-muted-foreground">
-            <PullRequestActorLabel actor={detail.author} />
-            <span>
-              <T>
-                opened <Var>{formatRelativeTimeLabel(detail.createdAt, undefined, messages)}</Var>
-              </T>
-            </span>
-            {detail.closedAt ? (
-              <span>
-                <T>
-                  closed <Var>{formatRelativeTimeLabel(detail.closedAt, undefined, messages)}</Var>
-                </T>
-              </span>
-            ) : null}
-            {detail.writable ? null : (
-              <span>
-                <T>Read-only</T>
-              </span>
-            )}
-          </PullRequestMetaLine>
+          {titleBlock}
 
           <div className="mt-4 space-y-2">
             <PullRequestMetaRow icon={<TagIcon className="size-3.5" />} label={gt("Labels")}>

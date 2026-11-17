@@ -1,6 +1,6 @@
 import type { IssueListEntry } from "@t3tools/contracts";
 import { T, useGT, useMessages, Var } from "gt-react";
-import { ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, TagIcon, UsersIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -8,11 +8,13 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Button } from "../ui/button";
 import { PullRequestDetailTitleRow } from "../pullRequest/PullRequestDetailLayout";
 import { GhostBar } from "../pullRequest/PullRequestGhosts";
+import { PullRequestMetaRow } from "../pullRequest/PullRequestSummaryTab";
 import {
   PullRequestActorLabel,
   PullRequestLabelChip,
   PullRequestMetaLine,
 } from "../pullRequest/pullRequestPresentation";
+import { PAGE_READING_COLUMN, PAGE_SCROLLER } from "../page/Page";
 import { IssueStateGlyph, issueTrackerPresentation } from "./issuePresentation";
 
 /** The issue panel while its detail loads, showing what the list row already knows. */
@@ -25,13 +27,14 @@ export function IssueDetailGhost({ seed }: { seed?: IssueListEntry | null }) {
       role="status"
       aria-label={gt("Loading issue")}
       className={cn(
-        "scrollbar-gutter-both flex h-full min-h-0 flex-col gap-4 overflow-hidden px-4 pt-3 pb-4",
+        "scrollbar-gutter-both flex h-full min-h-0 flex-col overflow-hidden px-4 pb-4",
         !seed && "motion-safe:animate-skeleton",
       )}
     >
       {seed && tracker ? (
         <>
-          <PullRequestDetailTitleRow className="gap-2">
+          {/* Personal build: rows and gaps match the loaded panel, so nothing moves when it lands. */}
+          <PullRequestDetailTitleRow className="h-7 gap-2">
             <IssueStateGlyph state={seed.state} />
             <span className="shrink-0 font-mono text-xs text-muted-foreground">
               {seed.displayKey}
@@ -50,8 +53,12 @@ export function IssueDetailGhost({ seed }: { seed?: IssueListEntry | null }) {
             </Button>
           </PullRequestDetailTitleRow>
           {/* Leaves room for the edit button, so the title wraps the same once loaded. */}
-          <h2 className="pr-7 text-base font-semibold leading-snug">{seed.title}</h2>
-          <PullRequestMetaLine className="text-xs text-muted-foreground">
+          <PullRequestDetailTitleRow className="mt-1 gap-1">
+            <h2 className="min-w-0 flex-1 pr-7 text-base font-semibold leading-snug">
+              {seed.title}
+            </h2>
+          </PullRequestDetailTitleRow>
+          <PullRequestMetaLine className="mt-2 min-h-5 text-xs text-muted-foreground">
             <PullRequestActorLabel actor={seed.author} />
             <span>
               <T>
@@ -66,36 +73,42 @@ export function IssueDetailGhost({ seed }: { seed?: IssueListEntry | null }) {
               </span>
             ) : null}
           </PullRequestMetaLine>
-          {/* Both rows hold the height of the picker button the loaded panel puts in them. */}
-          <div className="flex min-h-6 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="shrink-0">
-              <T>Labels</T>
-            </span>
-            {seed.labels.length === 0 ? (
-              <span>
-                <T context="no labels">none</T>
+          <div className="mt-4 space-y-2">
+            <PullRequestMetaRow icon={<TagIcon className="size-3.5" />} label={gt("Labels")}>
+              <span className="flex min-w-0 flex-wrap items-center gap-1">
+                {seed.labels.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    <T context="no labels">None</T>
+                  </span>
+                ) : (
+                  seed.labels.map((label) => (
+                    <PullRequestLabelChip
+                      key={label.name}
+                      label={label}
+                      size="default"
+                      className="max-w-48"
+                    />
+                  ))
+                )}
               </span>
-            ) : null}
-            {seed.labels.map((label) => (
-              <PullRequestLabelChip key={label.name} label={label} />
-            ))}
-          </div>
-          <div className="flex min-h-6 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="shrink-0">
-              <T>Assignees</T>
-            </span>
-            {seed.assignees.length === 0 ? (
-              <span>
-                <T context="no assignees">none</T>
+            </PullRequestMetaRow>
+            <PullRequestMetaRow icon={<UsersIcon className="size-3.5" />} label={gt("Assignees")}>
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                {seed.assignees.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    <T context="no assignees">None</T>
+                  </span>
+                ) : (
+                  seed.assignees.map((actor) => (
+                    <PullRequestActorLabel key={actor.login} actor={actor} />
+                  ))
+                )}
               </span>
-            ) : null}
-            {seed.assignees.map((actor) => (
-              <PullRequestActorLabel key={actor.login} actor={actor} />
-            ))}
+            </PullRequestMetaRow>
           </div>
         </>
       ) : (
-        <>
+        <div className="flex flex-col gap-4 pt-3">
           <div className="flex h-7 items-center gap-2">
             <GhostBar className="size-4 rounded-full" />
             <GhostBar className="w-12" />
@@ -104,9 +117,9 @@ export function IssueDetailGhost({ seed }: { seed?: IssueListEntry | null }) {
           <GhostBar className="h-5 w-3/4" />
           <GhostBar className="w-48" />
           <GhostBar className="w-32" />
-        </>
+        </div>
       )}
-      <div className={cn("flex flex-col gap-4", seed && "motion-safe:animate-skeleton")}>
+      <div className={cn("mt-4 flex flex-col gap-4", seed && "motion-safe:animate-skeleton")}>
         <div className="flex flex-col gap-2.5 rounded-lg border border-border/60 p-3">
           <GhostBar className="w-20" />
           <GhostBar className="h-3.5 w-full" />
@@ -125,6 +138,69 @@ export function IssueDetailGhost({ seed }: { seed?: IssueListEntry | null }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Personal build: the placeholder for an issue opened as a page. Same title and column as the
+ * loaded page, so nothing moves when it lands.
+ */
+export function IssuePageGhost({ seed }: { seed?: IssueListEntry | null }) {
+  const gt = useGT();
+  const messages = useMessages();
+  return (
+    <div role="status" aria-label={gt("Loading issue")} className="flex min-h-0 flex-1 flex-col">
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden",
+          PAGE_SCROLLER,
+          PAGE_READING_COLUMN,
+        )}
+      >
+        <div className="flex flex-col gap-4 px-4">
+          <div>
+            <PullRequestDetailTitleRow className="mt-1 gap-1">
+              {seed ? (
+                <h2 className="min-w-0 flex-1 pr-7 text-base font-semibold leading-snug">
+                  {seed.title}
+                </h2>
+              ) : (
+                <GhostBar className="h-5 w-3/4 motion-safe:animate-skeleton" />
+              )}
+            </PullRequestDetailTitleRow>
+            <PullRequestMetaLine className="mt-2 min-h-5 text-xs text-muted-foreground">
+              {seed ? (
+                <>
+                  <PullRequestActorLabel actor={seed.author} />
+                  <span>
+                    <T>
+                      opened{" "}
+                      <Var>{formatRelativeTimeLabel(seed.createdAt, undefined, messages)}</Var>
+                    </T>
+                  </span>
+                </>
+              ) : (
+                <GhostBar className="w-48 motion-safe:animate-skeleton" />
+              )}
+            </PullRequestMetaLine>
+          </div>
+          <div className="space-y-2 motion-safe:animate-skeleton">
+            <PullRequestMetaRow icon={<TagIcon className="size-3.5" />} label={gt("Labels")}>
+              <GhostBar className="w-24" />
+            </PullRequestMetaRow>
+            <PullRequestMetaRow icon={<UsersIcon className="size-3.5" />} label={gt("Assignees")}>
+              <GhostBar className="w-20" />
+            </PullRequestMetaRow>
+          </div>
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border/60 p-3 motion-safe:animate-skeleton">
+            <GhostBar className="w-20" />
+            <GhostBar className="h-3.5 w-full" />
+            <GhostBar className="h-3.5 w-5/6" />
+            <GhostBar className="h-3.5 w-2/3" />
+          </div>
+        </div>
       </div>
     </div>
   );

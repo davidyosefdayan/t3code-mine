@@ -39,6 +39,7 @@ import {
 import { resolveFilterOptions } from "./pullRequestListOptions";
 
 import { changeRequestTermKind } from "./changeRequestTerm";
+import { PAGE_READING_COLUMN, PAGE_SCROLLER, PageHeaderTabs, useInPage } from "../page/Page";
 
 export function GhostBar({ className }: { className?: string | undefined }) {
   return <span aria-hidden className={cn("block h-3 rounded bg-muted-foreground/15", className)} />;
@@ -132,9 +133,141 @@ export function PullRequestDetailGhost({
       : null;
   const checkout = checkoutCommand ?? null;
   const changedFiles = summary?.changedFiles ?? null;
+  // Personal build: in a page, the page header names the pull request and holds its actions.
+  const inPage = useInPage();
   const selectedTab =
     tabs.find((item) => item.value === activeTab)?.value ?? tabs[0]?.value ?? "summary";
 
+  const headerBody = (
+    <PullRequestDetailHeaderBody
+      title={
+        <PullRequestDetailTitleRow>
+          {seed ? (
+            <h1 className="truncate text-base font-semibold leading-snug">{seed.title}</h1>
+          ) : (
+            <GhostBar className="h-5 w-4/5 max-w-md" />
+          )}
+        </PullRequestDetailTitleRow>
+      }
+      author={
+        seed ? (
+          <PullRequestActorLabel actor={seed.author ?? null} tooltip={false} />
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <GhostBar className="size-4 rounded-full" />
+            <GhostBar className="h-3 w-14" />
+          </span>
+        )
+      }
+      updated={
+        seed ? (
+          <span>
+            <T context="followed by a relative time such as 5m ago or just now">
+              updated{" "}
+              <Var>
+                <RelativeTime timestamp={seed.updatedAt} />
+              </Var>
+            </T>
+          </span>
+        ) : (
+          <GhostBar className="h-3 w-16" />
+        )
+      }
+      checkout={
+        checkout ? (
+          <PullRequestCopyableCode
+            key={checkout}
+            value={checkout}
+            target={{
+              target: `${terminology.singular} checkout command`,
+              unavailableMessage: msg(
+                "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} checkout command.",
+                { term: changeRequestTermKind(terminology) },
+              ),
+              failureMessage: msg(
+                "Failed to copy {term, select, mr {merge request} cr {change request} other {pull request}} checkout command to the clipboard.",
+                { term: changeRequestTermKind(terminology) },
+              ),
+            }}
+            copyLabel={gt("Copy checkout command")}
+            copiedLabel={gt("Checkout command copied")}
+            className="ml-auto font-mono"
+            tooltipSide="bottom"
+            {...(onCheckoutError ? { onError: onCheckoutError } : {})}
+          />
+        ) : null
+      }
+      base={
+        <span className="inline-flex min-w-0 max-w-[40%] shrink-0 items-center gap-1">
+          {seed ? (
+            <code className="flex min-w-0">
+              <MiddleTruncate value={seed.baseBranch} />
+            </code>
+          ) : (
+            <GhostBar className="h-3 w-12" />
+          )}
+        </span>
+      }
+      head={
+        seed ? (
+          <PullRequestCopyableCode
+            key={seed.headBranch}
+            value={seed.headBranch}
+            target={{
+              target: "branch name",
+              unavailableMessage: msg("Clipboard API is unavailable while copying branch name."),
+              failureMessage: msg("Failed to copy branch name to the clipboard."),
+            }}
+            copyLabel={gt(
+              "Copy {term, select, mr {merge request} cr {change request} other {pull request}} branch",
+              { term: changeRequestTermKind(terminology) },
+            )}
+            copiedLabel={gt("Branch name copied")}
+            className="min-w-0 font-mono"
+          />
+        ) : (
+          <GhostBar className="h-3 w-32 flex-1" />
+        )
+      }
+      files={
+        changedFiles === null ? (
+          <GhostBar className="h-3 w-10" />
+        ) : (
+          gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
+            count: changedFiles,
+            formatted: changedFiles.toLocaleString(),
+          })
+        )
+      }
+      diffStat={
+        seed ? (
+          <PullRequestDiffStat
+            additions={seed.additions ?? 0}
+            deletions={seed.deletions ?? 0}
+            className="shrink-0 font-mono text-xs"
+          />
+        ) : (
+          <GhostBar className="h-3 w-20" />
+        )
+      }
+    />
+  );
+  const checksLine = (
+    <>
+      {checksPresentation ? (
+        <PullRequestChecksStatusLine
+          className={checksPresentation.toneClassName}
+          icon={<checksPresentation.Icon aria-hidden className="size-3.5" />}
+          label={checksPresentation.label}
+        />
+      ) : (
+        <PullRequestChecksStatusLine
+          icon={<GhostBar className="my-px size-3.5 rounded-full" />}
+          label={<GhostBar className="w-28" />}
+        />
+      )}
+    </>
+  );
   return (
     <div
       role="status"
@@ -147,7 +280,17 @@ export function PullRequestDetailGhost({
         !seed && "motion-safe:animate-skeleton",
       )}
     >
-      <div className="@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60">
+      {inPage ? (
+        <PageHeaderTabs>
+          <PullRequestDetailTabBar tabs={tabs} value={selectedTab} inert placement="header" />
+        </PageHeaderTabs>
+      ) : null}
+      <div
+        className={cn(
+          "@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60",
+          inPage && "hidden",
+        )}
+      >
         <div className="pl-4 grid h-7 min-w-0 items-center overflow-hidden">
           <div className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground sm:text-xs">
             {onBack ? (
@@ -217,141 +360,27 @@ export function PullRequestDetailGhost({
         </div>
 
         <div className="col-span-2 grid grid-rows-[1fr]">
-          <div className="min-h-0 overflow-hidden">
-            <PullRequestDetailHeaderBody
-              title={
-                <PullRequestDetailTitleRow>
-                  {seed ? (
-                    <h1 className="truncate text-base font-semibold leading-snug">{seed.title}</h1>
-                  ) : (
-                    <GhostBar className="h-5 w-4/5 max-w-md" />
-                  )}
-                </PullRequestDetailTitleRow>
-              }
-              author={
-                seed ? (
-                  <PullRequestActorLabel actor={seed.author ?? null} tooltip={false} />
-                ) : (
-                  <span className="flex items-center gap-1.5">
-                    <GhostBar className="size-4 rounded-full" />
-                    <GhostBar className="h-3 w-14" />
-                  </span>
-                )
-              }
-              updated={
-                seed ? (
-                  <span>
-                    <T context="followed by a relative time such as 5m ago or just now">
-                      updated{" "}
-                      <Var>
-                        <RelativeTime timestamp={seed.updatedAt} />
-                      </Var>
-                    </T>
-                  </span>
-                ) : (
-                  <GhostBar className="h-3 w-16" />
-                )
-              }
-              checkout={
-                checkout ? (
-                  <PullRequestCopyableCode
-                    key={checkout}
-                    value={checkout}
-                    target={{
-                      target: `${terminology.singular} checkout command`,
-                      unavailableMessage: msg(
-                        "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} checkout command.",
-                        { term: changeRequestTermKind(terminology) },
-                      ),
-                      failureMessage: msg(
-                        "Failed to copy {term, select, mr {merge request} cr {change request} other {pull request}} checkout command to the clipboard.",
-                        { term: changeRequestTermKind(terminology) },
-                      ),
-                    }}
-                    copyLabel={gt("Copy checkout command")}
-                    copiedLabel={gt("Checkout command copied")}
-                    className="ml-auto font-mono"
-                    tooltipSide="bottom"
-                    {...(onCheckoutError ? { onError: onCheckoutError } : {})}
-                  />
-                ) : null
-              }
-              base={
-                <span className="inline-flex min-w-0 max-w-[40%] shrink-0 items-center gap-1">
-                  {seed ? (
-                    <code className="flex min-w-0">
-                      <MiddleTruncate value={seed.baseBranch} />
-                    </code>
-                  ) : (
-                    <GhostBar className="h-3 w-12" />
-                  )}
-                </span>
-              }
-              head={
-                seed ? (
-                  <PullRequestCopyableCode
-                    key={seed.headBranch}
-                    value={seed.headBranch}
-                    target={{
-                      target: "branch name",
-                      unavailableMessage: msg(
-                        "Clipboard API is unavailable while copying branch name.",
-                      ),
-                      failureMessage: msg("Failed to copy branch name to the clipboard."),
-                    }}
-                    copyLabel={gt(
-                      "Copy {term, select, mr {merge request} cr {change request} other {pull request}} branch",
-                      { term: changeRequestTermKind(terminology) },
-                    )}
-                    copiedLabel={gt("Branch name copied")}
-                    className="min-w-0 font-mono"
-                  />
-                ) : (
-                  <GhostBar className="h-3 w-32 flex-1" />
-                )
-              }
-              files={
-                changedFiles === null ? (
-                  <GhostBar className="h-3 w-10" />
-                ) : (
-                  gt("{count, plural, one {{formatted} file} other {{formatted} files}}", {
-                    count: changedFiles,
-                    formatted: changedFiles.toLocaleString(),
-                  })
-                )
-              }
-              diffStat={
-                seed ? (
-                  <PullRequestDiffStat
-                    additions={seed.additions ?? 0}
-                    deletions={seed.deletions ?? 0}
-                    className="shrink-0 font-mono text-xs"
-                  />
-                ) : (
-                  <GhostBar className="h-3 w-20" />
-                )
-              }
-            />
-          </div>
+          <div className="min-h-0 overflow-hidden">{headerBody}</div>
         </div>
 
         <PullRequestDetailTabBar tabs={tabs} value={selectedTab} inert>
-          {checksPresentation ? (
-            <PullRequestChecksStatusLine
-              className={checksPresentation.toneClassName}
-              icon={<checksPresentation.Icon aria-hidden className="size-3.5" />}
-              label={checksPresentation.label}
-            />
-          ) : (
-            <PullRequestChecksStatusLine
-              icon={<GhostBar className="my-px size-3.5 rounded-full" />}
-              label={<GhostBar className="w-28" />}
-            />
-          )}
+          {checksLine}
         </PullRequestDetailTabBar>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden",
+          inPage && [PAGE_SCROLLER, PAGE_READING_COLUMN],
+        )}
+      >
+        {/* Personal build: in a page the title scrolls with the rest; only the header stays. */}
+        {inPage ? (
+          <div>
+            {headerBody}
+            <div className="flex min-w-0 items-center gap-2 px-4">{checksLine}</div>
+          </div>
+        ) : null}
         <section className="px-4 pt-2.5 pb-1">
           <div className="space-y-2">
             <div className="grid min-h-7 min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-center gap-2 text-xs sm:min-h-6">
@@ -407,7 +436,12 @@ export function PullRequestDetailGhost({
         </section>
 
         <section>
-          <div className="sticky top-0 z-10 flex w-full items-center bg-background pr-4">
+          <div
+            className={cn(
+              "flex w-full items-center pr-4",
+              !inPage && "sticky top-0 z-10 bg-background",
+            )}
+          >
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               <span>
                 <T>Description</T>

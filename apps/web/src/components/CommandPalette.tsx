@@ -3,6 +3,7 @@ import { decodeMsg, msg, T, useGT, useMessages, Var } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
+import { announceQuickActionRan, openCommandPalette } from "../commandPaletteBus";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
 import {
@@ -62,7 +63,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   BugIcon,
-  ChartNoAxesColumnIcon,
+  ChartColumnBigIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -83,7 +84,9 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  ShuffleIcon,
 } from "lucide-react";
+import { SkillsIcon } from "./skills/SkillsIcon";
 import { openThreadFind } from "./chat/threadFindStore";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
 import { previewBridge } from "./preview/previewBridge";
@@ -103,6 +106,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useTheme } from "../hooks/useTheme";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import {
@@ -156,6 +160,7 @@ import {
   startNewThreadFromContext,
   threadHasStarted,
 } from "../lib/chatThreadActions";
+import { shuffleTheme, useQuickActionPin } from "../quickActions";
 import {
   appendBrowsePathSegment,
   findProjectByPath,
@@ -319,6 +324,7 @@ function openIntentView(
         groups: [{ value: "themes", label: resolve(msg("Change theme")), items: [] }],
       };
     case "search":
+    case "run":
     case undefined:
       return null;
   }
@@ -601,6 +607,9 @@ function OpenCommandPaletteDialog(props: {
     ]),
   );
   const { canPinProjectGroup, toggleProjectGroupPin } = useProjectPin();
+  // Personal build: rows that can be pinned to the top bar as quick actions.
+  const quickActionPin = useQuickActionPin();
+  const { theme } = useTheme();
   // A row's target record can change when another machine's copy loads, so the kept
   // order follows the project group instead.
   const rowOrderKey = (prefix: string) => (item: CommandPaletteActionItem) =>
@@ -919,7 +928,17 @@ function OpenCommandPaletteDialog(props: {
           );
         },
       });
-      if (scratchTargetEnvironmentId === null) return projectItems;
+      // Personal build: starting a thread is where a missing project gets added.
+      const addProjectRow = {
+        kind: "action" as const,
+        value: "new-thread-in:add-project",
+        searchTerms: ["add project", "new project", "folder", "repo", "clone"],
+        title: "Add project…",
+        icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+        keepOpen: true,
+        run: async () => openCommandPalette({ open: "add-project" }),
+      };
+      if (scratchTargetEnvironmentId === null) return [...projectItems, addProjectRow];
 
       const noProjectIndex = newThreadNoProjectIndex(
         projectPickerEntries.map(({ group, targetProject, isPreferred }) => ({
@@ -943,6 +962,7 @@ function OpenCommandPaletteDialog(props: {
           run: () => startScratchThread(scratchTargetEnvironmentId),
         },
         ...projectItems.slice(noProjectIndex),
+        addProjectRow,
       ];
     })(),
     rowOrderKey("new-thread-in"),
@@ -951,7 +971,10 @@ function OpenCommandPaletteDialog(props: {
   // Root search suggestions copy these numbers; the picker renumbers its shown rows below.
   const projectJumpItems = new Map(
     enumerateCommandPaletteItems(
-      openingOrderThreadItems.filter((item) => item.value !== NEW_THREAD_NO_PROJECT_VALUE),
+      openingOrderThreadItems.filter(
+        (item) =>
+          item.value !== NEW_THREAD_NO_PROJECT_VALUE && item.value !== "new-thread-in:add-project",
+      ),
     ).map((item) => [item.value, item] as const),
   );
   const projectThreadItems = openingOrderThreadItems.map(
@@ -1754,7 +1777,7 @@ function OpenCommandPaletteDialog(props: {
     value: "action:usage",
     searchTerms: ["usage", "use", "tokens", "cost", "spend", "limits", "stats", "analytics"],
     title: gt("Open usage"),
-    icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
+    icon: <ChartColumnBigIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
@@ -1776,6 +1799,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+  // Personal build: the Skills page.
+  actionItems.push({
+    kind: "action",
+    value: "action:skills",
+    searchTerms: ["skills", "skill", "slash", "commands", "instructions", "SKILL.md"],
+    title: "Open skills",
+    icon: <SkillsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/skills" });
+    },
+  });
 
   actionItems.push({
     kind: "action",
@@ -1785,6 +1819,17 @@ function OpenCommandPaletteDialog(props: {
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:shuffle-theme",
+    searchTerms: ["shuffle", "random", "theme", "appearance", "colors"],
+    title: "Shuffle theme",
+    icon: <ShuffleIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      shuffleTheme(theme);
     },
   });
 
@@ -1844,6 +1889,18 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  // Personal build: every action row can be pinned to the top bar.
+  for (const [index, item] of actionItems.entries()) {
+    if (item.pin) continue;
+    const title = item.searchTitle ?? (typeof item.title === "string" ? item.title : item.value);
+    const pin = quickActionPin(item.value, title);
+    // Closing shows the change in the top bar right away.
+    const toggle = () => {
+      pin.toggle();
+      setOpen(false);
+    };
+    actionItems[index] = { ...item, pin: { ...pin, toggle } };
+  }
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems }, messages);
   // Every setting goes to the palette's own matcher, so settings get the same
   // word starts and typo tolerance as threads.
@@ -2682,7 +2739,7 @@ function OpenCommandPaletteDialog(props: {
         highlightedItemValue ??
           (autoHighlightsFirstRow ? (resultRows.itemValues[0] ?? null) : null),
       );
-      if (highlightedItem?.kind === "action" && highlightedItem.pin) {
+      if (highlightedItem?.pin) {
         event.preventDefault();
         event.stopPropagation();
         highlightedItem.pin.toggle();
@@ -2708,7 +2765,7 @@ function OpenCommandPaletteDialog(props: {
       event.preventDefault();
       event.stopPropagation();
       if (matchingItem) {
-        executeItem(matchingItem);
+        void executeItem(matchingItem);
       }
       return;
     }
@@ -2831,12 +2888,15 @@ function OpenCommandPaletteDialog(props: {
         (event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
         event.preventDefault();
         event.stopPropagation();
-        executeItem(highlightedItem);
+        void executeItem(highlightedItem);
       }
     }
   }
 
-  function executeItem(item: CommandPaletteActionItem | CommandPaletteSubmenuItem): void {
+  // Personal build: returns whether the action ran, for a pinned copy button's check mark.
+  function executeItem(
+    item: CommandPaletteActionItem | CommandPaletteSubmenuItem,
+  ): Promise<boolean> | undefined {
     if (item.disabled) {
       return;
     }
@@ -2850,16 +2910,41 @@ function OpenCommandPaletteDialog(props: {
       setOpen(false);
     }
 
-    void item.run().catch((error: unknown) => {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: gt("Unable to run command"),
-          description: thrownErrorMessage(error, m) ?? gt("An unexpected error occurred."),
-        }),
-      );
-    });
+    return item.run().then(
+      () => true,
+      (error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: gt("Unable to run command"),
+            description: thrownErrorMessage(error, m) ?? gt("An unexpected error occurred."),
+          }),
+        );
+        return false;
+      },
+    );
   }
+
+  // Personal build: a pinned top bar action names its row; run it once this session's rows exist.
+  const runIntent = props.openIntent?.kind === "run" ? props.openIntent : null;
+  const ranIntentRef = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- runs the pinned row once, after the palette has built its rows
+  useEffect(() => {
+    if (runIntent === null || ranIntentRef.current) return;
+    ranIntentRef.current = true;
+    const item = actionItems.find((candidate) => candidate.value === runIntent.value);
+    if (item && !item.disabled) {
+      void executeItem(item)?.then((ran) => {
+        if (ran) announceQuickActionRan(item.value);
+      });
+      return;
+    }
+    setOpen(false);
+    toastManager.add({
+      type: "info",
+      title: `“${runIntent.title}” isn’t available on this screen`,
+    });
+  });
 
   const handleOpenProjectFromFileManager = async () => {
     if (!canOpenProjectFromFileManager || isPickingProjectFolder) {

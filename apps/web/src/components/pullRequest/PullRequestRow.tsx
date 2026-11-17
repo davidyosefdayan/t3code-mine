@@ -26,6 +26,7 @@ import {
   PullRequestRowLines,
 } from "./PullRequestListRow";
 import { PullRequestLabelChip, PullRequestReviewDecisionGlyph } from "./pullRequestPresentation";
+import { activeSurfaceClassName, restSurfaceClassName } from "../sidebar/ThreadRowParts";
 
 const LABEL_SLOTS = [
   { overflow: "@xl/pr-row-meta:hidden" },
@@ -113,7 +114,8 @@ function PullRequestRowImpl({
       data-pull-request-key={statsKey}
       className={cn(
         "flex items-center rounded-md [content-visibility:auto] [contain-intrinsic-block-size:56.5px]",
-        selected ? "bg-accent" : "hover:bg-accent/60",
+        // Personal build: the thread list's row surfaces, translucent over photo themes.
+        selected ? activeSurfaceClassName : restSurfaceClassName,
       )}
     >
       <button

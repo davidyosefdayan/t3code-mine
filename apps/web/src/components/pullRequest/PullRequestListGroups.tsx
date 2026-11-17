@@ -1,10 +1,9 @@
 import type { EnvironmentId, PullRequestAction } from "@t3tools/contracts";
-import { EyeIcon, LayersIcon, PenLineIcon, UsersIcon, type LucideIcon } from "lucide-react";
 import { useMessages } from "gt-react";
-import { useDeferredValue, type RefCallback } from "react";
+import { useDeferredValue, useState, type ReactNode, type RefCallback } from "react";
 
 import { cn } from "~/lib/utils";
-import { Separator } from "../ui/separator";
+import { SidebarListGroup } from "../page/SidebarListLayout";
 import {
   pullRequestEntryKey,
   scorePullRequestMatch,
@@ -16,12 +15,6 @@ import {
   PullRequestSpeedModeProvider,
   type PullRequestSpeedActionResult,
 } from "./PullRequestSpeedActions";
-
-const GROUP_ICONS: Record<string, LucideIcon> = {
-  authored: PenLineIcon,
-  reviewRequested: EyeIcon,
-  others: UsersIcon,
-};
 
 const MATCHED_ELSEWHERE_SCORE = 10;
 const FIRST_PAINT_ROWS = 24;
@@ -35,25 +28,6 @@ function firstPaintGroups<Group extends { entries: ReadonlyArray<unknown> }>(
     left -= entries.length;
     return entries.length === 0 ? [] : [{ ...group, entries }];
   });
-}
-
-function PullRequestGroupHeader({
-  group,
-  count,
-}: {
-  group: { key: string; label: string };
-  count: number;
-}) {
-  const resolve = useMessages();
-  const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
-  return (
-    <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground/70">
-      <Icon aria-hidden className="size-3.5 shrink-0" />
-      <h2 className="shrink-0">{resolve(group.label)}</h2>
-      <span className="shrink-0 tabular-nums text-muted-foreground/50">{count}</span>
-      <Separator className="min-w-2 flex-1" />
-    </div>
-  );
 }
 
 export function PullRequestListGroups({
@@ -94,52 +68,66 @@ export function PullRequestListGroups({
   // Every row mounts tooltips and actions; painting a first screenful before the rest keeps
   // opening the page from blocking on the whole list.
   const shownGroups = useDeferredValue(groups, firstPaintGroups(groups));
+  const resolve = useMessages();
   const counts = new Map(groups.map((group) => [group.key, group.entries.length]));
+  // Personal build: group titles are the thread list's, and fold their group the same way.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (key: string) => {
+    const next = new Set(collapsed);
+    if (!next.delete(key)) next.add(key);
+    setCollapsed(next);
+  };
   return (
     <PullRequestSpeedModeProvider>
-      <div className={cn("space-y-3", sweepingKeys.size > 0 && "**:pointer-events-none")}>
-        {shownGroups.map((group) => (
-          <div key={group.key} className="space-y-0.5">
-            {group.label ? (
-              <PullRequestGroupHeader
-                group={group}
-                count={counts.get(group.key) ?? group.entries.length}
+      <div className={cn(sweepingKeys.size > 0 && "**:pointer-events-none")}>
+        {shownGroups.map((group) => {
+          const rows: ReactNode = group.entries.map((entry) => {
+            const entryKey = pullRequestEntryKey(entry);
+            const environmentLabel = environmentLabels?.get(entry.environmentId);
+            return (
+              <PullRequestRow
+                key={entryKey}
+                statsKey={entryKey}
+                statsRef={statsRef}
+                entry={entry}
+                showProjectTitle
+                showProvider={showProvider}
+                {...(environmentLabel !== undefined ? { environmentLabel } : {})}
+                matchedElsewhere={
+                  query.length > 0 && scorePullRequestMatch(entry, query) <= MATCHED_ELSEWHERE_SCORE
+                }
+                selected={
+                  selected?.environmentId === entry.environmentId &&
+                  selected.repository === entry.repository &&
+                  selected.host?.toLowerCase() === entry.host.toLowerCase() &&
+                  selected.number === entry.number
+                }
+                onSelect={onSelect}
+                onIntent={onIntent}
+                hostActions={hostActionsOf(entry)}
+                onActed={onActed}
+                closing={closingKeys.has(entryKey)}
+                sweeping={sweepingKeys.has(entryKey)}
+                onCloseSweepStart={onCloseSweepStart}
               />
-            ) : null}
-            {group.entries.map((entry) => {
-              const entryKey = pullRequestEntryKey(entry);
-              const environmentLabel = environmentLabels?.get(entry.environmentId);
-              return (
-                <PullRequestRow
-                  key={entryKey}
-                  statsKey={entryKey}
-                  statsRef={statsRef}
-                  entry={entry}
-                  showProjectTitle
-                  showProvider={showProvider}
-                  {...(environmentLabel !== undefined ? { environmentLabel } : {})}
-                  matchedElsewhere={
-                    query.length > 0 &&
-                    scorePullRequestMatch(entry, query) <= MATCHED_ELSEWHERE_SCORE
-                  }
-                  selected={
-                    selected?.environmentId === entry.environmentId &&
-                    selected.repository === entry.repository &&
-                    selected.host?.toLowerCase() === entry.host.toLowerCase() &&
-                    selected.number === entry.number
-                  }
-                  onSelect={onSelect}
-                  onIntent={onIntent}
-                  hostActions={hostActionsOf(entry)}
-                  onActed={onActed}
-                  closing={closingKeys.has(entryKey)}
-                  sweeping={sweepingKeys.has(entryKey)}
-                  onCloseSweepStart={onCloseSweepStart}
-                />
-              );
-            })}
-          </div>
-        ))}
+            );
+          });
+          return group.label ? (
+            <SidebarListGroup
+              key={group.key}
+              label={resolve(group.label)}
+              count={counts.get(group.key) ?? group.entries.length}
+              expanded={!collapsed.has(group.key)}
+              onToggle={() => toggle(group.key)}
+            >
+              {rows}
+            </SidebarListGroup>
+          ) : (
+            <div key={group.key} className="flex flex-col gap-0.5 pt-3">
+              {rows}
+            </div>
+          );
+        })}
       </div>
     </PullRequestSpeedModeProvider>
   );

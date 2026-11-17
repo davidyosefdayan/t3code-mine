@@ -1,7 +1,10 @@
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useInPage } from "../page/Page";
+import { Button } from "../ui/button";
+import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } from "../ui/popover";
 import type { EnvironmentId, IssueRef } from "@t3tools/contracts";
 import { msg, useGT } from "gt-react";
-import { ArrowUpIcon } from "lucide-react";
+import { ArrowUpIcon, MessageSquareIcon, XIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { m } from "~/i18n/messages";
@@ -26,8 +29,10 @@ export function IssueCommentComposer({
   blocked: string | null;
 }) {
   const gt = useGT();
+  const inPage = useInPage();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [open, setOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const comment = useAtomCommand(issueEnvironment.comment, { reportFailure: false });
   const locked = blocked !== null || submitting;
@@ -58,62 +63,102 @@ export function IssueCommentComposer({
       return;
     }
     setBody("");
+    setOpen(false);
   };
   const submitAfterDictation = () => speech.submitAfterDictation((text) => void submit(text));
   const submitDisabled =
     speech.preparing || (body.trim().length === 0 && !speech.blocksSubmission) || locked;
 
+  const form = (
+    <form
+      className="relative z-10 flex flex-col"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submitAfterDictation();
+      }}
+    >
+      <textarea
+        ref={textareaRef}
+        rows={2}
+        className="field-sizing-content max-h-64 min-h-[2lh] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-base text-foreground outline-none wrap-anywhere placeholder:text-muted-foreground/70 disabled:opacity-64 sm:text-sm"
+        aria-label={gt("Add a comment")}
+        placeholder={blocked ?? gt("Leave a comment")}
+        value={body}
+        // Lock while posting because success clears the draft.
+        disabled={locked}
+        readOnly={speech.freezesEditor}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+            event.preventDefault();
+            if (!event.repeat) submitAfterDictation();
+          }
+        }}
+      />
+      <div className="flex flex-wrap items-center justify-end gap-2 px-2.5 pb-2.5">
+        <TextFieldSpeechControls speech={speech} disabled={locked} />
+        <button
+          type="submit"
+          className="flex size-8 items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:shadow-message-action/24 enabled:inset-shadow-control-highlight hover:scale-105 hover:bg-message-action-hover active:shadow-none active:inset-shadow-control-pressed disabled:pointer-events-none disabled:bg-foreground/12 disabled:text-muted-foreground disabled:shadow-none"
+          disabled={submitDisabled}
+          aria-label={
+            submitting
+              ? gt("Posting comment")
+              : gt("Comment", { $context: "verb, posts the comment" })
+          }
+        >
+          {submitting ? (
+            <Spinner size="sm" aria-hidden />
+          ) : (
+            <ArrowUpIcon aria-hidden className="size-4" />
+          )}
+        </button>
+      </div>
+    </form>
+  );
+
+  // Personal build: in a page, commenting is a button that opens the composer, as on a pull
+  // request, so nothing floats over what you are reading.
+  if (inPage) {
+    return (
+      <div className="absolute right-4 bottom-3 z-20">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger
+            render={<Button size="icon" variant="glass" />}
+            aria-label={gt("Comment on issue")}
+          >
+            <MessageSquareIcon className="size-4" />
+          </PopoverTrigger>
+          <PopoverPopup
+            keepMounted
+            side="top"
+            align="end"
+            sideOffset={8}
+            width="lg"
+            initialFocus={textareaRef}
+            aria-label={gt("Issue composer")}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <PopoverTitle>{gt("Comment on issue")}</PopoverTitle>
+              <PopoverClose
+                render={<Button size="icon-xs" variant="ghost" />}
+                aria-label={gt("Close composer")}
+              >
+                <XIcon className="size-3.5" />
+              </PopoverClose>
+            </div>
+            <div className="rounded-lg border border-input">{form}</div>
+          </PopoverPopup>
+        </Popover>
+      </div>
+    );
+  }
+
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pb-3">
       <ComposerSurface.Shell className="pointer-events-auto">
-        <ComposerSurface.Host>
-          <form
-            className="relative z-10 flex flex-col"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitAfterDictation();
-            }}
-          >
-            <textarea
-              ref={textareaRef}
-              rows={2}
-              className="field-sizing-content max-h-64 min-h-[2lh] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-base text-foreground outline-none wrap-anywhere placeholder:text-muted-foreground/70 disabled:opacity-64 sm:text-sm"
-              aria-label={gt("Add a comment")}
-              placeholder={blocked ?? gt("Leave a comment")}
-              value={body}
-              // Lock while posting because success clears the draft.
-              disabled={locked}
-              readOnly={speech.freezesEditor}
-              onChange={(event) => setBody(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
-                  event.preventDefault();
-                  if (!event.repeat) submitAfterDictation();
-                }
-              }}
-            />
-            <div className="flex flex-wrap items-center justify-end gap-2 px-2.5 pb-2.5">
-              <TextFieldSpeechControls speech={speech} disabled={locked} />
-              <button
-                type="submit"
-                className="flex size-8 items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:shadow-message-action/24 enabled:inset-shadow-control-highlight hover:scale-105 hover:bg-message-action-hover active:shadow-none active:inset-shadow-control-pressed disabled:pointer-events-none disabled:bg-foreground/12 disabled:text-muted-foreground disabled:shadow-none"
-                disabled={submitDisabled}
-                aria-label={
-                  submitting
-                    ? gt("Posting comment")
-                    : gt("Comment", { $context: "verb, posts the comment" })
-                }
-              >
-                {submitting ? (
-                  <Spinner size="sm" aria-hidden />
-                ) : (
-                  <ArrowUpIcon aria-hidden className="size-4" />
-                )}
-              </button>
-            </div>
-          </form>
-        </ComposerSurface.Host>
+        <ComposerSurface.Host>{form}</ComposerSurface.Host>
       </ComposerSurface.Shell>
     </div>
   );
