@@ -1,4 +1,8 @@
-import { mediaFileReference, mediaUrlReference } from "@t3tools/client-runtime/media-reference";
+import {
+  mediaFileReference,
+  mediaReferenceFileName,
+  mediaUrlReference,
+} from "@t3tools/client-runtime/media-reference";
 import type { AssetResource, EnvironmentId, SOURCE_CONTROL_MEDIA_ASSET } from "@t3tools/contracts";
 import { msg, useGT, useMessages } from "gt-react";
 import { TriangleAlertIcon } from "lucide-react";
@@ -309,7 +313,35 @@ export function ChatMarkdownVideo(props: {
   readonly mediaIdentity?: string | undefined;
   readonly actionsSource?: MediaActionSource | undefined;
   readonly onRetry?: (() => Promise<unknown>) | undefined;
+  readonly srcFragment?: string | undefined;
+  readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
+  // Personal build: like images, a chat video shows its first frame and opens
+  // in the lightbox, where it plays and the arrows reach the chat's other media.
+  const onImageExpand = props.onImageExpand;
+  const source = props.actionsSource;
+  const onOpen =
+    onImageExpand && source && (props.src !== null || source.asset)
+      ? () => {
+          const name =
+            props.alt.trim() ||
+            (source.reference ? mediaReferenceFileName(source.reference) : undefined) ||
+            "video";
+          onImageExpand({
+            images: [
+              {
+                src: source.asset ? null : props.src,
+                name,
+                type: "video",
+                ...(props.originalUrl ? { originalUrl: props.originalUrl } : {}),
+                ...(props.srcFragment ? { srcFragment: props.srcFragment } : {}),
+                actionsSource: { ...source, name },
+              },
+            ],
+            index: 0,
+          });
+        }
+      : undefined;
   return (
     <MediaVideoPlayer
       key={props.mediaIdentity ?? props.copyMarkdown ?? props.src}
@@ -331,6 +363,7 @@ export function ChatMarkdownVideo(props: {
       )}
       onRetry={props.onRetry}
       actionsSource={props.actionsSource}
+      onOpen={onOpen}
     />
   );
 }
@@ -470,6 +503,8 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
         // Re-signing cannot grant the file access this connection lacks.
         onRetry={missingFileAccess ? undefined : refreshAssetUrl}
         actionsSource={actionsSource}
+        srcFragment={props.srcFragment}
+        onImageExpand={props.onImageExpand}
       />
     );
   }
