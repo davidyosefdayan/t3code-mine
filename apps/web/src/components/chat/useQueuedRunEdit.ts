@@ -447,7 +447,10 @@ export function useQueuedRunEdit(input: {
       }
       return;
     }
-    if (error !== null) return;
+    if (error !== null) {
+      focusComposerSoon();
+      return;
+    }
     if (changedAfterSave) return;
     releaseDraftAttachments(newAttachments);
     promptRef.current = "";

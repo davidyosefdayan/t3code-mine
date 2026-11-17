@@ -75,6 +75,8 @@ import {
 import * as WorktreeHandlers from "./toolkits/worktree/handlers.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
+import * as MessagesHandlers from "./toolkits/messages/handlers.ts";
+import { MessagesToolkit } from "./toolkits/messages/tools.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as ToolSearchHandlers from "./toolkits/toolSearch/handlers.ts";
 import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
@@ -1293,6 +1295,9 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 ).pipe(Layer.provide(PullRequestWatchService.layer));
 
+// Personal build: the agent's mid-turn messages to the user.
+export const layerMessagesToolkit = toolkitRegistration(MessagesToolkit, MessagesHandlers.layer);
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1350,6 +1355,7 @@ export const layerTools = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  layerMessagesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
   layerMessageToolkit,
