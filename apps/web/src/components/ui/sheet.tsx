@@ -1,7 +1,7 @@
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { useGT } from "gt-react";
 import { XIcon } from "lucide-react";
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ControlledOpenContext, renderRetainedPopup } from "~/components/ui/dialog";
@@ -36,7 +36,7 @@ function SheetViewport({
   ...props
 }: SheetPrimitive.Viewport.Props & {
   side?: "right" | "left" | "top" | "bottom";
-  variant?: "default" | "inset";
+  variant?: "default" | "inset" | "panel";
 }) {
   return (
     <SheetPrimitive.Viewport
@@ -47,6 +47,11 @@ function SheetViewport({
         side === "left" && "flex justify-start",
         side === "right" && "flex justify-end",
         variant === "inset" && "sm:p-4",
+        // Personal build: a panel sheet floats in the app shell, under the top bar and beside
+        // the rail, with the same margins as the main panel.
+        variant === "panel" && "pt-[calc(var(--app-topbar-height,0px)+0.5rem)] pb-2",
+        variant === "panel" && side === "right" && "pe-2",
+        variant === "panel" && side === "left" && "ps-(--app-rail-width,0.5rem)",
         className,
       )}
       data-slot="sheet-viewport"
@@ -70,9 +75,14 @@ function SheetPopup({
   keepMounted?: boolean;
   transitionDurationMs?: number;
   side?: "right" | "left" | "top" | "bottom";
-  variant?: "default" | "inset";
+  variant?: "default" | "inset" | "panel";
 }) {
   const gt = useGT();
+  const popupRef = useRef<HTMLDivElement>(null);
+  // Personal build: a panel sheet is part of the page, so a pointer open focuses the sheet itself
+  // instead of ringing its first button; the keyboard still lands on that button.
+  const panelInitialFocus = (openType: string) =>
+    openType === "keyboard" ? true : popupRef.current;
   const transitionStyle =
     transitionDurationMs === undefined
       ? undefined
@@ -103,11 +113,16 @@ function SheetPopup({
               "col-start-2 w-[calc(100%-(--spacing(12)))] max-w-md border-s data-ending-style:translate-x-8 data-starting-style:translate-x-8",
             variant === "inset" &&
               "before:hidden sm:rounded-2xl sm:border sm:before:rounded-[calc(var(--radius-2xl)-1px)] sm:**:data-[slot=sheet-footer]:rounded-b-[calc(var(--radius-2xl)-1px)]",
+            variant === "panel" &&
+              "overflow-hidden rounded-xl border border-border/60 bg-clip-padding before:hidden outline-none",
             instant &&
               "transition-none! will-change-auto! data-ending-style:translate-x-0! data-starting-style:translate-x-0! data-ending-style:translate-y-0! data-starting-style:translate-y-0! data-ending-style:opacity-100! data-starting-style:opacity-100!",
             className,
           )}
           data-slot="sheet-popup"
+          {...(variant === "panel"
+            ? { ref: popupRef, initialFocus: panelInitialFocus, "data-panel-sheet": side }
+            : {})}
           render={keepMounted ? undefined : renderRetainedPopup}
           style={{ ...transitionStyle, ...style }}
           {...props}

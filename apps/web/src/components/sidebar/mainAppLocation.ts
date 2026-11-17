@@ -12,6 +12,8 @@ export function isAppModalPage(pathname: string) {
 export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
+    // Personal build: the Skills page.
+    pathname === "/skills" ||
     pathname === "/pull-requests" ||
     pathname === "/issues" ||
     pathname === "/workflows"

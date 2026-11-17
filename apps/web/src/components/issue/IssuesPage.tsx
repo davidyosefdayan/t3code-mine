@@ -57,6 +57,13 @@ import {
 import { m, type MessageResolver } from "~/i18n/messages";
 import { resolveFilterOptions } from "../pullRequest/pullRequestListOptions";
 import { IssueFiltersMenu } from "./IssueListFilterPickers";
+import { IssuesSidebarList } from "./IssuesSidebarList";
+import { keepOnlySelectedSurface } from "../page/singleOpenSurface";
+import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { useIssuesSidebarSlot } from "./issuesSidebarSlot";
+import { ListFilterButton, ListSortMenu, type ListFilterChip } from "../page/ListSearchBar";
+import { SidebarHeaderIconButton } from "../sidebar/SidebarThreadHeader";
+import { createPortal } from "react-dom";
 import { issueFilterProjects, issueListTargets, issueProjectKeys } from "./issuesSearch.logic";
 import { ISSUE_SAVED_VIEWS } from "./issueSavedViews";
 import { SavedViewsMenu } from "~/components/SavedViewsMenu";
@@ -198,6 +205,7 @@ export function IssuesPage() {
   const projects = useProjects();
   const issuesSupported = useIssuesSupported();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const sidebarSlot = useIssuesSidebarSlot();
 
   const capableEnvironments = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.issues === true,
@@ -422,6 +430,7 @@ export function IssuesPage() {
   const selectEntry = (entry: Omit<IssueRowTarget, "host"> & { readonly host?: string }) => {
     if (rightPanelRef === null) return;
     useRightPanelStore.getState().openIssue(rightPanelRef, entry);
+    if (sidebarSlot !== null) keepOnlySelectedSurface(rightPanelRef);
     updateSearch({
       selectedEnvironmentId: entry.environmentId,
       selectedProjectId: entry.projectId,
@@ -453,7 +462,9 @@ export function IssuesPage() {
       scope: search.scope,
       key: search.key,
     });
+    if (sidebarSlot !== null) keepOnlySelectedSurface(rightPanelRef);
   }, [
+    sidebarSlot,
     rightPanelRef,
     search.tracker,
     search.scope,
@@ -661,131 +672,345 @@ export function IssuesPage() {
     </div>
   );
 
+  const detailFor = (
+    surface: NonNullable<typeof renderedSurface>,
+    environmentId: EnvironmentId,
+    ref: NonNullable<typeof rightPanelRef>,
+  ) => (
+    <PullRequestMarkdownPanelContext value={ref}>
+      {surface.kind === "issue" ? (
+      <IssueDetailPanel
+        key={`${environmentId}:${surface.id}`}
+        environmentId={environmentId}
+        listEntry={panelListEntry}
+        reference={{
+          projectId: surface.projectId as ProjectId,
+          tracker: surface.tracker as IssueTrackerKind,
+          ...(surface.host ? { host: surface.host } : {}),
+          scope: surface.scope,
+          key: surface.key,
+        }}
+        onSelectPullRequest={(reference) => {
+          // Personal build: with one item open at a time, a linked pull request
+          // opens on Pull requests, so Back returns to this issue.
+          if (sidebarSlot !== null) {
+            void navigate({
+              to: "/pull-requests",
+              search: {
+                ...readPullRequestListPreferences(),
+                repository: reference.repository,
+                number: reference.number,
+                selectedProjectId: reference.projectId,
+                selectedEnvironmentId: environmentId,
+                selectedHost: reference.host,
+              },
+            });
+            return;
+          }
+          useRightPanelStore.getState().openPullRequest(ref, {
+            projectId: reference.projectId,
+            repository: reference.repository,
+            number: reference.number,
+            ...(reference.host === undefined ? {} : { host: reference.host }),
+            environmentId: environmentId,
+          });
+        }}
+        onSelectIssue={({ host, ...reference }) =>
+          selectEntry({
+            ...reference,
+            ...(host === undefined ? {} : { host }),
+            environmentId: environmentId,
+          })
+        }
+      />
+    ) : (
+      <PullRequestDetailPanel
+        key={surface.id}
+        getShortcutContext={getShortcutContext}
+        shortcutsEnabled={panelSurface?.id === surface.id}
+        environmentId={environmentId}
+        reference={{
+          projectId: (surface as PullRequestSurface).projectId as ProjectId,
+          repository: (surface as PullRequestSurface).repository,
+          number: (surface as PullRequestSurface).number,
+          ...((surface as PullRequestSurface).host
+            ? { host: (surface as PullRequestSurface).host }
+            : {}),
+        }}
+      />
+      )}
+    </PullRequestMarkdownPanelContext>
+  );
+
+  // Personal build: with the Issues sidebar on screen, the list draws there and the
+  // open issue fills the page, as on Pull requests.
+  const stateLabel = resolveFilterOptions(STATE_TABS, resolve).find(
+    (tab) => tab.value === search.status,
+  )?.label;
+  const involvementLabel = resolveFilterOptions(INVOLVEMENT_TABS, resolve).find(
+    (tab) => tab.value === search.who,
+  )?.label;
+  const hostLabel = hostOptions.find((option) => option.value === (search.host ?? ""))?.label;
+  const filterChips: ListFilterChip[] = [
+    ...(search.status !== "open" && stateLabel
+      ? [{ key: "state", label: stateLabel, onRemove: () => updateSearch({ status: "open" }) }]
+      : []),
+    ...(search.who !== "all" && involvementLabel
+      ? [{ key: "who", label: involvementLabel, onRemove: () => updateSearch({ who: "all" }) }]
+      : []),
+    ...(search.host && hostLabel
+      ? [{ key: "host", label: hostLabel, onRemove: () => updateSearch({ host: undefined }) }]
+      : []),
+    ...(search.assignee
+      ? [
+          {
+            key: "assignee",
+            label: search.assignee,
+            onRemove: () => updateSearch({ assignee: undefined }),
+          },
+        ]
+      : []),
+    ...(search.label ?? []).map((label) => ({
+      key: `label:${label}`,
+      label,
+      onRemove: () =>
+        updateSearch({ label: (search.label ?? []).filter((entry) => entry !== label) }),
+    })),
+    ...(hiddenProjects.size > 0
+      ? [
+          {
+            key: "projects",
+            label: gt(
+              "{count, plural, one {{count} project hidden} other {{count} projects hidden}}",
+              {
+                count: hiddenProjects.size,
+              },
+            ),
+            onRemove: () => updateSearch({ hideProjects: [] }),
+          },
+        ]
+      : []),
+  ];
+  const sidebarActions = (
+    <>
+      {/* "All" plus one tracker is nothing to choose between. */}
+      {hostOptions.length > 2 ? (
+        <FilterMenu
+          compact
+          label={gt("Filter by tracker")}
+          value={search.host ?? ""}
+          options={hostOptions}
+          onChange={(host) => updateSearch({ host: host || undefined })}
+        />
+      ) : null}
+      <ListSortMenu
+        value={search.order ?? "updated"}
+        defaultValue="updated"
+        options={resolveFilterOptions(SORT_OPTIONS, resolve)}
+        onChange={(order) => updateSearch({ order: order === "created" ? "created" : undefined })}
+      />
+      <IssueFiltersMenu
+        renderTrigger={(count) => <ListFilterButton active={count > 0} />}
+        state={search.status}
+        stateOptions={resolveFilterOptions(STATE_TABS, resolve)}
+        onState={(status) => updateSearch({ status })}
+        involvement={search.who}
+        involvementOptions={resolveFilterOptions(INVOLVEMENT_TABS, resolve)}
+        onInvolvement={(who) => updateSearch({ who })}
+        scopes={filterScopes}
+        labels={search.label ?? []}
+        onLabels={(label) => updateSearch({ label })}
+        assignee={search.assignee}
+        onAssignee={(assignee) => updateSearch({ assignee })}
+        projects={filterProjects}
+        hiddenProjects={hiddenProjects}
+        onHiddenProjects={(hideProjects) => updateSearch({ hideProjects })}
+      />
+      <SidebarHeaderIconButton
+        label={gt("Refresh issues")}
+        onClick={list.refresh}
+        disabled={list.isPending}
+      >
+        <RefreshIcon size="sm" refreshing={list.isPending} />
+      </SidebarHeaderIconButton>
+    </>
+  );
+  const showingIssue = sidebarSlot !== null && panelSurface !== null && rightPanelState.isOpen;
+  const sidebarPage =
+    sidebarSlot === null ? null : (
+      <>
+        {createPortal(
+          <IssuesSidebarList
+            searchBar={{
+              value: search.q ?? "",
+              busy:
+                (search.q ?? "") !== debouncedQuery ||
+                (debouncedQuery.length > 0 && list.isPending),
+              onChange: (q) => updateSearch({ q: q || undefined }),
+              onSubmit: (q) => updateSearch({ q: q || undefined }),
+            }}
+            filterChips={filterChips}
+            onClearFilters={() =>
+              updateSearch({
+                status: "open",
+                who: "all",
+                host: undefined,
+                assignee: undefined,
+                label: [],
+                hideProjects: [],
+              })
+            }
+            actions={sidebarActions}
+            listBody={listBody}
+          />,
+          sidebarSlot,
+        )}
+        {/* One issue at a time, like a chat on Threads: no tabs. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          {showingIssue && panelSurface && panelEnvironmentId !== null && rightPanelRef !== null ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {detailFor(panelSurface, panelEnvironmentId, rightPanelRef)}
+            </div>
+          ) : (
+            <p className="m-auto px-6 text-sm text-muted-foreground">
+              <T>Pick an issue from the list to open it here.</T>
+            </p>
+          )}
+        </div>
+      </>
+    );
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div className="relative flex min-h-0 flex-1">
-        <div className="@container/issue-list flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-          <WorkspacePageHeader
-            electron={isElectron}
-            reserveNativeControls={!rightPanelState.isOpen}
-            className="relative bg-background"
-          >
-            <WorkspaceBreadcrumb ariaLabel={gt("Issues breadcrumb")}>
-              <WorkspaceBreadcrumbItem current>
-                <h1 className="truncate">
-                  <T context="page title, list of issues">Issues</T>
-                </h1>
-              </WorkspaceBreadcrumbItem>
-            </WorkspaceBreadcrumb>
-            <div className="min-w-0 flex-1" />
-            <div
-              className="flex items-center gap-1 [-webkit-app-region:no-drag]"
-              data-workspace-titlebar-controls
+        {sidebarPage ?? (
+          <div className="@container/issue-list flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+            <WorkspacePageHeader
+              electron={isElectron}
+              reserveNativeControls={!rightPanelState.isOpen}
+              className="relative bg-background"
             >
-              <PanelLayoutControls
-                showTerminalControl={false}
-                showThreadPanelControl={false}
-                terminalAvailable={false}
-                terminalOpen={false}
-                terminalShortcutLabel={null}
-                threadPanelOpen={false}
-                threadPanelPresentation="inline"
-                threadPanelShortcutLabel={null}
-                onToggleThreadPanel={() => undefined}
-                rightPanelAvailable={panelSurface !== null}
-                rightPanelOpen={rightPanelState.isOpen}
-                rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
-                rightPanelUnavailableLabel={gt("Select an issue first")}
-                onToggleTerminal={() => undefined}
-                onToggleRightPanel={toggleRightPanel}
-              />
-            </div>
-          </WorkspacePageHeader>
-
-          <div className="topbar-scroll-fade scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
-            <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 basis-full @lg/issue-list:min-w-48 @lg/issue-list:basis-0 @lg/issue-list:flex-1">
-                  <PullRequestSearchInput
-                    value={search.q ?? ""}
-                    label={gt("Search issues")}
-                    placeholder={gt("Search issues")}
-                    busy={
-                      (search.q ?? "") !== debouncedQuery ||
-                      (debouncedQuery.length > 0 && list.isPending)
-                    }
-                    onChange={(q) => updateSearch({ q: q || undefined })}
-                    onSubmit={(q) => updateSearch({ q: q || undefined })}
-                  />
-                </div>
-                <PullRequestCompactFilterMenu
-                  label={gt("Sort issues")}
-                  triggerIcon={<ArrowDownUpIcon aria-hidden className="size-4" />}
-                  triggerLabel={gt("Sort", { $context: "verb, button that sorts a list" })}
-                  outlined
-                  value={search.order ?? "updated"}
-                  options={resolveFilterOptions(SORT_OPTIONS, resolve)}
-                  onChange={(order) =>
-                    updateSearch({ order: order === "created" ? "created" : undefined })
-                  }
+              <WorkspaceBreadcrumb ariaLabel={gt("Issues breadcrumb")}>
+                <WorkspaceBreadcrumbItem current>
+                  <h1 className="truncate">
+                    <T context="page title, list of issues">Issues</T>
+                  </h1>
+                </WorkspaceBreadcrumbItem>
+              </WorkspaceBreadcrumb>
+              <div className="min-w-0 flex-1" />
+              <div
+                className="flex items-center gap-1 [-webkit-app-region:no-drag]"
+                data-workspace-titlebar-controls
+              >
+                <PanelLayoutControls
+                  showTerminalControl={false}
+                  showThreadPanelControl={false}
+                  terminalAvailable={false}
+                  terminalOpen={false}
+                  terminalShortcutLabel={null}
+                  threadPanelOpen={false}
+                  threadPanelPresentation="inline"
+                  threadPanelShortcutLabel={null}
+                  onToggleThreadPanel={() => undefined}
+                  rightPanelAvailable={panelSurface !== null}
+                  rightPanelOpen={rightPanelState.isOpen}
+                  rightPanelShortcutLabel={shortcutLabelForCommand(
+                    keybindings,
+                    "rightPanel.toggle",
+                  )}
+                  rightPanelUnavailableLabel={gt("Select an issue first")}
+                  onToggleTerminal={() => undefined}
+                  onToggleRightPanel={toggleRightPanel}
                 />
-                <IssueFiltersMenu
-                  state={search.status}
-                  stateOptions={resolveFilterOptions(STATE_TABS, resolve)}
-                  onState={(status) => updateSearch({ status })}
-                  involvement={search.who}
-                  involvementOptions={resolveFilterOptions(INVOLVEMENT_TABS, resolve)}
-                  onInvolvement={(who) => updateSearch({ who })}
-                  scopes={filterScopes}
-                  labels={search.label ?? []}
-                  onLabels={(label) => updateSearch({ label })}
-                  assignee={search.assignee}
-                  onAssignee={(assignee) => updateSearch({ assignee })}
-                  projects={filterProjects}
-                  hiddenProjects={hiddenProjects}
-                  onHiddenProjects={(hideProjects) => updateSearch({ hideProjects })}
-                />
-                <SavedViewsMenu
-                  kind={ISSUE_SAVED_VIEWS}
-                  preferences={search}
-                  onApply={(view) =>
-                    // Explicit clears replace the old list scope; the selected issue stays open.
-                    updateSearch({
-                      who: view.who,
-                      status: view.status,
-                      hideProjects: view.hideProjects,
-                      host: view.host,
-                      q: view.q,
-                      label: view.label,
-                      assignee: view.assignee,
-                      order: view.order,
-                    })
-                  }
-                />
-                {hostOptions.length > 1 ? (
-                  <FilterMenu
-                    label={gt("Filter by tracker")}
-                    value={search.host ?? ""}
-                    options={hostOptions}
-                    onChange={(host) => updateSearch({ host: host || undefined })}
-                  />
-                ) : null}
-                <Button
-                  size="icon"
-                  variant="outline"
-                  aria-label={gt("Refresh issues")}
-                  onClick={list.refresh}
-                  disabled={list.isPending}
-                >
-                  <RefreshIcon size="md" refreshing={list.isPending} />
-                </Button>
               </div>
-              {listBody}
-            </WorkspacePageContainer>
-          </div>
-        </div>
+            </WorkspacePageHeader>
 
-        {presence.present &&
+            <div className="topbar-scroll-fade scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
+              <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 basis-full @lg/issue-list:min-w-48 @lg/issue-list:basis-0 @lg/issue-list:flex-1">
+                    <PullRequestSearchInput
+                      value={search.q ?? ""}
+                      label={gt("Search issues")}
+                      placeholder={gt("Search issues")}
+                      busy={
+                        (search.q ?? "") !== debouncedQuery ||
+                        (debouncedQuery.length > 0 && list.isPending)
+                      }
+                      onChange={(q) => updateSearch({ q: q || undefined })}
+                      onSubmit={(q) => updateSearch({ q: q || undefined })}
+                    />
+                  </div>
+                  <PullRequestCompactFilterMenu
+                    label={gt("Sort issues")}
+                    triggerIcon={<ArrowDownUpIcon aria-hidden className="size-4" />}
+                    triggerLabel={gt("Sort", { $context: "verb, button that sorts a list" })}
+                    outlined
+                    value={search.order ?? "updated"}
+                    options={resolveFilterOptions(SORT_OPTIONS, resolve)}
+                    onChange={(order) =>
+                      updateSearch({ order: order === "created" ? "created" : undefined })
+                    }
+                  />
+                  <IssueFiltersMenu
+                    state={search.status}
+                    stateOptions={resolveFilterOptions(STATE_TABS, resolve)}
+                    onState={(status) => updateSearch({ status })}
+                    involvement={search.who}
+                    involvementOptions={resolveFilterOptions(INVOLVEMENT_TABS, resolve)}
+                    onInvolvement={(who) => updateSearch({ who })}
+                    scopes={filterScopes}
+                    labels={search.label ?? []}
+                    onLabels={(label) => updateSearch({ label })}
+                    assignee={search.assignee}
+                    onAssignee={(assignee) => updateSearch({ assignee })}
+                    projects={filterProjects}
+                    hiddenProjects={hiddenProjects}
+                    onHiddenProjects={(hideProjects) => updateSearch({ hideProjects })}
+                  />
+                  <SavedViewsMenu
+                    kind={ISSUE_SAVED_VIEWS}
+                    preferences={search}
+                    onApply={(view) =>
+                      // Explicit clears replace the old list scope; the selected issue stays open.
+                      updateSearch({
+                        who: view.who,
+                        status: view.status,
+                        hideProjects: view.hideProjects,
+                        host: view.host,
+                        q: view.q,
+                        label: view.label,
+                        assignee: view.assignee,
+                        order: view.order,
+                      })
+                    }
+                  />
+                  {hostOptions.length > 1 ? (
+                    <FilterMenu
+                      label={gt("Filter by tracker")}
+                      value={search.host ?? ""}
+                      options={hostOptions}
+                      onChange={(host) => updateSearch({ host: host || undefined })}
+                    />
+                  ) : null}
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    aria-label={gt("Refresh issues")}
+                    onClick={list.refresh}
+                    disabled={list.isPending}
+                  >
+                    <RefreshIcon size="md" refreshing={list.isPending} />
+                  </Button>
+                </div>
+                {listBody}
+              </WorkspacePageContainer>
+            </div>
+          </div>
+        )}
+
+        {sidebarSlot === null &&
+        presence.present &&
         renderedSurface &&
         panelEnvironmentId !== null &&
         rightPanelRef !== null ? (
@@ -845,53 +1070,7 @@ export function IssuesPage() {
             pullRequestsAvailable={false}
             deviceAvailable={false}
           >
-            <PullRequestMarkdownPanelContext value={rightPanelRef}>
-              {renderedSurface.kind === "issue" ? (
-                <IssueDetailPanel
-                  key={`${panelEnvironmentId}:${renderedSurface.id}`}
-                  environmentId={panelEnvironmentId}
-                  listEntry={panelListEntry}
-                  reference={{
-                    projectId: renderedSurface.projectId as ProjectId,
-                    tracker: renderedSurface.tracker as IssueTrackerKind,
-                    ...(renderedSurface.host ? { host: renderedSurface.host } : {}),
-                    scope: renderedSurface.scope,
-                    key: renderedSurface.key,
-                  }}
-                  onSelectPullRequest={(reference) => {
-                    useRightPanelStore.getState().openPullRequest(rightPanelRef, {
-                      projectId: reference.projectId,
-                      repository: reference.repository,
-                      number: reference.number,
-                      ...(reference.host === undefined ? {} : { host: reference.host }),
-                      environmentId: panelEnvironmentId,
-                    });
-                  }}
-                  onSelectIssue={({ host, ...reference }) =>
-                    selectEntry({
-                      ...reference,
-                      ...(host === undefined ? {} : { host }),
-                      environmentId: panelEnvironmentId,
-                    })
-                  }
-                />
-              ) : (
-                <PullRequestDetailPanel
-                  key={renderedSurface.id}
-                  getShortcutContext={getShortcutContext}
-                  shortcutsEnabled={panelSurface?.id === renderedSurface.id}
-                  environmentId={panelEnvironmentId}
-                  reference={{
-                    projectId: (renderedSurface as PullRequestSurface).projectId as ProjectId,
-                    repository: (renderedSurface as PullRequestSurface).repository,
-                    number: (renderedSurface as PullRequestSurface).number,
-                    ...((renderedSurface as PullRequestSurface).host
-                      ? { host: (renderedSurface as PullRequestSurface).host }
-                      : {}),
-                  }}
-                />
-              )}
-            </PullRequestMarkdownPanelContext>
+            {detailFor(renderedSurface, panelEnvironmentId, rightPanelRef)}
           </RightPanelTabs>
         ) : null}
       </div>
@@ -904,7 +1083,10 @@ function FilterMenu<Value extends string>({
   value,
   options,
   onChange,
+  compact = false,
 }: {
+  /** Personal build: an icon in the Issues sidebar's search bar. */
+  compact?: boolean;
   label: string;
   value: Value;
   options: ReadonlyArray<PullRequestFilterOption<Value>>;
@@ -914,10 +1096,26 @@ function FilterMenu<Value extends string>({
   if (!current) return null;
   return (
     <Menu>
-      <MenuTrigger aria-label={`${label}: ${current.label}`} render={<Button variant="outline" />}>
-        <PullRequestFilterOptionIcon option={current} />
-        <span className="truncate">{current.label}</span>
-      </MenuTrigger>
+      {compact ? (
+        <MenuTrigger
+          render={
+            <SidebarHeaderIconButton
+              label={`${label}: ${current.label}`}
+              isActive={current !== options[0]}
+            />
+          }
+        >
+          <PullRequestFilterOptionIcon option={current} />
+        </MenuTrigger>
+      ) : (
+        <MenuTrigger
+          aria-label={`${label}: ${current.label}`}
+          render={<Button variant="outline" />}
+        >
+          <PullRequestFilterOptionIcon option={current} />
+          <span className="truncate">{current.label}</span>
+        </MenuTrigger>
+      )}
       <MenuPopup align="start">
         <MenuRadioGroup value={value} onValueChange={(next) => onChange(next as Value)}>
           {options.map((option) => (

@@ -2,6 +2,7 @@ import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 
+import { refreshDockIcon } from "./palette";
 import { appAtomRegistry, subscribeAtomChanges } from "./rpc/atomRegistry";
 import { assetEnvironment } from "./state/assets";
 import { localEnvironmentIdAtom } from "./state/primaryEnvironment";
@@ -24,6 +25,7 @@ function show(nextUrl: string | null): void {
   else root.style.setProperty(THEME_BACKGROUND_VARIABLE, `url("${nextUrl}")`);
   if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
   objectUrl = nextUrl;
+  refreshDockIcon();
 }
 
 async function loadBackground(

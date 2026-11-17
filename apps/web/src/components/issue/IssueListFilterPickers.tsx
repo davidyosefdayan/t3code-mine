@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { FolderGit2Icon, LayersIcon, ListFilterIcon, TagIcon, UserIcon } from "lucide-react";
 import { T, useGT } from "gt-react";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -55,6 +55,8 @@ export function IssueFiltersMenu(props: {
   projects: ReadonlyArray<ProjectFaviconProject & { readonly id: ProjectId }>;
   hiddenProjects: ReadonlySet<string>;
   onHiddenProjects: (hidden: ReadonlyArray<readonly [EnvironmentId, ProjectId]>) => void;
+  /** Personal build: the Issues sidebar's filter icon replaces the outlined button. */
+  renderTrigger?: (filterCount: number) => ReactElement;
 }) {
   const gt = useGT();
   const [open, setOpen] = useState(false);
@@ -69,17 +71,21 @@ export function IssueFiltersMenu(props: {
   const scopes = open ? props.scopes : [];
   return (
     <Menu onOpenChange={setOpen}>
-      <MenuTrigger render={<Button variant="outline" />}>
-        <ListFilterIcon className="size-4" />
-        <span>
-          <T>Filters</T>
-        </span>
-        {count > 0 ? (
-          <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
-            {count}
+      {props.renderTrigger ? (
+        <MenuTrigger render={props.renderTrigger(count)} />
+      ) : (
+        <MenuTrigger render={<Button variant="outline" />}>
+          <ListFilterIcon className="size-4" />
+          <span>
+            <T>Filters</T>
           </span>
-        ) : null}
-      </MenuTrigger>
+          {count > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
+              {count}
+            </span>
+          ) : null}
+        </MenuTrigger>
+      )}
       <MenuPopup align="end" side="bottom">
         <PullRequestFilterRadioSubmenu
           label={gt("State", { $context: "issue state filter" })}

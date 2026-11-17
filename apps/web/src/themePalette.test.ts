@@ -4,6 +4,7 @@ import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 
 import { CONTEXT_CHIP_ACCENTS, contextChipColorVariable } from "./lib/contextChipAccents";
 import { appAtomRegistry } from "./rpc/atomRegistry";
+import { MINE_THEMES } from "./mineThemes";
 
 import {
   applyThemePalette,
@@ -77,6 +78,23 @@ describe("theme files", () => {
     expect(parseThemeFile({ ...file, name: " 夜 " }).id).toBe(night.id);
   });
 
+  it("reads rail colors and icons from theme files and reserves the built-in Mine theme ids", () => {
+    const file = { version: THEME_FILE_VERSION, appearance: "dark", name: "Night" };
+    const theme = parseThemeFile({ ...file, colors: { rail: "#101c5c", railControl: "#2a3570" } });
+    expect(theme.colors.rail).toBeDefined();
+    expect(theme.colors.railControl).toBeDefined();
+    expect(JSON.parse(serializeThemeFile(theme)).colors.rail).toBeDefined();
+    const icon = "data:image/png;base64,iVBORw0KGgo=";
+    expect(parseThemeFile({ ...file, icon, colors: { canvas: "#101820" } }).icon).toBe(icon);
+    expect(
+      parseThemeFile({ ...file, icon: "https://example.com/x.png", colors: { canvas: "#101820" } })
+        .icon,
+    ).toBeUndefined();
+    expect(() => parseThemeFile({ ...file, id: "paper", colors: { canvas: "#101820" } })).toThrow(
+      /reserved/,
+    );
+  });
+
   it("keeps built-in and standard search pairs readable and distinct from inline code", () => {
     const toOklab = converter("oklab");
     const distance = (first: string, second: string) => {
@@ -87,7 +105,10 @@ describe("theme files", () => {
     const palettes = [
       getStandardThemeColors("light"),
       getStandardThemeColors("dark"),
-      ...BUILT_IN_THEMES.flatMap((theme) => [theme.colors, ...Object.values(theme.variants ?? {})]),
+      ...[...MINE_THEMES, ...BUILT_IN_THEMES].flatMap((theme) => [
+        theme.colors,
+        ...Object.values(theme.variants ?? {}),
+      ]),
     ];
     for (const colors of palettes) {
       expect(
@@ -727,8 +748,8 @@ describe("stored theme preferences", () => {
   it("lets built-in and published halves unlock an appearance the base theme lacks", () => {
     const lightOnly = parseThemeFile({
       version: THEME_FILE_VERSION,
-      id: "paper",
-      name: "Paper",
+      id: "parchment",
+      name: "Parchment",
       appearance: "light",
       colors: { canvas: "#f8fbff" },
     });
@@ -751,17 +772,17 @@ describe("stored theme preferences", () => {
     });
     invalidateCustomThemes();
     try {
-      expect(resolveThemeAppearance("paper", true, true)).toBe("light");
+      expect(resolveThemeAppearance("parchment", true, true)).toBe("light");
       const halves = { dark: GROVE_THEME.id };
-      expect(resolveThemeAppearance("paper", true, true, undefined, halves)).toBe("dark");
-      expect(resolveThemeAppearance("paper", false, false, "dark", halves)).toBe("dark");
-      expect(resolveDesktopTheme("paper", true, undefined, halves)).toBe("system");
+      expect(resolveThemeAppearance("parchment", true, true, undefined, halves)).toBe("dark");
+      expect(resolveThemeAppearance("parchment", false, false, "dark", halves)).toBe("dark");
+      expect(resolveDesktopTheme("parchment", true, undefined, halves)).toBe("system");
 
       expect(getThemeDefinition("constructor")).toEqual(publishedTheme);
       expect(canonicalThemePreference("constructor")).toBe("constructor");
       const publishedHalves = parseThemeHalves(JSON.stringify({ dark: "constructor" }));
       expect(publishedHalves).toEqual({ dark: "constructor" });
-      expect(resolveThemeAppearance("paper", true, true, undefined, publishedHalves)).toBe("dark");
+      expect(resolveThemeAppearance("parchment", true, true, undefined, publishedHalves)).toBe("dark");
     } finally {
       vi.unstubAllGlobals();
       invalidateCustomThemes();

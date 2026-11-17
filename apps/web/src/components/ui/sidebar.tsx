@@ -2,7 +2,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { T, useGT } from "gt-react";
-import { PanelLeftCloseIcon, PanelLeftIcon } from "lucide-react";
+import { PanelLeftCloseIcon, PanelLeftOpenIcon } from "lucide-react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -30,6 +30,8 @@ import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
 
 const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing) * 3)";
+// Personal build: beside the app rail, the list keeps a sidebar's width and leaves a strip of page.
+const SIDEBAR_WIDTH_MOBILE_PANEL = "min(20rem, calc(100vw - var(--app-rail-width, 0px) - 3rem))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
 const SIDEBAR_COLLAPSE_DRAG_RATIO = 0.75;
@@ -236,7 +238,9 @@ function SidebarProvider({
     <SidebarContext value={contextValue}>
       <div
         className={cn(
-          "group/sidebar-wrapper flex min-h-svh w-full",
+          // Personal build: shells with a top bar (--app-topbar-height) start below it,
+          // and the inset layout sits on the theme's shell color.
+          "group/sidebar-wrapper flex min-h-svh w-full pt-(--app-topbar-height,0px) has-data-[variant=inset]:bg-sidebar-shell",
           SIDEBAR_TITLEBAR_CONTROL_SIZE,
           className,
         )}
@@ -288,17 +292,28 @@ function Sidebar({
   variant = "sidebar",
   collapsible = "offcanvas",
   resizable = false,
+  absent = false,
   className,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
+  /** The current page has no sidebar: lay out as collapsed whatever the open state. */
+  absent?: boolean;
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
   resizable?: boolean | SidebarResizableOptions;
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, setMobileSheetMounted } = useSidebar();
+  const {
+    isMobile,
+    state: openState,
+    openMobile,
+    setOpenMobile,
+    setMobileSheetMounted,
+  } = useSidebar();
   const gt = useGT();
+  // Personal build: a page without a sidebar renders it absent (collapsed).
+  const state = absent ? "collapsed" : openState;
   // Not usePanelAnimationSettings: its navigation suppression would snap the sheet shut mid-exit when an item navigates.
   const panelAnimationDurationMs = useClientSettings(
     (settings) => settings.panelAnimationDurationMs,
@@ -330,6 +345,9 @@ function Sidebar({
   if (isMobile) {
     return (
       <SidebarInstanceContext value={instanceContextValue}>
+        {/* Personal build: the inset page keeps its panel shape beside the rail on narrow
+            windows, and reads that shape from this peer, as it does from the docked list. */}
+        <div className="peer hidden" data-state="collapsed" data-variant={variant} />
         <Sheet
           onOpenChange={setOpenMobile}
           onOpenChangeComplete={(open) => {
@@ -342,7 +360,8 @@ function Sidebar({
             keepMounted
             {...(panelAnimationsActive ? {} : { transitionDurationMs: 0 })}
             className={cn(
-              "w-(--sidebar-width) max-w-none bg-sidebar surface-grain p-0 text-sidebar-foreground",
+              "w-(--sidebar-width) max-w-none p-0 text-sidebar-foreground",
+              variant === "inset" ? "bg-sidebar-list" : "bg-sidebar surface-grain",
               className,
             )}
             data-mobile="true"
@@ -350,9 +369,11 @@ function Sidebar({
             data-slot="sidebar"
             showCloseButton={false}
             side={side}
+            {...(variant === "inset" ? { variant: "panel" as const } : {})}
             style={
               {
-                "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+                "--sidebar-width":
+                  variant === "inset" ? SIDEBAR_WIDTH_MOBILE_PANEL : SIDEBAR_WIDTH_MOBILE,
               } as React.CSSProperties
             }
           >
@@ -405,12 +426,17 @@ function Sidebar({
         <div
           className={cn(
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
-            "[[data-panel-animations=true]_&]:transition-[left,right,width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+            // Shells with a top bar (--app-topbar-height) start below it.
+            "top-(--app-topbar-height,0px) h-[calc(100svh-var(--app-topbar-height,0px))]",
+            "[[data-panel-animations=true]_&]:transition-[left,right,width,visibility] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+            // Personal build: a collapsed sidebar parks flush against the app rail, where a
+            // sub-pixel sliver of its edge showed as a line; hide it once the slide ends.
+            "group-data-[collapsible=offcanvas]:invisible [[data-sidebar-drag-state]_&]:visible!",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
+              ? "left-(--app-rail-width,0px) group-data-[collapsible=offcanvas]:left-[calc(var(--app-rail-width,0px)-var(--sidebar-width))]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
             variant === "floating" || variant === "inset"
-              ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
+              ? "p-2 group-data-[variant=inset]:px-0 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
             className,
           )}
@@ -418,7 +444,7 @@ function Sidebar({
           {...props}
         >
           <div
-            className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
+            className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=inset]:bg-none! group-data-[variant=inset]:bg-sidebar-list group-data-[variant=inset]:bg-clip-padding group-data-[variant=inset]:rounded-s-xl group-data-[variant=inset]:border group-data-[variant=inset]:border-e-0 group-data-[variant=inset]:border-border/60 group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
             data-sidebar="sidebar"
             data-slot="sidebar-inner"
           >
@@ -426,7 +452,8 @@ function Sidebar({
           </div>
         </div>
       </div>
-      {offcanvasCollapsed && side === "left" && resolvedResizable?.collapseOnResize && (
+      {/* Personal build: a page without a sidebar has nothing to drag back out. */}
+      {offcanvasCollapsed && !absent && side === "left" && resolvedResizable?.collapseOnResize && (
         <SidebarRestoreHandle options={resolvedResizable} />
       )}
     </SidebarInstanceContext>
@@ -454,7 +481,11 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       variant="ghost"
       {...props}
     >
-      {isOpen ? <PanelLeftCloseIcon className="size-4" /> : <PanelLeftIcon className="size-4" />}
+      {isOpen ? (
+        <PanelLeftCloseIcon className="size-4" />
+      ) : (
+        <PanelLeftOpenIcon className="size-4" />
+      )}
       <span className="sr-only">
         <T>Toggle Sidebar</T>
       </span>
@@ -508,7 +539,10 @@ function SidebarRestoreHandle({ options }: { options: SidebarResolvedResizableOp
           wrapper.dataset.sidebarDragState = restorePending ? "expanded" : "collapsed";
         }
         const width = clampSidebarWidth(nextWidth, options);
-        container.style.left = restorePending ? "0px" : `${-width}px`;
+        // Personal build: offsets start after the app rail (0 when there is none).
+        container.style.left = restorePending
+          ? "var(--app-rail-width, 0px)"
+          : `calc(var(--app-rail-width, 0px) - ${width}px)`;
         for (const element of [container, gap]) {
           element.style.width = `${restorePending || element === container ? width : 0}px`;
           element.style.transitionDuration = "0ms";
@@ -535,7 +569,7 @@ function SidebarRestoreHandle({ options }: { options: SidebarResolvedResizableOp
   const { ref: handleRef, ...drag } = resize;
   return (
     <div
-      className="fixed top-1/2 left-[8px] z-41 h-16 w-[16px] -translate-y-1/2 [-webkit-app-region:no-drag]"
+      className="fixed top-1/2 left-[calc(var(--app-rail-width,0px)+8px)] z-41 h-16 w-[16px] -translate-y-1/2 [-webkit-app-region:no-drag]"
       data-slot="sidebar-restore-edge"
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse") setNear(true);
@@ -618,7 +652,10 @@ function SidebarRail({
         );
       });
       // Match the offcanvas left offset so releasing a drag cannot restart the slide.
-      if (canCollapse) sidebarContainer.style.left = collapsePending ? `${-value}px` : "0px";
+      if (canCollapse)
+        sidebarContainer.style.left = collapsePending
+          ? `calc(var(--app-rail-width, 0px) - ${value}px)`
+          : "var(--app-rail-width, 0px)";
     };
     widthTargets.forEach((element) => {
       element.style.setProperty("transition-duration", "0ms");
@@ -703,8 +740,9 @@ function SidebarRail({
     <button
       aria-label={railLabel}
       className={cn(
-        /* A collapsed offcanvas rail overlaps the native scrollbar on Windows and Linux. */
-        "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
+        /* A collapsed offcanvas rail overlaps the native scrollbar on Windows and Linux.
+           Personal build: its line matches the side panel's resize line. */
+        "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 group-data-[variant=inset]:inset-y-2 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-px after:transition-colors after:duration-150 hover:after:bg-border focus-visible:after:bg-primary/60 active:after:bg-primary/60 group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
         "[[data-panel-animations=true]_&]:transition-all [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
         "touch-none",
         canResize
@@ -772,7 +810,9 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       className={cn(
         "relative flex min-w-0 w-full flex-1 flex-col bg-background surface-grain",
-        "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5",
+        "peer-data-[variant=inset]:m-2 peer-data-[variant=inset]:ms-0 peer-data-[variant=inset]:h-[calc(100dvh-1rem-var(--app-topbar-height,0px))] peer-data-[variant=inset]:overflow-hidden peer-data-[variant=inset]:rounded-xl peer-data-[variant=inset]:bg-clip-padding peer-data-[variant=inset]:border peer-data-[variant=inset]:border-border/60 peer-data-[variant=inset]:peer-data-[state=expanded]:rounded-s-none",
+        // Personal build: mid-drag, the panel already wears the corners of the state it will settle in.
+        "[[data-sidebar-drag-state=collapsed]_&]:rounded-s-xl! [[data-sidebar-drag-state=expanded]_&]:rounded-s-none!",
         className,
       )}
       data-slot="sidebar-inset"
@@ -823,7 +863,9 @@ function SidebarContent({
         // Rows provide keyboard access; exclude the viewport from tab order to flatten VoiceOver's WebKit
         // interaction boundary.
         viewportTabIndex={-1}
-        className="h-auto min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]]:[--fade-size:0.75rem]"
+        // The inset variant's rounded panel frames the bottom, so rows run to
+        // that edge; the top keeps its fade under the fixed header.
+        className="h-auto min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]]:[--fade-size:0.75rem] group-data-[variant=inset]:[&>[data-slot=scroll-area-viewport]]:mask-b-from-100%"
       >
         <div
           className={cn(

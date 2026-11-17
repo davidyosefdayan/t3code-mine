@@ -4,6 +4,7 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useSyncExternalStore } from "react";
 import {
+  getThemeDefinition,
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
   invalidateCustomThemes,
@@ -25,6 +26,7 @@ import {
   type ThemeHalves,
   type ThemePreferenceMode,
 } from "../themePalette";
+import { migrateStoredPalette, syncDockIcon } from "../palette";
 
 type Theme = ThemePreference;
 type ThemeSnapshot = {
@@ -334,6 +336,11 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     themeHalves,
   );
   applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
+  // Personal build: the Dock icon follows the theme.
+  const dockTheme = getThemeDefinition(resolveThemeHalf(theme, themeHalves, resolvedAppearance));
+  syncDockIcon(
+    resolvedAppearance === "dark" ? (dockTheme?.iconDark ?? dockTheme?.icon) : dockTheme?.icon,
+  );
   document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
   syncBrowserChromeTheme();
@@ -392,6 +399,8 @@ function syncDesktopTheme(
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined") {
+  // Personal build: carry an old palette pick over to the theme before the first apply.
+  migrateStoredPalette();
   applyTheme(getStored());
 }
 
