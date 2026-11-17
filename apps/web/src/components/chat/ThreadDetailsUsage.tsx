@@ -1,4 +1,5 @@
 import type {
+  IdleCompactionMode,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderUsageWindow,
@@ -13,7 +14,9 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { formatDuration, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
 import { Link } from "@tanstack/react-router";
-import { msg, useGT, useLocale, useMessages } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
+import type { IdleCompactionStatus } from "@t3tools/shared/idleCompactionStatus";
+import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
@@ -22,6 +25,9 @@ import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/contex
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { Button } from "../ui/button";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
+import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -87,70 +93,225 @@ export function ThreadDetailsUsage({
   );
 }
 
+/** Personal build: what idle compaction will do with this chat, shown under the context bar. */
+export interface ThreadDetailsAutoCompact {
+  readonly status: IdleCompactionStatus;
+  readonly mode: IdleCompactionMode;
+  /** When the prompt cache expires, and its lifetime, for the Cache bar. */
+  readonly cacheEndMs: number | null;
+  readonly cacheTtlMs: number | null;
+  readonly onEnabledChange: (enabled: boolean) => void;
+  /** This chat's compact limit in tokens; null follows the provider setting. */
+  readonly window: number | null;
+  /** The provider's "Auto-compact after", or null for Claude's default. */
+  readonly defaultWindow: number | null;
+  readonly onWindowChange: (window: number | null) => void;
+}
+
+const COMPACT_WINDOW_CHOICES = [600_000, 800_000, 1_000_000];
+// Claude compacts this far short of the window (see ClaudeAdapterV2).
+const CLAUDE_AUTO_COMPACT_RESERVE_TOKENS = 33_000;
+
 /** The thread's context window. The bar fills as context is used; the tick marks auto-compaction. */
-export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowSnapshot }) {
+export function ThreadDetailsContext({
+  usage,
+  onCompact,
+  autoCompact,
+}: {
+  readonly usage: ContextWindowSnapshot;
+  /** Personal build: compacting from the card; omitted where the thread can't compact now. */
+  readonly onCompact?: (() => void) | undefined;
+  readonly autoCompact?: ThreadDetailsAutoCompact | undefined;
+}) {
   const maxTokens = usage.maxTokens != null && usage.maxTokens > 0 ? usage.maxTokens : null;
   const used =
     maxTokens !== null && usage.usedPercentage !== null
       ? Math.round(Math.max(0, Math.min(100, usage.usedPercentage)))
       : null;
-  const threshold = usage.autoCompactThreshold ?? null;
+  // Personal build: the chat's own limit shows at once, before Claude next reports it.
+  const chatWindow = autoCompact?.window ?? null;
+  const threshold =
+    chatWindow !== null && (maxTokens === null || chatWindow < maxTokens)
+      ? chatWindow - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS
+      : (usage.autoCompactThreshold ?? null);
   const tick =
     maxTokens !== null && threshold !== null && threshold > 0 && threshold < maxTokens
       ? (threshold / maxTokens) * 100
       : null;
-  const gt = useGT();
-  const m = useMessages();
-  const locale = useLocale();
   const usedTokens = formatContextWindowTokens(usage.usedTokens);
+  const shown = autoCompact !== undefined && autoCompact.status.type !== "unavailable";
+  // Personal build: one section in two groups. Context: the bar, where Claude compacts it and
+  // Compact now. Cache: its countdown and whether this chat compacts before it is lost.
   return (
-    <ThreadDetailsSection
-      headingId="thread-details-context-heading"
-      title={gt("Context window")}
-      showHeading={false}
-    >
+    <>
+      <ThreadDetailsSection
+        headingId="thread-details-context-heading"
+        title="Context window"
+        showHeading={false}
+      >
+        <div className="grid grid-cols-[auto_minmax(3rem,1fr)_auto] gap-x-3 text-xs">
+          <UsageRow
+            label="Context"
+            fill={used}
+            tone={used === null ? null : used >= 90 ? "error" : used >= 80 ? "warning" : null}
+            tick={tick}
+            muted
+            value={
+              maxTokens !== null
+                ? `${usedTokens} / ${formatContextWindowTokens(maxTokens)}`
+                : usedTokens
+            }
+            ariaValue={used !== null ? `${used}% used` : `${usedTokens} tokens used`}
+            tooltip={
+              <>
+                <span className="text-foreground">
+                  {used !== null ? `Context: ${used}% used` : `Context: ${usedTokens} tokens used`}
+                </span>
+                {maxTokens !== null ? (
+                  <span className="text-muted-foreground">
+                    {usage.usedTokens.toLocaleString("en-US")} of{" "}
+                    {maxTokens.toLocaleString("en-US")} tokens
+                  </span>
+                ) : null}
+                {threshold !== null && threshold > 0 ? (
+                  <span className="text-muted-foreground">
+                    {formatContextWindowCompactionMessage(threshold)}
+                  </span>
+                ) : null}
+              </>
+            }
+          />
+        </div>
+        {shown || onCompact !== undefined ? (
+          <div className="flex items-center justify-between gap-1 pt-1.5 pr-2.5 [contain:inline-size]">
+            {shown ? (
+              <CompactWindowRow autoCompact={autoCompact} maxTokens={maxTokens} />
+            ) : (
+              <span />
+            )}
+            <Button
+              size="xs"
+              variant="outline"
+              className="shrink-0"
+              disabled={onCompact === undefined}
+              onClick={onCompact}
+            >
+              Compact now
+            </Button>
+          </div>
+        ) : null}
+        {shown ? <CacheRows autoCompact={autoCompact} /> : null}
+      </ThreadDetailsSection>
+    </>
+  );
+}
+
+/** The prompt cache, and whether this chat compacts before it is lost. */
+function CacheRows({ autoCompact }: { readonly autoCompact: ThreadDetailsAutoCompact }) {
+  const { status, cacheEndMs, cacheTtlMs, mode } = autoCompact;
+  const nowMinute = useNowMinute();
+  const now = Date.parse(`${nowMinute}:00Z`);
+  const cacheLeftMs = cacheEndMs === null ? null : cacheEndMs - now;
+  const cache =
+    status.type === "working"
+      ? { fill: null, value: "Active" }
+      : cacheLeftMs === null
+        ? { fill: null, value: "Unknown" }
+        : cacheLeftMs > 0
+          ? {
+              fill:
+                cacheTtlMs !== null && cacheTtlMs > 0
+                  ? Math.round(Math.min(100, (cacheLeftMs / cacheTtlMs) * 100))
+                  : null,
+              value: `${formatDuration(cacheLeftMs)} left`,
+            }
+          : { fill: 0, value: "Expired" };
+  const switchLabel =
+    mode === "onReturn" ? "Compact when you return" : "Compact before cache expires";
+  return (
+    <div className="pt-2">
       <div className="grid grid-cols-[auto_minmax(3rem,1fr)_auto] gap-x-3 text-xs">
         <UsageRow
-          label={gt("Context", { $context: "context window row label" })}
-          fill={used}
-          tone={used === null ? null : used >= 90 ? "error" : used >= 80 ? "warning" : null}
-          tick={tick}
+          label="Cache"
+          fill={cache.fill}
+          tone={null}
           muted
-          value={
-            maxTokens !== null
-              ? `${usedTokens} / ${formatContextWindowTokens(maxTokens)}`
-              : usedTokens
-          }
-          ariaValue={
-            used !== null
-              ? gt("{used}% used", { used })
-              : gt("{usedTokens} tokens used", { usedTokens })
-          }
+          value={cache.value}
           tooltip={
-            <>
-              <span className="text-foreground">
-                {used !== null
-                  ? gt("Context: {used}% used", { used })
-                  : gt("Context: {usedTokens} tokens used", { usedTokens })}
-              </span>
-              {maxTokens !== null ? (
-                <span className="text-muted-foreground">
-                  {gt("{used} of {max} tokens", {
-                    used: usage.usedTokens.toLocaleString(locale),
-                    max: maxTokens.toLocaleString(locale),
-                  })}
-                </span>
-              ) : null}
-              {threshold !== null && threshold > 0 ? (
-                <span className="text-muted-foreground">
-                  {formatContextWindowCompactionMessage(threshold, m)}
-                </span>
-              ) : null}
-            </>
+            <span className="text-foreground">
+              {status.type === "working"
+                ? "While the agent works, each step keeps the cache from expiring."
+                : "Replies are cheaper and faster while the cache lasts."}
+            </span>
           }
         />
       </div>
-    </ThreadDetailsSection>
+      <label className="flex h-6 cursor-pointer items-center justify-between gap-1.5 px-2.5 text-xs text-muted-foreground select-none">
+        <span className="truncate">{switchLabel}</span>
+        <Switch
+          size="sm"
+          disabled={mode === "off"}
+          checked={mode !== "off" && status.type !== "off"}
+          onCheckedChange={(checked) => autoCompact.onEnabledChange(checked)}
+        />
+      </label>
+    </div>
+  );
+}
+
+/** This chat's compact limit: the provider's, or a later one for a chat that should run longer. */
+function CompactWindowRow({
+  autoCompact: { window, defaultWindow, onWindowChange },
+  maxTokens,
+}: {
+  readonly autoCompact: ThreadDetailsAutoCompact;
+  readonly maxTokens: number | null;
+}) {
+  const defaultLabel =
+    defaultWindow === null ? "Default" : `Default (${formatContextWindowTokens(defaultWindow)})`;
+  const choices = COMPACT_WINDOW_CHOICES.filter(
+    (choice) => choice === window || maxTokens === null || choice <= maxTokens,
+  );
+  if (window !== null && !choices.includes(window)) choices.unshift(window);
+  if (choices.length === 0) return null;
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex h-6 min-w-0 cursor-pointer items-center gap-1 rounded-lg pr-1.5 pl-2.5 text-xs whitespace-nowrap outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]"
+          />
+        }
+      >
+        <span className="shrink-0 text-muted-foreground">Compacts at</span>
+        <span className="flex min-w-0 items-center gap-1 font-medium text-foreground/80 tabular-nums">
+          <span className="truncate">
+            {window !== null
+              ? formatContextWindowTokens(window)
+              : defaultWindow !== null
+                ? formatContextWindowTokens(defaultWindow)
+                : "Default"}
+          </span>
+          <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+        </span>
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuRadioGroup
+          value={window === null ? "default" : String(window)}
+          onValueChange={(value) => onWindowChange(value === "default" ? null : Number(value))}
+        >
+          <MenuRadioItem value="default" closeOnClick>
+            {defaultLabel}
+          </MenuRadioItem>
+          {choices.map((choice) => (
+            <MenuRadioItem key={choice} value={String(choice)} closeOnClick>
+              {formatContextWindowTokens(choice)}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -201,7 +362,8 @@ function LimitRow({
   );
 }
 
-/** One label, hairline, and value row; the whole row opens the details tooltip. With `opensUsage` it links to the usage page. */
+/** One label, hairline, and value row; hovering it shows details. With `opensUsage` it links to
+ * the usage page. Personal build: only those rows take a hover fill. */
 function UsageRow({
   label,
   fill,
@@ -229,12 +391,22 @@ function UsageRow({
   const rowProps = {
     "aria-label": gt("{label}: {value}", { label, value: ariaValue }),
     className: cn(
-      "col-span-3 grid h-6 grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]",
+      "col-span-3 grid h-6 grid-cols-subgrid items-center rounded-lg px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
       opensUsage
-        ? "group cursor-pointer active:bg-black/[0.06] dark:active:bg-white/[0.12]"
+        ? "cursor-pointer hover:bg-black/[0.035] active:bg-black/[0.06] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12]"
         : "cursor-default",
     ),
   };
+  const content = (
+    <UsageRowContent
+      label={label}
+      fill={fill}
+      tone={tone}
+      tick={tick}
+      value={value}
+      muted={muted}
+    />
+  );
   return (
     <Tooltip>
       <TooltipTrigger
@@ -242,51 +414,7 @@ function UsageRow({
           opensUsage ? <Link to="/usage" {...rowProps} /> : <div tabIndex={0} {...rowProps} />
         }
       >
-        <span className="max-w-28 truncate text-muted-foreground group-hover:text-foreground">
-          {label}
-        </span>
-        {fill !== null ? (
-          <span className="relative h-[3px] rounded-full bg-muted-foreground/30 dark:bg-muted-foreground/20">
-            {fill > 0 ? (
-              <span
-                className={cn(
-                  "absolute inset-y-0 left-0 rounded-full",
-                  tone === "error"
-                    ? "bg-error"
-                    : tone === "warning"
-                      ? "bg-warning"
-                      : muted
-                        ? "bg-muted-foreground"
-                        : "bg-foreground/80",
-                )}
-                style={{ width: `max(${fill}%, 6px)` }}
-              />
-            ) : null}
-            {tick !== null ? (
-              <span
-                aria-hidden
-                className="absolute -top-[3px] h-[9px] w-px -translate-x-1/2 bg-foreground/75"
-                style={{ left: `clamp(0.5px, ${tick}%, calc(100% - 0.5px))` }}
-              />
-            ) : null}
-          </span>
-        ) : null}
-        <span
-          className={cn(
-            // Text-only rows span the bar column so they never widen the shared value column.
-            "text-end font-medium tabular-nums",
-            fill === null && "col-span-2",
-            tone === "error"
-              ? "text-error-foreground"
-              : tone === "warning"
-                ? "text-warning-foreground"
-                : fill === null
-                  ? "text-muted-foreground"
-                  : "text-foreground/80",
-          )}
-        >
-          {value}
-        </span>
+        {content}
       </TooltipTrigger>
       {/* Rows sit 8px inside the card; clear its edge instead of overlapping it. */}
       <TooltipPopup side="left" sideOffset={16}>
@@ -296,5 +424,69 @@ function UsageRow({
         </div>
       </TooltipPopup>
     </Tooltip>
+  );
+}
+
+function UsageRowContent({
+  label,
+  fill,
+  tone,
+  tick,
+  value,
+  muted,
+}: {
+  readonly label: string;
+  readonly fill: number | null;
+  readonly tone: UsageTone;
+  readonly tick: number | null;
+  readonly value: string;
+  readonly muted: boolean;
+}) {
+  return (
+    <>
+      <span className="max-w-28 truncate text-muted-foreground">{label}</span>
+      {fill !== null ? (
+        <span className="relative h-[3px] rounded-full bg-muted-foreground/30 dark:bg-muted-foreground/20">
+          {fill > 0 ? (
+            <span
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full",
+                tone === "error"
+                  ? "bg-error"
+                  : tone === "warning"
+                    ? "bg-warning"
+                    : muted
+                      ? "bg-muted-foreground"
+                      : "bg-foreground/80",
+              )}
+              style={{ width: `max(${fill}%, 6px)` }}
+            />
+          ) : null}
+          {tick !== null ? (
+            <span
+              aria-hidden
+              className="absolute -top-[3px] h-[9px] w-px -translate-x-1/2 bg-foreground/75"
+              style={{ left: `clamp(0.5px, ${tick}%, calc(100% - 0.5px))` }}
+            />
+          ) : null}
+        </span>
+      ) : null}
+      <span
+        className={cn(
+          // Text-only rows span the bar column so they never widen the shared value column.
+          "text-end font-medium tabular-nums",
+          fill === null && "col-span-2",
+          tone === "error"
+            ? "text-error-foreground"
+            : tone === "warning"
+              ? "text-warning-foreground"
+              : fill === null
+                ? "text-muted-foreground"
+                : "text-foreground/80",
+        )}
+      >
+        {value}
+      </span>
+    </>
   );
 }

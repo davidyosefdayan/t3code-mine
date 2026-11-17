@@ -8010,6 +8010,49 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("applies a chat's compact limit to the running process and back", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarnessWithOptions({ settings: AUTO_COMPACT_CLAUDE_SETTINGS });
+      const now = yield* DateTime.now;
+      const turn = (ordinal: number, window: number | null) => {
+        const input = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make(`attempt-compact-window:${ordinal}`),
+          text: `Request ${ordinal}`,
+          attachments: [],
+          providerTurnOrdinal: ordinal,
+        });
+        return { ...input, appThread: { ...input.appThread, autoCompactWindow: window } };
+      };
+      const finish = Effect.gen(function* () {
+        yield* harness.offerAndWait(turnOneResult);
+        yield* Queue.take(harness.terminalReceipts);
+      });
+      yield* harness.runtime.startTurn(turn(1, null));
+      yield* finish;
+      yield* harness.runtime.startTurn(turn(2, 900_000));
+      yield* finish;
+      yield* harness.runtime.startTurn(turn(3, 900_000));
+      yield* finish;
+      yield* harness.runtime.startTurn(turn(4, null));
+      assert.deepEqual(harness.liveSelectionChanges, [
+        { env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "900000" } },
+        { env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "300000" } },
+      ]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
   it.effect.each(["completed", "interrupted"] as const)(
     "projects Claude thinking blocks when %s",
     (status) =>

@@ -82,6 +82,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
   ProviderInteractionMode,
+  resolveClaudeAutoCompactWindow,
   resolveIdleCompaction,
   RuntimeMode,
 } from "@t3tools/contracts";
@@ -303,6 +304,7 @@ import {
   PullRequestThreadDialogHost,
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
+import { collectChatMedia, withChatMedia } from "./chat/chatMediaGallery";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { useCitedHistory } from "./chat/citationProcedure";
 import type { MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
@@ -386,6 +388,7 @@ import { assetEnvironment } from "../state/assets";
 import { readEnvironmentScope, readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
+import { idleCompactionStatus, latestSessionUsage } from "@t3tools/shared/idleCompactionStatus";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
@@ -2569,16 +2572,53 @@ export default function ChatView(props: ChatViewProps) {
     activeMessageCount > 0 && serverConfig?.environment.capabilities.freshContext === true;
   const freshSessionArmed = useFreshSessionArmed(routeThreadKey);
   const freshSessionPending = freshSessionAvailable && freshSessionArmed;
+  // Personal build: what idle compaction will do with this chat, for the thread details card.
+  const autoCompactStatus =
+    serverProjection === null
+      ? null
+      : idleCompactionStatus(serverProjection, Date.parse(`${nowMinute}:00Z`));
+  const autoCompactUsage =
+    serverProjection === null ? undefined : latestSessionUsage(serverProjection);
+  const autoCompactCacheEnd = Date.parse(autoCompactUsage?.promptCacheExpiresAt ?? "");
+  const setThreadAutoCompact = useOrchestrationCommand(threadEnvironment.setAutoCompact);
+  const autoCompact =
+    autoCompactStatus === null || !activeThread
+      ? undefined
+      : {
+          status: autoCompactStatus,
+          mode: resolveIdleCompaction(
+            settings,
+            activeProviderInstanceId ?? ProviderInstanceId.make("claudeAgent"),
+          ),
+          cacheEndMs: Number.isFinite(autoCompactCacheEnd) ? autoCompactCacheEnd : null,
+          cacheTtlMs: autoCompactUsage?.promptCacheTtlMs ?? null,
+          onEnabledChange: (enabled: boolean) =>
+            void setThreadAutoCompact({
+              environmentId,
+              input: { threadId: activeThread.id, enabled },
+            }),
+          window: serverProjection?.thread.autoCompactWindow ?? null,
+          defaultWindow: resolveClaudeAutoCompactWindow(
+            settings,
+            activeProviderInstanceId ?? ProviderInstanceId.make("claudeAgent"),
+          ),
+          onWindowChange: (window: number | null) =>
+            void setThreadAutoCompact({
+              environmentId,
+              input: { threadId: activeThread.id, window },
+            }),
+        };
   // The context window is the current conversation's, so neither a handoff destination nor
   // the fresh session armed by /clear inherits it.
   const resumeCompactionTokens =
     activeContextWindow &&
     pendingHandoff === null &&
     !freshSessionPending &&
+    // Personal build: the stale-chat Compact chip belongs to "When you return" only.
     resolveIdleCompaction(
       settings,
       activeProviderInstanceId ?? ProviderInstanceId.make("claudeAgent"),
-    ) !== "off" &&
+    ) === "onReturn" &&
     !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&
@@ -3093,6 +3133,9 @@ export default function ChatView(props: ChatViewProps) {
   const sendPreviewAnnotationStable = useStableCallback(sendPreviewAnnotation);
   const onComposerResumeStable = useStableCallback(onResume);
   const onComposerCompactContextStable = useStableCallback(onCompactContext);
+  const compactFromThreadDetailsStable = useStableCallback(() =>
+    composerRef.current?.compactContext(),
+  );
   // Read from the projection the footer renders, so the scroll below sees the new message.
   const pendingGuestMessageIds =
     serverProjection?.thread.guestShare?.messages.flatMap((message) =>
@@ -3451,7 +3494,7 @@ export default function ChatView(props: ChatViewProps) {
             {isElectron && rightPanelControlsAtRoot ? (
               <span
                 aria-hidden
-                className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+                className="pointer-events-none fixed top-[calc(var(--workspace-controls-top)+0.5rem)] right-[calc(var(--workspace-controls-right)+0.5rem)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
               />
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
@@ -3569,6 +3612,8 @@ export default function ChatView(props: ChatViewProps) {
                   isPreparingWorktree={isPreparingWorktree}
                   footer={timelineFooter}
                   listRef={legendListRef}
+                  // Personal build: the chat-style conversation (chat/chatTimelineRows.ts).
+                  chatStyle
                   runs={serverProjection?.runs ?? []}
                   latestRun={activeActivityRun}
                   announcedRun={announcedRun(activeActivityRun, serverProjection?.runs ?? [])}
@@ -4047,6 +4092,9 @@ export default function ChatView(props: ChatViewProps) {
                     sources: serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES,
                     contextWindow: activeContextWindow,
                   }}
+                  // Personal build: the composer's guarded /compact, offered where it can run.
+                  onCompactContext={compactDisabled ? undefined : compactFromThreadDetailsStable}
+                  autoCompact={autoCompact}
                 />
 
                 <PullRequestThreadDialogHost

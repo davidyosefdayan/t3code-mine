@@ -431,6 +431,10 @@
       "types": "./src/claudeCompaction.ts",
       "import": "./src/claudeCompaction.ts"
     },
+    "./idleCompactionStatus": {
+      "types": "./src/idleCompactionStatus.ts",
+      "import": "./src/idleCompactionStatus.ts"
+    },
     "./nodeSqliteClient": {
       "types": "./src/nodeSqliteClient.ts",
       "import": "./src/nodeSqliteClient.ts"
