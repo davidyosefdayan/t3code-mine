@@ -138,6 +138,11 @@ that thread and completes the task with `delegated_task.remote.complete`. That
 internal command reuses the parent half of a local finalize, so the parent
 wakes the same way. Open remote tasks are followed again at startup, which is
 also what keeps restart recovery from treating them as abandoned provider work.
+A finished task keeps `remoteChild.lastRunId` while its thread there may run
+again. The other side has no channel back, so the follower looks for later runs
+on a backing-off timer and reports each with `delegated_task.remote.followup`,
+whose new task takes over `lastRunId`: one watcher per thread there, and a run
+reported twice replays one command. A stop that reaches the thread clears it.
 
 The link is routing, not isolation: an agent the link starts runs as the
 receiving environment's user. **A full-access link is therefore not fenced**:
