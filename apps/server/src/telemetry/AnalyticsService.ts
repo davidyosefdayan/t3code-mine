@@ -1,6 +1,6 @@
 // T3 ingest retains events and forwards to PostHog; UUIDs deduplicate retries there.
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { isCiEnvironment, isDoNotTrackSet } from "@t3tools/shared/otelEnvironment";
+import { isDoNotTrackSet } from "@t3tools/shared/otelEnvironment";
 import type { ClientOs } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
@@ -127,7 +127,9 @@ export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
   const hostEnvironment = yield* HostProcess.Environment;
   const awaitingShellConsent = hostEnvironment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1";
-  const enabledByDefault = !isCiEnvironment(hostEnvironment);
+  // Personal build: no usage analytics reach upstream's servers unless
+  // T3CODE_TELEMETRY_ENABLED=true opts back in.
+  const enabledByDefault = false;
   const enabledAtStartup = Option.getOrElse(telemetryConfig.enabled, () => enabledByDefault);
   // A managed policy can switch analytics off over the environment, never on.
   const policyAllows =
