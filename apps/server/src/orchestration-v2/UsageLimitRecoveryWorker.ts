@@ -1,4 +1,9 @@
-import { CommandId, MessageId, type OrchestrationV2Command } from "@t3tools/contracts";
+import {
+  CommandId,
+  isWaitingOnYouRequest,
+  MessageId,
+  type OrchestrationV2Command,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,7 +32,8 @@ export function limitRecoveryCommand(
     !thread.usageLimitResetAt ||
     thread.archivedAt !== null ||
     thread.settledOverride === "settled" ||
-    thread.pendingRuntimeRequest !== null
+    // Personal build: the Needs you stand-in isn't a real request.
+    (thread.pendingRuntimeRequest !== null && !isWaitingOnYouRequest(thread.pendingRuntimeRequest))
   )
     return null;
   const resetMs = Date.parse(thread.usageLimitResetAt);

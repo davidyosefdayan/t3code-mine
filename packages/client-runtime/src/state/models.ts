@@ -1,3 +1,5 @@
+// Personal build: drops the Needs you stand-in question (see threadWaitingOnYou.ts).
+import { withoutWaitingOnYouRequest } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestsOf } from "../threadPullRequests.ts";
 import type {
@@ -193,6 +195,8 @@ export interface EnvironmentThreadShell {
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecovery | null;
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
+  /** Personal build: what the agent handed back to the user, until it clears it. */
+  readonly waitingOnYou?: import("@t3tools/contracts").ThreadWaitingOnYou | null;
   readonly pinOrderKey: string | null;
   readonly activeOrderKey: string | null;
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
@@ -210,6 +214,15 @@ export interface EnvironmentThreadShell {
   readonly opens?: import("@t3tools/contracts").OrchestrationV2ThreadOpens | null;
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
   readonly deletedAt: string | null;
+  /** Personal build: the agent's latest finished reply, cut short. Servers
+      fill it for unsettled threads only. */
+  readonly latestVisibleMessage?: {
+    readonly role: string;
+    readonly text: string;
+    readonly updatedAt: string;
+  } | null;
+  /** Personal build: the newest step still running, trimmed. */
+  readonly liveActivity?: OrchestrationV2ThreadShell["liveActivity"];
   readonly source: OrchestrationV2ThreadShell;
 }
 
@@ -271,9 +284,11 @@ export type PendingSubagentRequest = "approval" | "user_input";
 
 export function presentThreadShell(
   environmentId: EnvironmentId,
-  thread: OrchestrationV2ThreadShell,
+  wireThread: OrchestrationV2ThreadShell,
   pendingSubagentRequest: PendingSubagentRequest | null = null,
 ): EnvironmentThreadShell {
+  // Personal build: Mine shows the Needs you mark itself, not its stand-in question.
+  const thread = withoutWaitingOnYouRequest(wireThread);
   const updatedAt = iso(thread.updatedAt);
   const latestRun =
     thread.latestRunId === null
@@ -351,6 +366,7 @@ export function presentThreadShell(
     limitRecovery: thread.limitRecovery ?? null,
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
+    waitingOnYou: thread.waitingOnYou ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,
     ...(thread.lastVisitedAt === undefined
@@ -365,6 +381,16 @@ export function presentThreadShell(
             startedAt: iso(thread.titleRegeneration.startedAt),
           },
     deletedAt: nullableIso(thread.deletedAt),
+    ...(thread.latestVisibleMessage === null
+      ? {}
+      : {
+          latestVisibleMessage: {
+            role: thread.latestVisibleMessage.role,
+            text: thread.latestVisibleMessage.text,
+            updatedAt: iso(thread.latestVisibleMessage.updatedAt),
+          },
+        }),
+    ...(thread.liveActivity == null ? {} : { liveActivity: thread.liveActivity }),
     source: thread,
   };
 }

@@ -1,4 +1,10 @@
-import { CommandId, type ModelSelection, type ThreadId } from "@t3tools/contracts";
+// Personal build: withoutWaitingOnYouRequest drops the Needs you stand-in question (see threadWaitingOnYou.ts).
+import {
+  CommandId,
+  type ModelSelection,
+  type ThreadId,
+  withoutWaitingOnYouRequest,
+} from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -34,6 +40,8 @@ import {
   forkSideChat,
   forkThreadFromRun,
   markThreadUnread,
+  clearThreadWaitingOnYou,
+  setThreadAutoCompact,
   mergeThreadBack,
   promoteQueuedRun,
   resumeThreadQueue,
@@ -264,6 +272,18 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    clearWaitingOnYou: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:clear-waiting-on-you",
+      execute: clearThreadWaitingOnYou,
+      scheduler,
+      concurrency,
+    }),
+    setAutoCompact: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-auto-compact",
+      execute: setThreadAutoCompact,
+      scheduler,
+      concurrency,
+    }),
     updateMetadata: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:update-metadata",
       execute: updateThreadMetadata,
@@ -485,7 +505,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     pendingThreadIdsAtom: optimistic.pendingThreadIdsAtom,
     settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
       !accepted &&
-      (thread.pendingRuntimeRequest !== null ||
+      (withoutWaitingOnYouRequest(thread).pendingRuntimeRequest !== null ||
         ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status))
         ? thread
         : {

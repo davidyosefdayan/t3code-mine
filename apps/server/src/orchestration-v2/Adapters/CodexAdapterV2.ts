@@ -1565,7 +1565,16 @@ function codexThreadRuntimeParams(input: {
         ? {}
         : {
             // Override only T3's servers so launch-argument MCP servers survive.
-            "mcp_servers.t3-code": { ...t3Server, disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS },
+            "mcp_servers.t3-code": {
+              ...t3Server,
+              disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS,
+              // Personal build: send_to_user and Needs you change only what the user
+              // sees, so they never ask.
+              tools: {
+                send_to_user: { approval_mode: "approve" },
+                t3_needs_you: { approval_mode: "approve" },
+              },
+            },
             // Code Mode runs a blocking wait or delegate wait as a nested call, and the model
             // keeps polling it. A second, direct-only registration makes it a plain tool call.
             [`mcp_servers.${CODEX_T3_DIRECT_MCP_SERVER}`]: {

@@ -11,6 +11,15 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "path", attrs: { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" } },
     { tag: "path", attrs: { d: "M10 12h4" } },
   ],
+  "bell-off": [
+    { tag: "path", attrs: { d: "M10.268 21a2 2 0 0 0 3.464 0" } },
+    {
+      tag: "path",
+      attrs: { d: "M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742" },
+    },
+    { tag: "path", attrs: { d: "m2 2 20 20" } },
+    { tag: "path", attrs: { d: "M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05" } },
+  ],
   check: [{ tag: "path", attrs: { d: "M20 6 9 17l-5-5" } }],
   timer: [
     { tag: "line", attrs: { x1: "10", x2: "14", y1: "2", y2: "2" } },
@@ -105,6 +114,13 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
         d: "M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11",
       },
     },
+  ],
+  // Personal build: used by the thread menu; the native menu shows face.smiling.
+  smile: [
+    { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
+    { tag: "path", attrs: { d: "M8 14s1.5 2 4 2 4-2 4-2" } },
+    { tag: "line", attrs: { x1: "9", x2: "9.01", y1: "9", y2: "9" } },
+    { tag: "line", attrs: { x1: "15", x2: "15.01", y1: "9", y2: "9" } },
   ],
   "refresh-cw": [
     { tag: "path", attrs: { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" } },
@@ -392,7 +408,7 @@ export function showContextMenuFallback<T extends string>(
       menu.className =
         "dropdown-glass fixed z-[10000] min-w-32 max-w-sm overflow-hidden rounded-lg bg-clip-padding text-popover-foreground outline-none";
       menu.style.cssText =
-        "position:fixed;z-index:10000;min-width:8rem;max-width:24rem;overflow:hidden;border-radius:var(--radius-lg);background-clip:padding-box;color:var(--contrast-popover-foreground);outline:none;pointer-events:auto;";
+        "position:fixed;z-index:10000;min-width:8rem;max-width:24rem;overflow:hidden;border-radius:16px;background-clip:padding-box;color:var(--contrast-popover-foreground);outline:none;pointer-events:auto;";
       menu.style.left = `${preferredLeft}px`;
       menu.style.top = `${preferredTop}px`;
       menu.dataset.level = String(level);
@@ -445,7 +461,7 @@ export function showContextMenuFallback<T extends string>(
             ? `${rowBase} text-destructive-foreground hover:bg-destructive/10 hover:text-destructive-foreground`
             : `${rowBase} text-foreground hover:bg-accent hover:text-accent-foreground`;
         button.style.cssText =
-          "display:flex;width:100%;min-height:1.75rem;align-items:center;gap:0.5rem;border:0;border-radius:var(--radius-sm);background:transparent;padding:0.25rem 0.5rem;color:var(--contrast-foreground);font-family:var(--font-sans,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;text-align:left;cursor:default;";
+          "display:flex;width:100%;min-height:1.75rem;align-items:center;gap:0.5rem;border:0;border-radius:10px;background:transparent;padding:0.25rem 0.5rem;color:var(--contrast-foreground);font-family:var(--font-sans,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;text-align:left;cursor:default;";
         if (isLeafDestructive) {
           button.style.color = "var(--destructive-foreground)";
         }

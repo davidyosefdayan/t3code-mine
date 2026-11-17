@@ -8,6 +8,7 @@ import {
   RunId,
   RuntimeRequestId,
   TurnItemId,
+  waitingOnYouRequestId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
@@ -51,6 +52,18 @@ describe("V2 client presentation", () => {
     expect(completed.hasPendingUserInput).toBe(true);
     expect(isThreadWorking(completed)).toBe(false);
     expect(effectiveSnoozed(active, { now: "2026-06-20T00:05:00.000Z" })).toBe(false);
+
+    // Personal build: the server's Needs you stand-in is for official apps; Mine drops it.
+    const marked = presentThreadShell(environmentId, {
+      ...completed.source,
+      pendingRuntimeRequest: {
+        ...running.pendingRuntimeRequest,
+        id: waitingOnYouRequestId(v2ThreadShell.id),
+      },
+    });
+    expect(marked.hasPendingUserInput).toBe(false);
+    expect(marked.source.pendingRuntimeRequest).toBeNull();
+    expect(effectiveSnoozed(marked, { now: "2026-06-20T00:05:00.000Z" })).toBe(true);
   });
 
   it("moves a running thread with any question out of Working", () => {

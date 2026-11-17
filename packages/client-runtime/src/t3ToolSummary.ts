@@ -1207,6 +1207,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "needs-you": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Updated Needs you {count} time} other {Updated Needs you {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to update Needs you {count} time} other {Tried to update Needs you {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "capabilities": {
       const count = selected.length;
       label = done
