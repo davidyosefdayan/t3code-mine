@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as Electron from "electron";
+import { SF_SYMBOL_BY_MENU_ICON } from "./menuSymbols.ts";
 
 export interface ElectronMenuPosition {
   readonly x: number;
@@ -24,6 +25,25 @@ export interface ElectronMenuTemplateInput {
   readonly window: Electron.BrowserWindow;
   readonly template: readonly Electron.MenuItemConstructorOptions[];
   readonly frame?: Electron.WebFrameMain;
+}
+
+// SF Symbols are not square; scale one to fit a `size`-point square and center
+// it, drawn at 2x, so it keeps its proportions and titles stay aligned.
+function fitMenuSymbol(image: Electron.NativeImage, size: number): Electron.NativeImage {
+  const natural = image.getSize();
+  if (image.isEmpty() || natural.width <= 0 || natural.height <= 0) return image;
+  const box = size * 2;
+  const scale = box / Math.max(natural.width, natural.height);
+  const width = Math.max(1, Math.round(natural.width * scale));
+  const height = Math.max(1, Math.round(natural.height * scale));
+  const source = image.resize({ width, height, quality: "best" }).toBitmap();
+  const canvas = Buffer.alloc(box * box * 4);
+  const left = Math.floor((box - width) / 2);
+  const top = Math.floor((box - height) / 2);
+  for (let row = 0; row < height; row++) {
+    source.copy(canvas, ((top + row) * box + left) * 4, row * width * 4, (row + 1) * width * 4);
+  }
+  return Electron.nativeImage.createFromBitmap(canvas, { width: box, height: box, scaleFactor: 2 });
 }
 
 const ElectronMenuOperation = Schema.Literals([
@@ -86,6 +106,8 @@ function normalizeContextMenuItems(source: readonly ContextMenuItem[]): ContextM
       ...(sourceItem.separatorBefore === true ? { separatorBefore: true } : {}),
       ...(typeof sourceItem.checked === "boolean" ? { checked: sourceItem.checked } : {}),
       ...(typeof sourceItem.iconImage === "string" ? { iconImage: sourceItem.iconImage } : {}),
+      // Personal build: keep the icon keyword for the native menu's SF Symbol.
+      ...(typeof sourceItem.icon === "string" ? { icon: sourceItem.icon } : {}),
     };
 
     if (sourceItem.children) {
@@ -140,10 +162,7 @@ export const make = Effect.gen(function* () {
     }
 
     try {
-      const icon = Electron.nativeImage.createFromNamedImage("trash").resize({
-        width: 12,
-        height: 12,
-      });
+      const icon = fitMenuSymbol(Electron.nativeImage.createFromNamedImage("trash"), 12);
       icon.setTemplateImage(true);
       destructiveMenuIconCache = icon.isEmpty() ? Option.none() : Option.some(icon);
     } catch {
@@ -151,6 +170,25 @@ export const make = Effect.gen(function* () {
     }
 
     return destructiveMenuIconCache;
+  };
+
+  // Personal build: SF Symbols for menu items that name an icon (menuSymbols.ts).
+  const symbolIconCache = new Map<string, Option.Option<Electron.NativeImage>>();
+  const getSymbolMenuIcon = (keyword: string | undefined): Option.Option<Electron.NativeImage> => {
+    const symbol = keyword === undefined ? undefined : SF_SYMBOL_BY_MENU_ICON[keyword];
+    if (platform !== "darwin" || symbol === undefined) return Option.none();
+    const cached = symbolIconCache.get(symbol);
+    if (cached !== undefined) return cached;
+    let icon: Option.Option<Electron.NativeImage> = Option.none();
+    try {
+      const image = fitMenuSymbol(Electron.nativeImage.createFromNamedImage(symbol), 14);
+      image.setTemplateImage(true);
+      if (!image.isEmpty()) icon = Option.some(image);
+    } catch {
+      // Unknown symbol on this macOS version: no icon.
+    }
+    symbolIconCache.set(symbol, icon);
+    return icon;
   };
 
   const buildTemplate = (
@@ -202,6 +240,9 @@ export const make = Effect.gen(function* () {
         if (Option.isSome(destructiveIcon)) {
           itemOption.icon = destructiveIcon.value;
         }
+      } else if (item.iconImage === undefined) {
+        const symbolIcon = getSymbolMenuIcon(item.icon);
+        if (Option.isSome(symbolIcon)) itemOption.icon = symbolIcon.value;
       }
 
       template.push(itemOption);

@@ -48,6 +48,7 @@ import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import { msg } from "gt-i18n";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import { m } from "../../i18n/messages.ts";
@@ -498,6 +499,17 @@ export const pasteAsText = DesktopIpc.makeIpcMethod({
     ) {
       focused.paste();
     }
+  }),
+});
+
+// Personal build: the app's zoom indicator steps and resets zoom like the View menu.
+export const zoomWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.ZOOM_WINDOW_CHANNEL,
+  payload: Schema.Literals(["in", "out", "reset"]),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.zoomWindow")(function* (direction) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    yield* desktopWindow.zoomMain(direction);
   }),
 });
 

@@ -29,6 +29,7 @@ export interface ContextMenuItem<T extends string = string> {
   destructive?: boolean;
   disabled?: boolean;
   header?: boolean;
+  /** Icon keyword resolved by the web fallback. Personal build: macOS native menus show a matching SF Symbol (apps/desktop/src/electron/menuSymbols.ts). */
   icon?: string;
   /** PNG data URL; takes precedence over `icon`. */
   iconImage?: string;
@@ -1118,6 +1119,8 @@ export interface DesktopBridge {
   getClientPlatform: () => string;
   restartAudioService?: () => Promise<boolean>;
   setNotificationBadge: (badge: { count: number; image: string | null }) => Promise<void>;
+  /** Personal build: switch the app icon (Dock, or window icons off macOS) to the theme's icon. */
+  setDockPaletteIcon?: (palette: string) => Promise<void>;
   onNotificationBadgeClear: (listener: () => void) => () => void;
   onTrackpadScrollBegin: (listener: () => void) => () => void;
   onTrackpadScrollEnd: (listener: () => void) => () => void;
@@ -1220,6 +1223,8 @@ export interface DesktopBridge {
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getWindowZoomFactor: () => number;
+  /** Personal build: Cmd +/- zoom, driven by the zoom indicator. */
+  zoomWindow?: (direction: "in" | "out" | "reset") => Promise<void>;
   getUpdateState: () => Promise<DesktopUpdateState>;
   /** `minimumVersion` is a track switch's checked release; nothing older is offered after. */
   setUpdateChannel: (

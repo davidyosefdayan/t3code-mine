@@ -1,3 +1,7 @@
+> **Fork.** This is "T3 Code (Mine)": upstream T3 Code with a redesign on top, moved onto
+> each stable release. If this checkout has a `FORK.md` (the maintainer's local notes), read
+> it first.
+
 # T3 Code
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, Pi, Muse Code, fx) and serves web, desktop, and mobile clients.
@@ -72,7 +76,7 @@ See [00_development.md](docs/operations/00_development.md) for setup, ports, see
 - **Worktree setup:** Wait while `.t3/setup-running` names a live PID; do not run `vp i` concurrently. If no `.t3/setup-*` marker exists, run `vp i` yourself.
 - **Process lifecycle:** Start dev servers, Metro, and builds from your own shell so they exit with your session—never detach with `systemd-run`, `nohup`, `setsid`, or `tmux` unless asked. Stop background tasks with your harness's own stop (`vp` does not forward SIGTERM to child Vite/server processes).
 - **Sharing (`vp run dev --share`):** Wait for `pairingUrl:` and hand the full URL to the user. Never wire `tailscale serve` by hand, open the URL yourself, or consume the user's one-time pairing link. Mint another with `node apps/server/src/bin.ts pair` if needed.
-- **Test data:** Always copy in (never symlink) and refresh `statev2.sqlite`, not `state.sqlite`. Bring `secrets` / `settings.json` only if the flow under test needs them.
+- **Test data:** **Fork:** never copy real data: a copied database that marks a chat as running makes the dev server resume it, with real provider sessions and credits. Seed a fake environment instead (`seedShowcaseEnvironment` in `scripts/mobile-showcase-environment.ts`) and never start a real agent turn.
 - **Extra checkouts:** Put `git worktree add` next to this worktree, not in `/tmp`, and remove it when done.
 
 ## Verifying
