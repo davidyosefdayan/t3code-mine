@@ -367,6 +367,7 @@ const cleanupFixture = (
     let onLiveCheck: Effect.Effect<void> = Effect.void;
     let outboxStatus: string | null = null;
     let scheduledThreadIds: string[] = [];
+    let branchPullRequest: GitManager.GitBranchPullRequest | null = null;
     let fullStatusCalls = 0;
     let gitInspections = 0;
     let snapshotReads = 0;
@@ -516,6 +517,10 @@ const cleanupFixture = (
       ),
       Effect.provideService(GitManager.GitManager, {
         invalidateStatus: () => Effect.void,
+        branchPullRequest: (input: { branch: string }) =>
+          Effect.sync(() =>
+            branchPullRequest?.headRef === input.branch ? branchPullRequest : null,
+          ),
       } as unknown as GitManager.GitManager["Service"]),
       Effect.provideService(TerminalManager.TerminalManager, {
         subscribeMetadata: (
@@ -593,6 +598,9 @@ const cleanupFixture = (
       },
       setSessionLive: (live: boolean) => {
         sessionLive = live;
+      },
+      setBranchPullRequest: (next: GitManager.GitBranchPullRequest | null) => {
+        branchPullRequest = next;
       },
       setOpenSessionCwd: (cwd: string | null) => {
         openSessionCwd = cwd;
@@ -3768,3 +3776,381 @@ it.effect("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("worktree backups", () => {
+  const backupsDir = (config: ServerConfig.ServerConfig["Service"]) =>
+    `${config.worktreesDir}/../worktree-backups`;
+  /** Every backed-up file of the fixture's worktree, by path inside the backup. */
+  const readBackups = Effect.fn(function* (directory: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const backups = (yield* fs.exists(directory))
+      ? (yield* fs.readDirectory(directory)).filter((name) => name.startsWith("feature-"))
+      : [];
+    const files: Record<string, string> = {};
+    for (const backup of backups)
+      for (const file of yield* fs.readDirectory(`${directory}/${backup}`, { recursive: true }))
+        if ((yield* fs.stat(`${directory}/${backup}/${file}`)).type === "File")
+          files[file] = yield* fs.readFileString(`${directory}/${backup}/${file}`);
+    return { backups, files };
+  });
+
+  it.live("backs up only ignored files that exist nowhere else before removal", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, repo, config } = yield* cleanupFixture();
+        yield* fs.writeFileString(`${worktree}/.env`, "secret\n");
+        // Copied in at setup, identical to the main checkout.
+        for (const root of [repo, worktree]) {
+          yield* fs.makeDirectory(`${root}/app`, { recursive: true });
+          yield* fs.writeFileString(`${root}/app/.env`, "same\n");
+        }
+        yield* fs.makeDirectory(`${worktree}/dist`);
+        yield* fs.writeFileString(`${worktree}/dist/out.js`, "built\n");
+        yield* fs.makeDirectory(`${repo}/node_modules/pkg`, { recursive: true });
+        yield* fs.writeFileString(`${repo}/node_modules/pkg/index.js`, "dependency\n");
+        // Ignored without a trailing slash, so the link itself is listed.
+        yield* fs.writeFileString(`${repo}/.git/info/exclude`, "node_modules\n");
+        yield* fs.symlink(`${repo}/node_modules`, `${worktree}/node_modules`);
+
+        const report = yield* service.runNow;
+        expect(report.entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: expect.stringMatching(/, 1 local file backed up$/),
+        });
+        expect(yield* fs.exists(worktree)).toBe(false);
+        const { backups, files } = yield* readBackups(backupsDir(config));
+        expect(backups).toHaveLength(1);
+        expect(files).toEqual({ ".env": "secret\n" });
+        expect(yield* fs.readFileString(`${repo}/node_modules/pkg/index.js`)).toBe("dependency\n");
+        expect(yield* fs.readFileString(`${repo}/app/.env`)).toBe("same\n");
+      }),
+    ),
+  );
+
+  it.live("backs up untracked files in tracked-only mode", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config, setPolicy } = yield* cleanupFixture();
+        setPolicy("tracked-changes");
+        yield* fs.writeFileString(`${worktree}/notes.txt`, "untracked\n");
+        yield* fs.makeDirectory(`${worktree}/notes`);
+        yield* fs.writeFileString(`${worktree}/notes/new.md`, "new\n");
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({ outcome: "removed" });
+        expect((yield* readBackups(backupsDir(config))).files).toEqual({
+          "notes.txt": "untracked\n",
+          "notes/new.md": "new\n",
+        });
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree with more than 100 MB to back up", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config } = yield* cleanupFixture();
+        // Sparse, so the test does not write 101 MB.
+        yield* fs.writeFileString(`${worktree}/.env`, "");
+        yield* fs.truncate(`${worktree}/.env`, 101 * 1024 * 1024);
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Too many local files to back up",
+        });
+        expect(yield* fs.exists(worktree)).toBe(true);
+        expect((yield* readBackups(backupsDir(config))).backups).toEqual([]);
+      }),
+    ),
+  );
+
+  it.live("reuses an earlier backup of the same worktree and expires old backups", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, config } = yield* cleanupFixture();
+        const backups = backupsDir(config);
+        // Left by a sweep whose removal failed, as when Windows locks the worktree.
+        const earlier = `${backups}/feature-2026-01-01-00-00`;
+        yield* fs.makeDirectory(earlier, { recursive: true });
+        yield* fs.writeFileString(`${earlier}/notes.local`, "from before\n");
+        const expired = `${backups}/Project/expired`;
+        const recent = `${backups}/Project/recent`;
+        for (const backup of [expired, recent]) {
+          yield* fs.makeDirectory(backup, { recursive: true });
+          yield* fs.writeFileString(`${backup}/.env`, "backup\n");
+        }
+        yield* fs.utimes(expired, 1, 1);
+        yield* fs.writeFileString(`${worktree}/.env`, "secret\n");
+
+        expect((yield* service.runNow).entries[0]).toMatchObject({ outcome: "removed" });
+        expect(yield* readBackups(backups)).toEqual({
+          backups: ["feature-2026-01-01-00-00"],
+          files: { "notes.local": "from before\n", ".env": "secret\n" },
+        });
+        expect(yield* fs.exists(expired)).toBe(false);
+        expect(yield* fs.exists(recent)).toBe(true);
+      }),
+    ),
+  );
+});
+
+describe("worktrees whose agent switched branches", () => {
+  // An agent opened the pull request from a new branch inside the worktree.
+  const switchedFixture = (storageCleanup: Partial<StorageCleanupSettings> = {}) =>
+    Effect.gen(function* () {
+      const fixture = yield* cleanupFixture({
+        ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+        worktreeOnMerge: true,
+        ...storageCleanup,
+      });
+      const { fs, repo, worktree, command } = fixture;
+      const remote = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+      yield* command(remote, ["init", "--bare", "-b", "main"]);
+      yield* command(repo, ["remote", "add", "origin", remote]);
+      yield* command(repo, ["push", "origin", "main"]);
+      yield* command(worktree, ["switch", "-c", "pr-branch"]);
+      yield* fs.writeFileString(`${worktree}/tracked.txt`, "pull request work\n");
+      yield* command(worktree, ["commit", "-am", "pull request work"]);
+      const headSha = (yield* command(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+      const mergedPullRequest = (overrides: Partial<GitManager.GitBranchPullRequest> = {}) =>
+        ({
+          number: 7,
+          title: "Pull request work",
+          url: "https://github.com/example/repo/pull/7",
+          baseRef: "main",
+          headRef: "pr-branch",
+          state: "merged",
+          headSha,
+          repositoryKey: null,
+          updatedAt: null,
+          ...overrides,
+        }) satisfies GitManager.GitBranchPullRequest;
+      // The first sweep records the switched-to branch on the thread; the next applies the rules.
+      const followSwitch = Effect.gen(function* () {
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Repository or branch changed",
+        });
+        expect(fixture.threadBranches()).toEqual(["pr-branch"]);
+      });
+      return { ...fixture, mergedPullRequest, followSwitch };
+    });
+
+  it.live("removes the worktree once the new branch's pull request is merged", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const {
+          service,
+          fs,
+          repo,
+          worktree,
+          command,
+          setBranchPullRequest,
+          mergedPullRequest,
+          followSwitch,
+        } = yield* switchedFixture();
+        setBranchPullRequest(mergedPullRequest());
+        yield* followSwitch;
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: "Pull request was merged",
+        });
+        expect(yield* fs.exists(worktree)).toBe(false);
+        // The branch and its commits stay.
+        expect((yield* command(repo, ["branch", "--list", "pr-branch"])).stdout).toContain(
+          "pr-branch",
+        );
+      }),
+    ),
+  );
+
+  it.live.each([
+    ["is still open", { state: "open" as const }],
+    ["was merged at an earlier commit", { headSha: "c".repeat(40) }],
+  ] as const)("keeps a switched worktree whose pull request %s", ([_name, pullRequest]) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, setBranchPullRequest, mergedPullRequest, followSwitch } =
+          yield* switchedFixture();
+        setBranchPullRequest(mergedPullRequest(pullRequest));
+        yield* followSwitch;
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Not merged",
+        });
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("keeps a switched worktree with uncommitted changes even when merged", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, setBranchPullRequest, mergedPullRequest, followSwitch } =
+          yield* switchedFixture();
+        setBranchPullRequest(mergedPullRequest());
+        yield* followSwitch;
+        yield* fs.writeFileString(`${worktree}/tracked.txt`, "unsaved\n");
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Has uncommitted changes (1 file)",
+        });
+        expect(yield* fs.readFileString(`${worktree}/tracked.txt`)).toBe("unsaved\n");
+      }),
+    ),
+  );
+
+  it.live("applies the settled rule to a switched worktree like any other", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, repo, worktree, command, setThreads, followSwitch } =
+          yield* switchedFixture({
+            worktreeOnMerge: false,
+            worktreeSettledAfterDays: 3,
+          });
+        setThreads([
+          shell({ branch: "feature", worktreePath: worktree, settledAt: at(-4 * DAY_MS) }),
+        ]);
+        yield* followSwitch;
+        expect((yield* service.runNow).entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: expect.stringMatching(/^Settled for \d+ days$/),
+        });
+        expect(yield* fs.exists(worktree)).toBe(false);
+        expect((yield* command(repo, ["log", "-1", "--format=%s", "pr-branch"])).stdout).toBe(
+          "pull request work\n",
+        );
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree with no branch checked out, whose commits could be lost", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, command, setThreads } = yield* switchedFixture({
+          worktreeOnMerge: false,
+          worktreeSettledAfterDays: 3,
+        });
+        yield* command(worktree, ["checkout", "--detach"]);
+        setThreads([
+          shell({ branch: "feature", worktreePath: worktree, settledAt: at(-4 * DAY_MS) }),
+        ]);
+        const changed = { outcome: "kept", reason: "Repository or branch changed" };
+        expect((yield* service.runNow).entries[0]).toMatchObject(changed);
+        expect((yield* service.runNow).entries[0]).toMatchObject(changed);
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
+  );
+});
+
+describe("worktree list actions", () => {
+  const withPackages = Effect.fn(function* (worktree: string, repo: string) {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.makeDirectory(`${worktree}/node_modules/pkg`, { recursive: true });
+    yield* fs.writeFileString(`${worktree}/node_modules/pkg/index.js`, "dependency\n");
+    yield* fs.makeDirectory(`${worktree}/app/dist`, { recursive: true });
+    yield* fs.writeFileString(`${worktree}/app/dist/out.js`, "built\n");
+    yield* fs.writeFileString(`${worktree}/.env`, "secret\n");
+    // A linked node_modules elsewhere must not be followed.
+    yield* fs.makeDirectory(`${repo}/shared/node_modules/pkg`, { recursive: true });
+    yield* fs.writeFileString(`${repo}/shared/node_modules/pkg/index.js`, "shared\n");
+    yield* fs.makeDirectory(`${worktree}/shared`);
+    yield* fs.symlink(`${repo}/shared/node_modules`, `${worktree}/shared/node_modules`);
+  });
+
+  it.live("frees packages and build output without touching code or local files", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, repo, worktree, disable } = yield* cleanupFixture();
+        disable();
+        yield* withPackages(worktree, repo);
+
+        const result = yield* service.freeWorktreePackages({ path: worktree });
+        expect(result.folders).toBe(2);
+        expect(result.bytes).toBeGreaterThan(0);
+        expect(yield* fs.exists(`${worktree}/node_modules`)).toBe(false);
+        expect(yield* fs.exists(`${worktree}/app/dist`)).toBe(false);
+        expect(yield* fs.readFileString(`${worktree}/.env`)).toBe("secret\n");
+        expect(yield* fs.readFileString(`${worktree}/tracked.txt`)).toBe("original\n");
+        expect(yield* fs.readFileString(`${repo}/shared/node_modules/pkg/index.js`)).toBe(
+          "shared\n",
+        );
+      }),
+    ),
+  );
+
+  it.live("does not free packages while the thread is working", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, repo, worktree, setThreads } = yield* cleanupFixture();
+        yield* withPackages(worktree, repo);
+        setThreads([shell({ branch: "feature", worktreePath: worktree, status: "running" })]);
+
+        const error = yield* Effect.flip(service.freeWorktreePackages({ path: worktree }));
+        expect(error.message).toBe("A thread is still working in this worktree.");
+        expect(yield* fs.exists(`${worktree}/node_modules/pkg/index.js`)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("lists the worktree with its packages measured apart", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, repo, worktree, disable } = yield* cleanupFixture();
+        disable();
+        yield* withPackages(worktree, repo);
+        const list = yield* service.worktrees.pipe(
+          Stream.filter((next) => !next.measuring),
+          Stream.runHead,
+        );
+        const entry = Option.getOrThrow(list).entries.find((next) => next.path === worktree);
+        expect(entry).toMatchObject({
+          threadId: "thread-1",
+          threadTitle: "Thread",
+          measured: true,
+        });
+        expect(entry!.packageBytes).toBeGreaterThan(0);
+        expect(entry!.bytes).toBeGreaterThan(entry!.packageBytes!);
+      }),
+    ),
+  );
+
+  it.live("deletes a worktree with changes only after confirmation, backing them up", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, repo, worktree, command, disable } = yield* cleanupFixture();
+        disable();
+        yield* fs.writeFileString(`${worktree}/tracked.txt`, "unsaved\n");
+        yield* fs.writeFileString(`${worktree}/notes.txt`, "draft\n");
+
+        const plan = yield* service.deleteWorktree({
+          path: worktree,
+          dryRun: true,
+          allowLocalChanges: false,
+        });
+        expect(plan).toMatchObject({
+          removed: false,
+          branch: "feature",
+          changedFiles: 2,
+          backupFiles: 2,
+          needsConfirmation: true,
+        });
+        yield* Effect.flip(
+          service.deleteWorktree({ path: worktree, dryRun: false, allowLocalChanges: false }),
+        );
+        expect(yield* fs.exists(worktree)).toBe(true);
+
+        const deleted = yield* service.deleteWorktree({
+          path: worktree,
+          dryRun: false,
+          allowLocalChanges: true,
+        });
+        expect(deleted.removed).toBe(true);
+        expect(yield* fs.exists(worktree)).toBe(false);
+        expect(yield* fs.readFileString(`${deleted.backupPath}/tracked.txt`)).toBe("unsaved\n");
+        expect(yield* fs.readFileString(`${deleted.backupPath}/notes.txt`)).toBe("draft\n");
+        expect((yield* command(repo, ["branch", "--list", "feature"])).stdout).toContain("feature");
+      }),
+    ),
+  );
+});

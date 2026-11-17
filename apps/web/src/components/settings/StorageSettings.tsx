@@ -35,6 +35,7 @@ import {
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { DatabaseStorageNotice } from "./DatabaseStorageNotice";
 import { AdvancedSettings } from "./AdvancedSettings";
+import { StorageWorktreeList } from "./StorageWorktreeList";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { SettingsGroup } from "./SettingsGroup";
@@ -604,8 +605,8 @@ export function WorktreeCleanupSection() {
   }
 
   return (
-    <SettingsSection id="storage-worktrees" title="Cleanup">
-      <>
+    <>
+      <SettingsSection id="storage-worktrees" title="Cleanup">
         {isProjectScope && (
           <SettingsRow
             title="Automatic worktree cleanup"
@@ -756,8 +757,8 @@ export function WorktreeCleanupSection() {
                     settings.worktreeKeepWhen === "any-local-files"
                       ? "Includes ignored files, except node_modules."
                       : settings.worktreeKeepWhen === "tracked-changes"
-                        ? "Deletes untracked and ignored files, including .env."
-                        : "Keeps edits and untracked files. Deletes ignored files, including .env."
+                        ? "Backs up untracked and ignored files, such as .env, then deletes them."
+                        : "Keeps edits and untracked files. Backs up ignored files, such as .env, then deletes them."
                   }
                   serverScoped={!isProjectScope}
                   control={
@@ -791,8 +792,10 @@ export function WorktreeCleanupSection() {
             </AdvancedSettings>
           </>
         )}
-      </>
-    </SettingsSection>
+      </SettingsSection>
+      {/* Personal build: where worktree disk space goes, with per-folder actions. */}
+      {!isProjectScope && <StorageWorktreeList />}
+    </>
   );
 }
 
