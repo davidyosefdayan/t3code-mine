@@ -21,6 +21,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { useDelayedStatus } from "../../hooks/useDelayedStatus";
 
 import { msg, T, useGT, useMessages } from "gt-react";
 import { useRef, useState } from "react";
@@ -58,6 +59,9 @@ export function ArchivedThreadsPanel() {
     isLoading: isLoadingArchive,
     refresh: refreshArchivedThreads,
   } = useArchivedThreadSnapshots(scope.environmentIds);
+  // Personal build: a fast load (the common local case) would flash the loading
+  // row for a frame before the list replaces it; only show it once loading lingers.
+  const showArchiveLoading = useDelayedStatus("archive", isLoadingArchive ? true : null) === true;
 
   const { groups: archivedGroups, hasMultipleEnvironments } = (() => {
     const selectedProjectKeys =
@@ -212,7 +216,9 @@ export function ArchivedThreadsPanel() {
 
   return (
     <SettingsPageContainer>
-      {archivedGroups.length === 0 ? (
+      {archivedGroups.length === 0 &&
+      isLoadingArchive &&
+      !showArchiveLoading ? null : archivedGroups.length === 0 ? (
         <SettingsSection
           id={isLoadingArchive ? undefined : searchableSetting("archive").id}
           title={searchableSetting("archive").title}

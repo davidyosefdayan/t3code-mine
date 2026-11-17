@@ -26,6 +26,7 @@ import { startMainAppLocationTracking } from "./components/sidebar/mainAppLocati
 import { startDesktopUpdateLaunchNotice } from "./components/sidebar/updateEverythingRun";
 import { startSlowRpcRequestToasts } from "./components/SlowRpcRequestToastCoordinator";
 import { startThreadNotifications } from "./components/ThreadNotificationCoordinator";
+import { startThreadWorkingTracker } from "./state/threadWorking";
 import { startGuideRunNotifications } from "./components/pullRequest/guide/PullRequestGuideRunCoordinator";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
 import { resolveServerBackedAppDisplayName, resolveWindowTitle } from "./branding.logic";
@@ -92,13 +93,15 @@ function startClientAppearance(): void {
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }
-    if (previous?.glassOpacity !== settings.glassOpacity) {
-      root.style.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
-      if (settings.glassOpacity === 100) {
-        root.style.setProperty("--glass-blur", "0px");
-      } else {
-        root.style.removeProperty("--glass-blur");
-      }
+    // Personal build: no glass; surfaces stay fully solid, so the glass setting is not applied.
+    // Photo themes alone read the panel opacity (index.css).
+    if (previous?.panelOpacity !== settings.panelOpacity) {
+      root.style.setProperty("--panel-opacity", `${settings.panelOpacity}%`);
+      if (settings.panelOpacity < 100) root.dataset.panelSeeThrough = "";
+      else delete root.dataset.panelSeeThrough;
+    }
+    if (previous?.panelBlur !== settings.panelBlur) {
+      root.style.setProperty("--panel-blur", `${settings.panelBlur}px`);
     }
     if (
       previous?.fontFamilySans !== settings.fontFamilySans ||
@@ -309,6 +312,7 @@ export function startAppServices(): AppRouter {
   startHostFreezeToasts();
   startLegacyThreadMigrationToast();
   startPermissionUpdateNotices(router);
+  startThreadWorkingTracker(appAtomRegistry);
   startThreadNotifications(appAtomRegistry, router);
   startGuideRunNotifications(appAtomRegistry, router);
   if (isElectron) startDesktopUpdateLaunchNotice();

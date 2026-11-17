@@ -90,7 +90,8 @@ describe("searchSettings", () => {
 
   it("matches normalized title substrings", () => {
     expect(searchSettings("  WORD   WRAP  ", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
-    expect(searchSettings("glass").map((item) => item.id)).toEqual(["setting-glass-opacity"]);
+    // Personal build: no glass opacity setting.
+    expect(searchSettings("glass")).toEqual([]);
     expect(searchSettings("panel animations").map((item) => item.id)).toEqual(["panel-animations"]);
     expect(searchSettings("thè\u{1ab0}mes")[0]?.id).toBe("theme");
     const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockReturnValue("gıt");
@@ -264,7 +265,7 @@ describe("settings search targets", () => {
     for (const scope of ["all", "environment", "project"] as const) {
       expect(isSettingsSearchScopeAvailable("project-defaults", scope)).toBe(true);
     }
-    for (const id of ["tool-call-visibility", "boring-sidebar"]) {
+    for (const id of ["tool-call-visibility"]) {
       expect(getSettingsSearchTargetScope(id)!.scope).toBeNull();
     }
   });

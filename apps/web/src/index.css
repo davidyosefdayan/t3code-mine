@@ -116,15 +116,21 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      docked sheets, then the floating preview player (47–49, see
      previewMiniPlayerLayout.ts), then dialogs and popovers (50 and up). */
   --z-sheet: 46;
-  --glass-blur: 12px;
-  --glass-opacity: 80%;
-  --glass-saturation: 1.14;
+  /* Personal build: no glass. Menus, dialogs, and the composer are fully solid. */
+  --glass-blur: 0px;
+  --glass-opacity: 100%;
+  --glass-saturation: 1;
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
   --workspace-native-controls-inset: 0px;
+  /* Personal build: the app top bar (AppTopBar.tsx) and its right padding, clear
+     of native window buttons. The desktop app mirrors the height in
+     macosWindowButtonPosition (DesktopWindow.ts); change both together. */
+  --app-topbar-height: 2.25rem;
+  --app-topbar-end: 0.5rem;
   --workspace-titlebar-control-size: 1.75rem;
   --workspace-titlebar-control-gap: 0.75rem;
   --workspace-titlebar-scroll-fade-height: 1.5rem;
@@ -147,9 +153,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     /* Keeps the idle thumb above 3:1 (WCAG 1.4.11) on #000; 35% renders as gray 89, just under. */
     --app-scrollbar-thumb: rgb(255 255 255 / 36%);
     --app-scrollbar-thumb-hover: rgb(255 255 255 / 45%);
-    --glass-blur: 16px;
-    --glass-saturation: 1.08;
   }
+}
+
+/* Personal build: the app rail's width, on the root so sheets portaled outside the shell can sit
+   beside it. Only with the shell on screen; elsewhere the rail is absent and takes no room. */
+:root:has([data-app-topbar]) {
+  --app-rail-width: 3.5rem;
 }
 
 .wco {
@@ -162,6 +172,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   );
   --workspace-native-controls-inset: calc(
     100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + 0.75rem
+  );
+  /* Personal build: the native window buttons overlay the top bar's right end,
+     reaching into the panel's 0.5rem top margin. Zooming out grows their area in
+     CSS pixels, so the bar keeps its own height as a floor and grows with them. */
+  --app-topbar-height: max(2.25rem, calc(env(titlebar-area-height, 2.25rem) - 0.5rem));
+  --app-topbar-end: calc(
+    100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + 0.5rem
   );
 }
 
@@ -280,6 +297,21 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-message-action-foreground: var(--message-action-foreground);
   --color-message-action-hover: var(--message-action-hover);
   --color-sidebar: var(--sidebar);
+  /* Personal build: theme surfaces (palette.ts). The frame around the app (rail,
+     top bar, margin around the panel), the page sidebar inside the panel, the
+     soft filled chip, and row washes. */
+  --color-sidebar-shell: var(--app-theme-rail, var(--derived-rail));
+  --color-sidebar-list: var(--app-theme-sidebar, var(--background));
+  --color-chip: var(
+    --pal-chip,
+    var(--app-theme-rail-control, color-mix(in oklab, var(--foreground) 6%, transparent))
+  );
+  --color-row-hover: var(--pal-row-hover);
+  --color-row-active: var(--pal-row-active);
+  --color-row-selected: var(--pal-row-selected);
+  --color-row-active-border: var(--pal-row-active-border);
+  --color-row-selected-border: var(--pal-row-selected-border);
+  --color-agent-bubble: var(--pal-agent-bubble, var(--accent));
   --color-sidebar-foreground: var(--contrast-sidebar-foreground);
   --color-sidebar-muted-foreground: var(--contrast-sidebar-muted-foreground);
   --color-sidebar-control-surface: var(--sidebar-control-surface);
@@ -443,7 +475,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 @utility dialog-backdrop {
-  background: color-mix(in srgb, var(--background) 60%, transparent);
+  background: color-mix(in srgb, var(--background) 35%, transparent);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 
@@ -655,6 +687,40 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Personal build: typing dots in the chat-style working bubble. */
+@keyframes chat-typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@utility chat-typing-dot {
+  display: block;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  animation: chat-typing-dot 1.2s steps(4) infinite;
+  animation-play-state: var(--visible-animation-state, paused);
+
+  &:nth-child(2) {
+    animation-delay: 200ms;
+  }
+  &:nth-child(3) {
+    animation-delay: 400ms;
+  }
+
+  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 @utility live-activity-focus-aligned {
   width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
   margin-inline-start: var(--live-activity-focus-width);
@@ -676,6 +742,15 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
   ::highlight(t3-assistant-citation-comment) {
     background-color: color-mix(in oklab, var(--primary) 45%, transparent);
+  }
+  /* Personal build: read aloud marks the sentence being spoken, and the word
+     within it a little more strongly. */
+  ::highlight(read-aloud-sentence) {
+    background-color: color-mix(in oklab, var(--primary) 9%, transparent);
+  }
+  ::highlight(read-aloud-word) {
+    background-color: color-mix(in oklab, var(--primary) 30%, transparent);
+    color: var(--foreground);
   }
   :root {
     /* Keep the original T3 Code artwork palettes as the defaults. Built-in
@@ -1755,9 +1830,9 @@ body {
   padding-right: var(--desktop-window-right-resize-inset);
 }
 
-.electron-windows {
-  --desktop-window-right-resize-inset: 6px;
-}
+/* Personal build: upstream insets #root 6px on Windows desktop to keep scrollbars
+   off the resize edge. The inset panel's own margin already does that, and the
+   inset showed as a dark strip below the full-width top bar. */
 
 /* App-chrome grain. Baked into each surface's own background (behind
    content) rather than a fixed overlay on top: a full-viewport overlay
@@ -1838,6 +1913,12 @@ code {
   .drag-region > * {
     -webkit-app-region: initial;
   }
+}
+
+/* Personal build: the top bar is the window's title bar, so headers below it don't move the
+   window. `initial`, not `no-drag`, for the reason above. */
+:root:has([data-app-topbar]) .drag-region:not([data-app-topbar]) {
+  -webkit-app-region: initial;
 }
 
 .drag-region button,
@@ -2648,4 +2729,351 @@ code {
 
 .messages-timeline-scroll:focus-visible {
   outline: none;
+}
+
+/* Personal build: themes without their own rail color get one a step darker
+   than their sidebar, so the rail and the thread list never merge. */
+:root {
+  --derived-rail: color-mix(in oklab, var(--sidebar) 94%, #000);
+}
+:root.dark {
+  --derived-rail: color-mix(in oklab, var(--sidebar) 72%, #000);
+}
+
+/* Personal build: thread rows and rail surfaces. The open row's white barely lifts
+   off a near-white list, so it also gets a hairline in the sidebar's divider color. */
+:root {
+  --pal-row-hover: rgb(255 255 255 / 0.55);
+  --pal-row-active: #ffffff;
+  --pal-row-selected: rgb(255 255 255 / 0.6);
+  --pal-row-active-border: var(--color-sidebar-border);
+  --pal-row-selected-border: var(--color-sidebar-border);
+}
+:root.dark {
+  --pal-row-hover: rgb(255 255 255 / 0.06);
+  --pal-row-active: rgb(255 255 255 / 0.12);
+  --pal-row-selected: rgb(255 255 255 / 0.08);
+}
+
+/* With a theme on, header chips are the theme's toolbar control colors, the
+   success and info hues come from the theme when it sets them, and the answer
+   bubble is a neutral lift of the canvas in the dark. */
+html[data-theme-id]:not([data-theme-id=""]) {
+  --pal-soft: var(--toolbar-control);
+  --pal-soft-hover: var(--toolbar-control-hover);
+  --success: var(--app-theme-success, var(--color-emerald-500));
+  --success-foreground: var(--app-theme-success, var(--color-emerald-700));
+  --info: var(--app-theme-info, var(--color-blue-500));
+  --info-foreground: var(--app-theme-info, var(--color-blue-700));
+}
+html.dark[data-theme-id]:not([data-theme-id=""]) {
+  --success-foreground: var(--app-theme-success, var(--color-emerald-400));
+  --info-foreground: var(--app-theme-info, var(--color-blue-400));
+  --pal-agent-bubble: color-mix(in oklab, var(--foreground) 8%, var(--background));
+}
+
+/* The page sidebar sits inside the rounded content panel: chips are soft panel
+   tints, and thread rows use the theme's sidebar row colors. */
+html[data-theme-id]:not([data-theme-id=""]) [data-slot="sidebar"] {
+  --pal-chip: color-mix(in oklab, var(--foreground) 6%, transparent);
+  --pal-row-hover: var(--sidebar-row-hover);
+  --pal-row-active: var(--sidebar-row-active);
+  --pal-row-selected: var(--sidebar-row-selected);
+}
+
+/* A dark rail in light mode (the deep themes) takes light-on-dark controls. */
+html[data-rail-ink="light"]:not(.dark) :is([data-app-rail], [data-app-topbar]) {
+  --contrast-sidebar-foreground: var(--app-theme-rail-foreground);
+  --contrast-sidebar-muted-foreground: var(--app-theme-rail-muted-foreground);
+  --contrast-foreground: var(--app-theme-rail-foreground);
+  --contrast-muted-foreground: var(--app-theme-rail-muted-foreground);
+  --contrast-icon-muted: var(--app-theme-rail-muted-foreground);
+  --sidebar-icon-color: var(--app-theme-rail-muted-foreground);
+  --foreground: var(--app-theme-rail-foreground);
+  --muted-foreground: var(--app-theme-rail-muted-foreground);
+  --pal-row-hover: rgb(255 255 255 / 0.08);
+  --pal-row-active: rgb(255 255 255 / 0.17);
+}
+
+/* Sidebar notices (undo, provider updates): one flat, borderless style, sitting as
+   far from the panel's bottom edge as from its sides. */
+[data-app-sidebar] [data-slot="sidebar-footer"] {
+  padding-bottom: var(--sidebar-content-inset);
+}
+[data-app-sidebar] [data-slot="sidebar-footer"] [data-slot="alert"] {
+  border-color: transparent;
+}
+
+/* Header buttons (Open, Commit & PR...): flat, borderless chips. A button wrapped
+   in a popover trigger (the disabled git action with its reason) takes the
+   trigger's data-slot, so it is matched separately; a panel toggle (aria-pressed) is not a chip. */
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"],
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"],
+html[data-theme-id]:not([data-theme-id=""])
+  [data-chat-header]
+  button[data-slot="popover-trigger"]:not([aria-pressed]),
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control] {
+  background-color: var(--pal-soft);
+  border-color: transparent;
+  box-shadow: none;
+}
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"]:hover,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"]:hover,
+html[data-theme-id]:not([data-theme-id=""])
+  [data-chat-header]
+  button[data-slot="popover-trigger"]:not([aria-pressed]):hover,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control]:hover {
+  background-color: var(--pal-soft-hover);
+}
+/* A disabled chip stays hoverable so it can explain why, but must not light up or
+   press like a live button. */
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] button[aria-disabled="true"]:hover {
+  background-color: var(--pal-soft);
+}
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] button[aria-disabled="true"]:active {
+  scale: none;
+}
+/* One flat surface per chip: no bevel highlight on either half of a split button. */
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="button"]::before,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-slot="menu-trigger"]::before,
+html[data-theme-id]:not([data-theme-id=""])
+  [data-chat-header]
+  button[data-slot="popover-trigger"]:not([aria-pressed])::before,
+html[data-theme-id]:not([data-theme-id=""]) [data-chat-header] [data-toolbar-control]::before {
+  display: none;
+}
+
+/* Split buttons in the header: the 1px gap takes the button tint, with a short,
+   soft divider drawn in its middle. */
+html[data-theme-id]:not([data-theme-id=""])
+  [data-chat-header]
+  [data-slot="group"]
+  > [data-slot="separator"] {
+  background-color: var(--pal-soft);
+}
+html[data-theme-id]:not([data-theme-id=""])
+  [data-chat-header]
+  [data-slot="group"]
+  > [data-slot="separator"]::before {
+  inset: 28% 0;
+  background-color: color-mix(in oklab, var(--foreground) 18%, transparent);
+}
+
+/* Personal build: one chip for every kind and surface: a soft pill tinted from the
+   surrounding text color, so it reads on any bubble, theme, or composer. */
+[data-chip] {
+  --context-chip-ink: currentColor;
+  --document-icon-stroke: currentColor;
+  gap: 0.3em;
+  padding: 0.05em 0.4em;
+  border-radius: var(--radius-md, 0.375rem);
+  color: inherit;
+  background-color: color-mix(in oklab, currentColor 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 13%, transparent);
+  transition: background-color 120ms ease-out;
+}
+:is(button:enabled, a)[data-chip]:hover,
+[data-chip] [data-slot="context-chip-action"]:hover {
+  background-color: color-mix(in oklab, currentColor 16%, transparent);
+}
+[data-chip] > svg {
+  opacity: 0.7;
+}
+[data-chip] [data-slot="context-chip-label"] {
+  text-decoration: none;
+}
+[data-chip][data-state="invalid"] {
+  color: var(--destructive-foreground);
+}
+/* In your theme-colored bubble, file icons sit on a tile so their colors read on any theme. */
+.chat-user-bubble [data-chip] > svg:first-child {
+  width: 1.2em;
+  height: 1.2em;
+  padding: 0.12em;
+  border-radius: 0.3em;
+  opacity: 1;
+  color: var(--message-action);
+  background-color: var(--message-action-foreground);
+}
+
+/* Personal build: hairlines between neighbouring chats, like Messages; a highlighted or
+   hovered row's card meets its neighbours with no line at either edge. */
+li[data-thread-item] + li[data-thread-item]::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0.875rem;
+  top: 0;
+  height: 1px;
+  background-color: var(--thread-divider, var(--color-sidebar-border));
+  pointer-events: none;
+}
+li[data-thread-item]:is([data-highlighted], :hover)::before,
+li[data-thread-item]:is([data-highlighted], :hover) + li[data-thread-item]::before {
+  display: none;
+}
+
+/* Personal build: a faded icon fades as one shape. A translucent stroke draws darker (or
+   lighter) where an icon's lines overlap, so strokes are drawn solid and the icon's own
+   alpha is applied once, through a mask in its color. Solid icons look the same; a stroke
+   color class still wins. */
+@supports (color: rgb(from red r g b)) {
+  :where(svg.lucide) {
+    stroke: rgb(from currentColor r g b);
+    mask-image: linear-gradient(currentColor, currentColor);
+  }
+}
+
+/* Personal build: a rail dot (RailDot.tsx) cuts a hole in its button's centered icon. The
+   dot's 12px box sits 4px in from the top right of a 36px button: 8px right of and above
+   the icon's center. */
+:is(button, a):has(> [data-rail-dot]) > svg {
+  mask-image:
+    radial-gradient(circle at calc(50% + 8px) calc(50% - 8px), transparent 6px, black 6.5px),
+    linear-gradient(currentColor, currentColor);
+  mask-composite: intersect;
+}
+
+/* Personal build: a theme's photo fills the app's frame (top bar and rail) as one image,
+   under a tint of the rail's color so its controls stay readable. Behind the chat it made
+   text hard to read. */
+html[data-theme-backdrop] {
+  --theme-backdrop-tint: color-mix(in srgb, var(--color-sidebar-shell) 35%, transparent);
+}
+html.dark[data-theme-backdrop] {
+  --theme-backdrop-tint: color-mix(in srgb, var(--color-sidebar-shell) 50%, transparent);
+}
+/* Fixed attachment lines the copies up into one image. The rail needs its own copy: a
+   collapsed thread list slides behind it. */
+html[data-theme-backdrop]
+  :is(
+    [data-app-topbar],
+    [data-app-rail],
+    [data-slot="sidebar-wrapper"]:has([data-variant="inset"])
+  ) {
+  background:
+    linear-gradient(var(--theme-backdrop-tint), var(--theme-backdrop-tint)),
+    var(--theme-background-image) center / cover no-repeat fixed;
+}
+/* Panel opacity and blur (Settings → Appearance) let the frame's photo through. The thread
+   list is always more see-through than the chat (82% of its opacity), so the rail, the list
+   in the rail's hue, and the darker chat stay three steps. The tint and blur sit on a layer
+   behind each panel: a backdrop-filter on the panel itself would re-anchor its fixed
+   children (the chat's panel toggles) to the panel. */
+html[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"],
+html[data-theme-backdrop][data-panel-see-through] [data-slot="sidebar-inset"] {
+  background: transparent !important;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(var(--panel-blur, 24px)) saturate(1.2);
+    backdrop-filter: blur(var(--panel-blur, 24px)) saturate(1.2);
+  }
+}
+html[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"] {
+  isolation: isolate;
+  &::before {
+    z-index: -1;
+  }
+}
+/* A panel sheet (the list or the side panel floating on a narrow window) is cut from the same
+   frame as the docked panels: the frame's photo, blurred and clamped on a layer behind it, under
+   the docked panel's tint. Fixed photos need an untransformed box, hence no will-change. */
+html[data-theme-backdrop] [data-panel-sheet] {
+  background:
+    linear-gradient(var(--theme-backdrop-tint), var(--theme-backdrop-tint)),
+    var(--theme-background-image) center / cover no-repeat fixed !important;
+  isolation: isolate;
+  will-change: auto;
+  /* Same box and border as the main panel, so the edges line up. The photo stays inside the
+     border, as the main panel's does. */
+  background-clip: padding-box !important;
+  border-color: var(--panel-line);
+  &::before {
+    content: "";
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: calc(var(--radius-xl) - 1px);
+    pointer-events: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
+    backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
+    background-color: color-mix(in srgb, var(--background) var(--panel-opacity, 100%), transparent);
+  }
+  &[data-slot="sidebar"]::before {
+    background-color: color-mix(
+      in srgb,
+      var(--color-sidebar-list) calc(var(--panel-opacity, 100%) * 0.82),
+      transparent
+    );
+  }
+}
+/* The chat can't isolate: the desktop browser is a fixed layer at the app root, and the side
+   panel's resize handle and the floating preview's controls must stack above it. Its layer
+   paints first instead, with the in-flow children lifted over it. */
+html[data-theme-backdrop][data-panel-see-through]
+  [data-slot="sidebar-inset"]
+  > :not(.absolute, .fixed, .sticky) {
+  position: relative;
+}
+/* One line for every panel edge on photo themes: the outline, the list/chat divider and
+   the side panel's divider. Translucent foreground reads the same over any tint. */
+html[data-theme-backdrop] {
+  --panel-line: color-mix(in srgb, var(--foreground) 12%, transparent);
+  :is(
+    [data-variant="inset"] [data-slot="sidebar-inner"],
+    [data-slot="sidebar-inset"],
+    [data-slot="sidebar-inset"] [data-workspace-area="panel"]
+  ) {
+    border-color: var(--panel-line);
+  }
+}
+html[data-theme-backdrop]
+  [data-slot="sidebar"][data-variant="inset"][data-state="expanded"]
+  ~ [data-slot="sidebar-inset"] {
+  border-inline-start-color: transparent;
+}
+html[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"] {
+  position: relative;
+  /* Anchored to the list now, the resize line spans it inside the outline, like the side
+     panel's resize line. */
+  & > [data-slot="sidebar-rail"] {
+    inset-block: 0;
+  }
+  /* Rows and hairlines stay translucent so they read the same at any panel opacity. */
+  --thread-divider: color-mix(in srgb, var(--foreground) 8%, transparent);
+  --pal-row-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --pal-row-active: color-mix(in srgb, var(--background) 55%, transparent);
+  --pal-row-selected: color-mix(in srgb, var(--background) 35%, transparent);
+  --pal-row-active-border: color-mix(in srgb, var(--foreground) 6%, transparent);
+  --pal-row-selected-border: transparent;
+  --sidebar-row-hover: var(--pal-row-hover);
+  &::before {
+    /* Inside the border, so the tint's corners follow its inner curve. It runs one
+       pixel under the chat's edge and draws the divider there, so the line sits on tint,
+       not on bare photo. */
+    border-radius: calc(var(--radius-xl) - 1px) 0 0 calc(var(--radius-xl) - 1px);
+    right: -1px;
+    border-inline-end: 1px solid var(--panel-line);
+    background-color: color-mix(
+      in srgb,
+      var(--color-sidebar-list) calc(var(--panel-opacity, 100%) * 0.82),
+      transparent
+    );
+  }
+}
+html[data-theme-backdrop][data-panel-see-through] {
+  [data-slot="sidebar-inset"]::before {
+    background-color: color-mix(in srgb, var(--background) var(--panel-opacity), transparent);
+  }
+  /* Layout surfaces only: controls (switch thumbs, inputs, checkboxes) carry a data-slot
+     and keep their fill. */
+  :is([data-slot="sidebar-inset"], [data-panel-sheet])
+    :is(.bg-background:not([data-slot]), [data-slot="composer-context-strip"]) {
+    background-color: transparent;
+  }
 }

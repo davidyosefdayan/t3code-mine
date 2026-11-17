@@ -8,7 +8,8 @@ import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
 import { AppRouteModal, AppRouteModalClose } from "../components/AppRouteModal";
 import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
-import { SettingsSidebarNav } from "../components/settings/SettingsSidebarNav";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { isElectron } from "../env";
 import {
   SettingsScopeProvider,
   useSettingsScope,
@@ -134,10 +135,10 @@ function SettingsContentLayout() {
 
   return (
     <AppRouteModal label={gt("Settings")}>
+      {/* Personal build: the section list is this page's sidebar (AppSidebarLayout). */}
       <div className="relative flex min-h-0 flex-1">
-        <SettingsSidebarNav pathname={location.pathname} />
         <div {...contentArea} className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b ps-5 pe-2">
+          <WorkspacePageHeader electron={isElectron}>
             <SettingsBreadcrumb pathname={location.pathname} />
             <div className="ms-auto flex shrink-0 items-center gap-1">
               {location.pathname === "/settings/general" ? (
@@ -147,7 +148,7 @@ function SettingsContentLayout() {
               ) : null}
               <AppRouteModalClose />
             </div>
-          </header>
+          </WorkspacePageHeader>
           <div key={`${contentScopeKey}:${restoreSignal}`} className="min-h-0 flex flex-1 flex-col">
             <SettingsScopeBoundary pathname={location.pathname}>
               <Outlet />

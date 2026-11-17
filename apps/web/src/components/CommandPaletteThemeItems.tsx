@@ -1,4 +1,3 @@
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 
@@ -6,6 +5,7 @@ import { m } from "../i18n/messages";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
 import { useTheme } from "../hooks/useTheme";
+import { MINE_THEMES } from "../mineThemes";
 import { getThemeDefinition } from "../themePalette";
 import {
   ADDON_ICON_CLASS,
@@ -45,7 +45,8 @@ function useThemeCards() {
   const seen = new Set<string>();
   return [
     ...STANDARD_THEME_CARDS.map((card) => ({ ...card, id: null })),
-    ...[...BUILT_IN_THEMES, ...customThemes, ...environmentThemes]
+    // Personal build: our built-in themes, in the order Settings shows them.
+    ...[...MINE_THEMES, ...customThemes, ...environmentThemes]
       .filter((definition) => {
         if (seen.has(definition.id)) return false;
         seen.add(definition.id);
@@ -81,7 +82,7 @@ export function useCommandPaletteThemeItems() {
       {
         value: "themes",
         label: gt("Change theme"),
-        items: themeCards.map(({ id, label, previews }) => ({
+        items: themeCards.map(({ id, label, previews, icon }) => ({
           kind: "action",
           value: id === null ? "theme:standard" : `theme:palette:${id}`,
           title: label,
@@ -92,7 +93,12 @@ export function useCommandPaletteThemeItems() {
                 : gt("For dark mode")
               : undefined,
           searchTerms: [label, "theme", "appearance"],
-          icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+          // Personal build: the theme's own tile, as in Settings.
+          icon: icon ? (
+            <img src={icon} alt="" className="size-4 shrink-0 rounded-sm" />
+          ) : (
+            <PaletteIcon className={ITEM_ICON_CLASS} />
+          ),
           titleTrailingContent: (
             <span className="flex shrink-0 items-center gap-2">
               {(themeHalves?.[resolvedTheme] ?? getThemeDefinition(theme)?.id ?? null) === id ? (
@@ -100,7 +106,7 @@ export function useCommandPaletteThemeItems() {
                   <T context="the theme or mode in use now">Current</T>
                 </span>
               ) : null}
-              <span className="flex items-center gap-1" aria-hidden>
+              <span className={icon ? "hidden" : "flex items-center gap-1"} aria-hidden>
                 {previews.map((preview) => (
                   <ThemePreviewCircle
                     key={preview.mode}

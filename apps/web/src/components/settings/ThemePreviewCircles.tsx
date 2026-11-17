@@ -32,6 +32,9 @@ export type ThemeCardDefinition = {
   id: string;
   label: string;
   previews: ReadonlyArray<ThemeCardPreview>;
+  /** Personal build: a theme with an icon shows it instead of the color circles. */
+  icon?: string;
+  iconDark?: string;
 };
 export type ThemeMode = ThemeAppearance | "system";
 export type ThemeCardPreviewColors = ThemeCardPreview["colors"];
@@ -60,6 +63,7 @@ export const STANDARD_THEME_CARDS: ReadonlyArray<ThemeCardDefinition> = [
   {
     id: "default",
     label: "T3 Code",
+    icon: "/palette-icons/t3code.png",
     previews: (["light", "dark"] as const).map((mode) => ({
       mode,
       colors: STANDARD_THEME_PREVIEW_COLORS[mode],
@@ -78,6 +82,8 @@ export function getThemeCardDefinition(theme: ThemeDefinition): ThemeCardDefinit
   return {
     id: theme.id,
     label: theme.label,
+    ...(theme.icon ? { icon: theme.icon } : {}),
+    ...(theme.iconDark ? { iconDark: theme.iconDark } : {}),
     previews: getThemeModes(theme).map((mode) => {
       const colors = getThemeColorsForMode(theme, mode) ?? theme.colors;
       return {
