@@ -21,7 +21,7 @@ import {
   TagIcon,
   UserRoundIcon,
 } from "lucide-react";
-import { type ElementType, useState } from "react";
+import { type ElementType, type ReactElement, useState } from "react";
 
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { useDebouncedValue } from "~/state/queries";
@@ -490,7 +490,10 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId,
   unavailable,
   onProject,
+  renderTrigger,
 }: {
+  /** Personal build: a trigger of the page's own, such as the sidebar search bar's filter icon. */
+  renderTrigger?: (filterCount: number) => ReactElement;
   onOpenChange?: (open: boolean) => void;
   state: PullRequestListState;
   stateOptions: ReadonlyArray<PullRequestFilterOption<PullRequestListState>>;
@@ -562,15 +565,19 @@ export function PullRequestFiltersMenu({
   ];
   return (
     <Menu onOpenChange={onOpenChange}>
-      <MenuTrigger render={<Button variant="outline" />}>
-        <ListFilterIcon className="size-4" />
-        <span>Filters</span>
-        {filterCount > 0 ? (
-          <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
-            {filterCount}
-          </span>
-        ) : null}
-      </MenuTrigger>
+      {renderTrigger ? (
+        <MenuTrigger render={renderTrigger(filterCount)} />
+      ) : (
+        <MenuTrigger render={<Button variant="outline" />}>
+          <ListFilterIcon className="size-4" />
+          <span>Filters</span>
+          {filterCount > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
+              {filterCount}
+            </span>
+          ) : null}
+        </MenuTrigger>
+      )}
       <MenuPopup align="end" side="bottom">
         <PullRequestFilterRadioSubmenu
           label="State"

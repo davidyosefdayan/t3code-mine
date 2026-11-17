@@ -3,7 +3,6 @@ import { EyeIcon, LayersIcon, PenLineIcon, UsersIcon, type LucideIcon } from "lu
 import { useDeferredValue, type RefCallback } from "react";
 
 import { cn } from "~/lib/utils";
-import { Separator } from "../ui/separator";
 import {
   pullRequestEntryKey,
   scorePullRequestMatch,
@@ -49,7 +48,7 @@ function PullRequestGroupHeader({
       <Icon aria-hidden className="size-3.5 shrink-0" />
       <h2 className="shrink-0">{group.label}</h2>
       <span className="shrink-0 tabular-nums text-muted-foreground/50">{count}</span>
-      <Separator className="min-w-2 flex-1" />
+      {/* Personal build: no rule after the count, like the thread list's group titles. */}
     </div>
   );
 }
