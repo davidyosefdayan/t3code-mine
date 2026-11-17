@@ -126,6 +126,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetResourceTelemetryHistory]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverRetryResourceTelemetry]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverGetUsageSummary]: AuthDiagnosticsReadScope,
+  [WS_METHODS.serverGetUsageBreakdown]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverRefreshUsageRates]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverSignalProcess]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverReportClientActivity]: AuthOrchestrationReadScope,
@@ -186,6 +187,16 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.projectsEnsureScratch]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsCreateNew]: AuthOrchestrationOperateScope,
   [WS_METHODS.shellOpenInEditor]: AuthOrchestrationOperateScope,
+  // Personal build: the Skills page changes what providers load, like provider settings.
+  [WS_METHODS.skillsCreate]: AuthProvidersManageScope,
+  [WS_METHODS.skillsSave]: AuthProvidersManageScope,
+  [WS_METHODS.skillsSetEnabled]: AuthProvidersManageScope,
+  [WS_METHODS.skillsShare]: AuthProvidersManageScope,
+  [WS_METHODS.skillsDelete]: AuthProvidersManageScope,
+  // Personal build: the worktree list in Settings → Storage, guarded like running cleanup.
+  [WS_METHODS.serverGetStorageWorktrees]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverFreeStorageWorktreePackages]: AuthSettingsWriteScope,
+  [WS_METHODS.serverDeleteStorageWorktree]: AuthSettingsWriteScope,
   [WS_METHODS.filesystemBrowse]: AuthFilesystemReadScope,
   [WS_METHODS.workspaceListFolders]: AuthFilesystemReadScope,
   // The command text comes out of a file in the project folder.
