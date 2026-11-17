@@ -197,7 +197,7 @@ export interface ThreadPullRequestBadgePresentation {
   readonly text: string | number;
 }
 
-function resolveThreadPullRequestBadgePresentation({
+export function resolveThreadPullRequestBadgePresentation({
   badge,
   number,
   url,

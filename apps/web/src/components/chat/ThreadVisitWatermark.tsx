@@ -1,14 +1,56 @@
 import { useAtomMount } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
+import { threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { type ScopedThreadRef } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../../connection/catalog";
 import { useUiStateStore } from "../../uiStateStore";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 
+// Personal build: the chat counts as read only while the window is in front and
+// focused, so a reply landing behind another app or window stays unread.
+const appInViewAtom = Atom.make((get) => {
+  const read = () => document.visibilityState === "visible" && document.hasFocus();
+  const update = () => get.setSelf(read());
+  window.addEventListener("focus", update);
+  window.addEventListener("blur", update);
+  document.addEventListener("visibilitychange", update);
+  get.addFinalizer(() => {
+    window.removeEventListener("focus", update);
+    window.removeEventListener("blur", update);
+    document.removeEventListener("visibilitychange", update);
+  });
+  return read();
+}).pipe(Atom.withLabel("app-in-view"));
+
+// Personal build: a woken snooze is unread in the sidebar, so opening the chat
+// reads it, as on mobile. The shell only carries the snooze time, so the wake
+// is derived here, and re-read when a snooze open on screen wakes.
+const wakeAwareVisitShell = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  return Atom.make((get) => {
+    const shell = get(environmentThreadShells.threadShellAtom(ref));
+    if (shell === null) return null;
+    const nowMs = Date.now();
+    const wokeAt = threadWokeAt(shell, { now: new Date(nowMs).toISOString() });
+    const wakeAtMs = shell.snoozedUntil == null ? Number.NaN : Date.parse(shell.snoozedUntil);
+    if (wokeAt === null && wakeAtMs > nowMs) {
+      const timer = setTimeout(
+        () => get.refreshSelf(),
+        Math.min(wakeAtMs - nowMs + 50, 2_147_483_647),
+      );
+      get.addFinalizer(() => clearTimeout(timer));
+    }
+    return { ...shell, wokeAt };
+  }).pipe(Atom.withLabel(`thread-visit-shell:${key}`));
+});
+
 const threadVisitTracker = createThreadVisitTracker({
-  threadShellAtom: environmentThreadShells.threadShellAtom,
+  viewing: appInViewAtom,
+  threadShellAtom: (ref) => wakeAwareVisitShell(threadKey(ref)),
   sessionGenerationAtom: environmentCatalog.sessionGenerationAtom,
   visit: threadEnvironment.visit,
   markLocalVisit: (ref, visitedAt) =>

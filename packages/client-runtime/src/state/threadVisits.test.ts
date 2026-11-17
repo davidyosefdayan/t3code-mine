@@ -6,7 +6,11 @@ import { expect, it, vi } from "vite-plus/test";
 import type { VisitThreadInput } from "../operations/commands.ts";
 import type { AtomCommandResult } from "./runtime.ts";
 import { claimThreadOpen } from "./threadSearch.ts";
-import { createThreadVisitTracker, VISIT_DISPATCH_THROTTLE_MS } from "./threadVisits.ts";
+import {
+  createThreadVisitTracker,
+  RETURN_TO_VIEW_DWELL_MS,
+  VISIT_DISPATCH_THROTTLE_MS,
+} from "./threadVisits.ts";
 
 const environmentId = EnvironmentId.make("env-visits");
 
@@ -24,7 +28,11 @@ function at(seconds: number) {
 }
 
 // claimThreadOpen dedupes per thread in module state, so each test opens its own thread.
-function setup(threadName: string, initial: Omit<Shell, "environmentId" | "id"> | null) {
+function setup(
+  threadName: string,
+  initial: Omit<Shell, "environmentId" | "id"> | null,
+  viewing?: Atom.Writable<boolean>,
+) {
   vi.useFakeTimers({ now: Date.UTC(2026, 0, 1) });
   const threadId = ThreadId.make(threadName);
   const ref = { environmentId, threadId };
@@ -54,6 +62,7 @@ function setup(threadName: string, initial: Omit<Shell, "environmentId" | "id"> 
       },
     },
     markLocalVisit: (_ref, visitedAt) => localVisits.push(visitedAt),
+    ...(viewing ? { viewing } : {}),
   });
   const registry = AtomRegistry.make();
   return {
@@ -71,6 +80,7 @@ function setup(threadName: string, initial: Omit<Shell, "environmentId" | "id"> 
     setOnline: (value: boolean) => {
       online = value;
     },
+    setViewing: (value: boolean) => viewing && registry.set(viewing, value),
     update: (patch: Partial<Shell>) => {
       const current = registry.get(shellAtom);
       registry.set(shellAtom, {
@@ -311,4 +321,36 @@ it("retries rejected opens only once per connection generation", async () => {
   t.update({ updatedAt: at(20), latestRun: { completedAt: at(20) } });
   await vi.advanceTimersByTimeAsync(3 * VISIT_DISPATCH_THROTTLE_MS);
   expect(t.attempts).toHaveLength(2);
+});
+
+// Personal build: a chat left open behind another app or window is not being read,
+// nor is one you pass through on your way to another chat after coming back.
+it("marks a completion seen only once the app has been in view again for a moment", () => {
+  using t = setup(
+    "thread-background",
+    { updatedAt: at(10), lastVisitedAt: at(0), latestRun: null },
+    Atom.make(true),
+  );
+  const unmount = t.mount();
+  expect(t.visits).toHaveLength(1);
+
+  t.setViewing(false);
+  t.update({ updatedAt: at(20), latestRun: { completedAt: at(20) } });
+  vi.advanceTimersByTime(VISIT_DISPATCH_THROTTLE_MS);
+  expect(t.visits).toHaveLength(1);
+
+  t.setViewing(true);
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS - 1);
+  expect(t.visits).toHaveLength(1);
+  t.setViewing(false);
+  t.setViewing(true);
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS);
+  expect(t.visits.slice(1)).toEqual([{ threadId: t.ref.threadId, visitedAt: at(20) }]);
+
+  t.setViewing(false);
+  t.update({ updatedAt: at(40), latestRun: { completedAt: at(40) } });
+  t.setViewing(true);
+  unmount();
+  vi.advanceTimersByTime(RETURN_TO_VIEW_DWELL_MS);
+  expect(t.visits).toHaveLength(2);
 });

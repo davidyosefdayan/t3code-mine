@@ -1,3 +1,5 @@
+// Personal build: drops the Needs you stand-in question (see threadWaitingOnYou.ts).
+import { withoutWaitingOnYouRequest } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   OrchestrationV2ShellSnapshot,
@@ -112,7 +114,7 @@ export function resolveListedAncestorThreadRef(
 /** Provider-native
     subagents ask on their parent, so they are skipped. */
 function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
-  const kind = thread.pendingRuntimeRequest?.kind;
+  const kind = withoutWaitingOnYouRequest(thread).pendingRuntimeRequest?.kind;
   if (
     kind === undefined ||
     kind === "auth_refresh" ||
@@ -138,7 +140,7 @@ const rolledUpRequest = (
 
 /** A side chat asks its user directly, so questions roll up to the parent as well as approvals. */
 function sideChatRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
-  const kind = thread.pendingRuntimeRequest?.kind;
+  const kind = withoutWaitingOnYouRequest(thread).pendingRuntimeRequest?.kind;
   if (kind === undefined || kind === "auth_refresh" || thread.lineage.sideChat !== true) {
     return null;
   }

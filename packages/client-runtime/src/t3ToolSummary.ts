@@ -481,6 +481,9 @@ export function summarizeT3ToolCalls(
     case "send-to-user":
       label = phrase("Sent", "send", quantity(selected.length, "message"));
       break;
+    case "needs-you":
+      label = phrase("Updated", "update", `Needs you ${times}`);
+      break;
     case "capabilities":
       label = phrase("Checked", "check", `orchestration capabilities ${times}`);
       break;

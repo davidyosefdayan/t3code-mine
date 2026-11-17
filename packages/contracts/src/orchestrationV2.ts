@@ -21,6 +21,7 @@ import {
   MessageId,
   EnvironmentId,
   NodeId,
+  ForwardCompatibleOptional,
   ForwardCompatibleUnion,
   ForwardCompatibleUnionArray,
   hasUnknownUnionTag,
@@ -46,6 +47,7 @@ import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
 import { ThreadTitleRegenerationOutcome } from "./threadTitle.ts";
+import { ThreadWaitingOnYou, ThreadWaitingOnYouRequest } from "./threadWaitingOnYou.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -514,6 +516,11 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  // Personal build: what the agent handed back to the user (`t3_needs_you`).
+  waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
+  // Personal build: this chat's idle compaction switch, and the run its agent asked to compact after.
+  autoCompactDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  compactAfterRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -915,6 +922,13 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
    * one owed, so each reaches the thread there once however often it is sent.
    */
   stopCount: Schema.optional(NonNegativeInt),
+  /**
+   * The latest run there this task's result covers, kept while the thread there may run
+   * again, as a child here does when a background command or a message wakes it. Each
+   * later run there becomes a follow-up task. A stop that reaches it, or a follow-up task
+   * taking over, clears it.
+   */
+  lastRunId: Schema.optional(RunId),
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
@@ -2233,6 +2247,12 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Guest messages waiting for the owner to send or dismiss. Absent from older servers. */
   pendingGuestMessageCount: Schema.optional(NonNegativeInt),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
+  /**
+   * Personal build: the newest step still running in the thread's active run,
+   * trimmed (no output, short strings) so shell rows stay small. Absent or
+   * null while nothing runs.
+   */
+  liveActivity: Schema.optional(Schema.NullOr(OrchestrationV2TurnItem)),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /** Excludes wakes and agent messages that advance latestUserMessageAt through the user role. */
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -2261,6 +2281,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  // Personal build: what the agent handed back to the user (`t3_needs_you`).
+  waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
   titleRegeneration: Schema.optional(
@@ -2430,6 +2452,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  autoCompactDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2874,6 +2897,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummaryJson),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummaryJson),
+  liveActivity: Schema.optional(Schema.NullOr(OrchestrationV2TurnItemJson)),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   createdAt: Schema.DateTimeUtcFromString,
@@ -3213,6 +3237,22 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     tag: ThreadTag,
     tagged: Schema.Boolean,
+  }),
+  // Personal build: null clears it.
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting-on-you.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    waitingOnYou: Schema.NullOr(ThreadWaitingOnYouRequest),
+  }),
+  // Personal build: `enabled` is the chat's idle compaction switch; `afterRunId` compacts once
+  // that run completes, and null withdraws it.
+  Schema.Struct({
+    type: Schema.Literal("thread.auto-compact.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    enabled: Schema.optional(Schema.Boolean),
+    afterRunId: Schema.optional(Schema.NullOr(RunId)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin.reorder"),
@@ -3703,6 +3743,24 @@ const OrchestrationV2InternalCommand = Schema.Union([
     stoppedThere: Schema.optional(Schema.Literals(["ran-out", "stopped"])),
     /** The stop generation this report acknowledges; absent for the original unnumbered stop. */
     stopCount: Schema.optional(NonNegativeInt),
+    /** With `ran-out`: the latest run there the result covers, from which its follower watches. */
+    lastRunId: Schema.optional(RunId),
+  }),
+  /**
+   * Reports a later run of a finished remote task's thread there as a follow-up task, as a
+   * child here that runs again does: a new task with that run's result, which wakes the
+   * parent. It takes over watching the thread there from `taskId`. The ids derive from
+   * `commandId`, so a repeated report records nothing new.
+   */
+  Schema.Struct({
+    type: Schema.Literal("delegated_task.remote.followup"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+    runId: RunId,
+    prompt: Schema.String,
+    status: Schema.Literals(["completed", "failed", "cancelled", "interrupted"]),
+    result: Schema.String,
   }),
   /**
    * Owes a stop to the thread there of a remote task that already has its result, as Stop on

@@ -1,0 +1,227 @@
+import { useAtomValue } from "@effect/atom-react";
+import { useEffect } from "react";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { ThreadWaitingOnYouKind } from "@t3tools/contracts";
+import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+
+import { useNowMinute } from "../hooks/useNowMinute";
+import { useDelegatedUnderParent, useThreadShells } from "../state/entities";
+import { environmentServerConfigsAtom } from "../state/server";
+import { setNotificationBadge } from "../threadNotifications";
+import { useUiStateStore } from "../uiStateStore";
+import { useThreadIsWorking } from "../state/threadWorking";
+import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  filterSidebarV2VisibleThreads,
+  resolveSidebarThreadStatus,
+  resolveThreadLastVisitedAt,
+} from "./Sidebar.logic";
+
+// Personal build: the sidebar's "Needs you" and unread rules, and the
+// Dock badge count. Unread means it became your turn and you haven't looked:
+// a finished turn, an approval or question, a failure, or a woken snooze.
+// Reading the chat (opening it, or Mark as read) clears it.
+
+type YourTurnInput = Pick<
+  EnvironmentThreadShell,
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "pendingSubagentRequest"
+  | "runtime"
+  | "updatedAt"
+  | "latestRun"
+>;
+
+/** When it last became your turn in a thread: an approval or question
+    appeared (the agent stops there, so the thread's last update), the run
+    failed or hit a limit, or a turn finished. Null while nothing has. */
+export function yourTurnSince(thread: YourTurnInput): string | null {
+  const status = resolveSidebarThreadStatus(thread);
+  if (status === "approval" || status === "input") return thread.updatedAt;
+  if (status === "failed" || status === "limited") {
+    return thread.runtime?.updatedAt ?? thread.updatedAt;
+  }
+  return thread.latestRun?.completedAt ?? null;
+}
+
+/** A snoozed thread that woke and hasn't been looked at since. */
+export function isThreadWoke(
+  thread: EnvironmentThreadShell,
+  lastVisitedAt: string | undefined,
+  now: string,
+): boolean {
+  if (thread.settledOverride === "settled") return false;
+  const wokeAt = threadWokeAt(thread, { now });
+  const wokeMs = wokeAt === null ? Number.NaN : Date.parse(wokeAt);
+  if (Number.isNaN(wokeMs)) return false;
+  const visitedMs = lastVisitedAt === undefined ? Number.NaN : Date.parse(lastVisitedAt);
+  return Number.isNaN(visitedMs) || visitedMs < wokeMs;
+}
+
+/** It became your turn (or a snooze woke) after you last looked. Callers
+    rule out working threads first. `lastVisitedAt` is the effective mark
+    (`resolveThreadLastVisitedAt`). */
+export function isThreadUnread(
+  thread: EnvironmentThreadShell,
+  lastVisitedAt: string | undefined,
+  now: string,
+): boolean {
+  return isThreadWoke(thread, lastVisitedAt, now) || isYourTurnUnseen(thread, lastVisitedAt);
+}
+
+/** It became your turn after you last looked; no clock involved. A
+    never-visited thread counts as read, so history doesn't light up, except a
+    failed run: like upstream's Failed status, a failure nobody has opened
+    (an automation's, say) still needs someone. */
+export function isYourTurnUnseen(
+  thread: YourTurnInput,
+  lastVisitedAt: string | undefined,
+): boolean {
+  const since = yourTurnSince(thread);
+  if (since === null) return false;
+  if (lastVisitedAt === undefined) return thread.latestRun?.status === "failed";
+  const sinceMs = Date.parse(since);
+  if (Number.isNaN(sinceMs)) return false;
+  const visitedMs = Date.parse(lastVisitedAt);
+  return Number.isNaN(visitedMs) || sinceMs > visitedMs;
+}
+
+/** Personal build: what a thread is waiting on you for. An approval,
+    question, or guest request counts on its own and clears when you answer;
+    anything else is what the agent set with `t3_needs_you`, until it
+    clears it. Reading the thread clears neither. */
+export type WaitingOnYouKind = ThreadWaitingOnYouKind | "approval" | "input" | "request";
+
+export interface WaitingOnYouState {
+  readonly kind: WaitingOnYouKind;
+  readonly reason: string | null;
+  readonly since: string;
+}
+
+type WaitingOnYouInput = YourTurnInput &
+  Pick<EnvironmentThreadShell, "pendingGuestMessageCount" | "waitingOnYou">;
+
+export function threadWaitingOnYou(thread: WaitingOnYouInput): WaitingOnYouState | null {
+  const status = resolveSidebarThreadStatus(thread);
+  if (status === "approval" || status === "input" || status === "request") {
+    return { kind: status, reason: null, since: thread.updatedAt };
+  }
+  return thread.waitingOnYou ?? null;
+}
+
+/** Row labels for what an agent set. Approvals, questions, and requests
+    keep the row's own status labels. */
+export const WAITING_ON_YOU_LABELS: Record<ThreadWaitingOnYouKind, string> = {
+  merge: "Merge ready",
+  decision: "Decision",
+  review: "Review",
+  credential: "Credential",
+  other: "Your turn",
+};
+
+type IsWorking = (thread: EnvironmentThreadShell) => boolean;
+
+interface NeedsYouCapabilities {
+  readonly threadSnooze?: boolean;
+  readonly threadSettlement?: boolean;
+}
+
+/** Waiting on you, else unread, by the sidebar's rules. Snoozed, settled,
+    and working threads are neither. Callers rule out archived and subagent
+    threads. */
+function threadNeed(
+  thread: EnvironmentThreadShell,
+  capabilities: NeedsYouCapabilities | undefined,
+  localLastVisitedAtByKey: Readonly<Record<string, string>>,
+  now: string,
+  isWorking: IsWorking = isSidebarThreadWorking,
+): "needsYou" | "unread" | null {
+  if (capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) return null;
+  if (capabilities?.threadSettlement === true && thread.settledOverride === "settled") return null;
+  if (threadWaitingOnYou(thread) !== null) return "needsYou";
+  if (isWorking(thread)) return null;
+  const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const lastVisitedAt = resolveThreadLastVisitedAt(
+    thread.lastVisitedAt,
+    localLastVisitedAtByKey[key],
+  );
+  return isThreadUnread(thread, lastVisitedAt, now) ? "unread" : null;
+}
+
+export function threadNeedsYou(
+  thread: EnvironmentThreadShell,
+  capabilities: NeedsYouCapabilities | undefined,
+  localLastVisitedAtByKey: Readonly<Record<string, string>>,
+  now: string,
+  isWorking: IsWorking = isSidebarThreadWorking,
+): boolean {
+  return threadNeed(thread, capabilities, localLastVisitedAtByKey, now, isWorking) !== null;
+}
+
+export interface NeedsYouCounts {
+  /** In the Needs you group. */
+  readonly needsYou: number;
+  /** Unread, and not in Needs you. */
+  readonly unread: number;
+}
+
+/** How many threads are waiting on you, and how many others are unread,
+    across every project, pins included. */
+export function countThreadsNeedingYou(
+  threads: readonly EnvironmentThreadShell[],
+  capabilitiesOf: (thread: EnvironmentThreadShell) => NeedsYouCapabilities | undefined,
+  localLastVisitedAtByKey: Readonly<Record<string, string>>,
+  now: string,
+  delegatedUnderParent: ReadonlySet<string> = new Set(),
+  isWorking: IsWorking = isSidebarThreadWorking,
+): NeedsYouCounts {
+  let needsYou = 0;
+  let unread = 0;
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
+    const need = threadNeed(
+      thread,
+      capabilitiesOf(thread),
+      localLastVisitedAtByKey,
+      now,
+      isWorking,
+    );
+    if (need === "needsYou") needsYou += 1;
+    else if (need === "unread") unread += 1;
+  }
+  return { needsYou, unread };
+}
+
+/** The count for the Dock badge and the rail's Threads dot. */
+export function useNeedsYouCounts(): NeedsYouCounts {
+  const threads = useThreadShells();
+  const delegatedUnderParent = useDelegatedUnderParent();
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  const localLastVisitedAtByKey = useUiStateStore((state) => state.threadLastVisitedAtById);
+  // The minute clock, so a woken snooze counts within a minute and the
+  // compiler-cached count never reads the clock during render.
+  const nowMinute = useNowMinute();
+  // Personal build: the Working group's own decision, so the badge counts a chat the
+  // moment it leaves Working.
+  const isWorking = useThreadIsWorking();
+  return countThreadsNeedingYou(
+    threads,
+    (thread) => serverConfigs.get(thread.environmentId)?.environment.capabilities,
+    localLastVisitedAtByKey,
+    `${nowMinute}:00.000Z`,
+    delegatedUnderParent,
+    isWorking,
+  );
+}
+
+/**
+ * The Dock badge shows how many chats need you and stays while the app is
+ * focused, instead of upstream's count of missed notifications.
+ */
+export function NeedsYouDockBadge() {
+  const counts = useNeedsYouCounts();
+  const needsYouCount = counts.needsYou + counts.unread;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the desktop Dock badge in step with the unread count
+  useEffect(() => setNotificationBadge(needsYouCount), [needsYouCount]);
+  return null;
+}

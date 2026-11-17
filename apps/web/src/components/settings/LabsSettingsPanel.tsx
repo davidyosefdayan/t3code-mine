@@ -5,7 +5,6 @@ import { managedCapabilityDenial } from "@t3tools/contracts";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { Button } from "../ui/button";
-import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -18,7 +17,7 @@ export function LabsSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="beta" title="Beta">
-        <BoringSidebarRow />
+        {/* Personal build: no boring sidebar; the fork's grouped thread list replaces it. */}
         {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
         <LinkedEnvironmentsRow />
@@ -27,51 +26,6 @@ export function LabsSettingsPanel() {
         <FastWorktreeCheckoutRow />
       </SettingsSection>
     </SettingsPageContainer>
-  );
-}
-
-function BoringSidebarRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  return (
-    <SettingsRow
-      {...searchableSetting("boring-sidebar")}
-      description="Group sidebar threads into project folders. Pinned threads stay on top, and Snoozed and Settled stay below the folders."
-      control={
-        <Switch
-          checked={settings.boringSidebarEnabled}
-          onCheckedChange={(checked) => updateSettings({ boringSidebarEnabled: Boolean(checked) })}
-          aria-label="Boring sidebar (group by project)"
-        />
-      }
-    >
-      {settings.boringSidebarEnabled ? (
-        <div className="mt-2 mb-2 border-l-2 border-border/60 ps-3">
-          <BoringSidebarMultilineRow />
-        </div>
-      ) : null}
-    </SettingsRow>
-  );
-}
-
-function BoringSidebarMultilineRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  return (
-    <SettingsRow
-      {...searchableSetting("boring-sidebar-multiline")}
-      className="px-0 py-2 sm:px-0"
-      description="Show folder threads on two lines: the title, then the branch, pull request, and agent."
-      control={
-        <Switch
-          checked={settings.boringSidebarMultilineRows}
-          onCheckedChange={(checked) =>
-            updateSettings({ boringSidebarMultilineRows: Boolean(checked) })
-          }
-          aria-label="Two-line folder rows"
-        />
-      }
-    />
   );
 }
 
