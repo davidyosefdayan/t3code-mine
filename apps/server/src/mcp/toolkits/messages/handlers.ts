@@ -16,10 +16,8 @@ import { MessagesToolkit } from "./tools.ts";
 const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
 
-// Personal build: the message is shown from the call's own tool item, so the
-// handler only confirms it. Only an agent inside a thread has a chat to show it in.
+// Personal build: Needs you and compacting after the turn.
 export const layer = McpToolAccess.toLayer(MessagesToolkit, {
-  message_user: McpToolAccess.readsAsCaller(() => Effect.succeed({ shown: true })),
   t3_needs_you: McpToolAccess.writesThreads(
     (input) => [input.threadId],
     (input) =>

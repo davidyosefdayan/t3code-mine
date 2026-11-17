@@ -674,27 +674,6 @@ const linkedPullRequest = {
   stack: null,
 };
 
-it.effect("shows message_user to thread agents only, always loaded", () =>
-  Effect.gen(function* () {
-    const server = yield* McpServer.McpServer;
-    const registered = server.tools.find(({ tool }) => tool.name === "message_user");
-    expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
-    const call = (invocation: McpInvocationContext.McpInvocationScope) =>
-      server
-        .callTool({ name: "message_user", arguments: { message: "Found it." } })
-        .pipe(
-          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
-          Effect.provideService(McpSchema.McpServerClient, client),
-        );
-    expect((yield* call(scope)).structuredContent).toEqual({ shown: true });
-    const outside = yield* call({ ...scope, thread: undefined });
-    expect(outside.isError).toBe(true);
-    expect(outside.content[0]).toMatchObject({
-      text: expect.stringContaining("needs an agent running inside T3 Code"),
-    });
-  }).pipe(Effect.provide(messagesToolkitWith([]))),
-);
-
 it.effect("sets and clears Needs you, tied to a linked PR when named", () => {
   const dispatched: Array<unknown> = [];
   return Effect.gen(function* () {
