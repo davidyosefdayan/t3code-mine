@@ -382,7 +382,32 @@ import {
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
 } from "./providerUsageLimits.ts";
-import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
+import {
+  UsageBreakdown,
+  UsageBreakdownInput,
+  UsagePricing,
+  UsageReadError,
+  UsageSummary,
+  UsageSummaryInput,
+} from "./usage.ts";
+import {
+  SkillCreateInput,
+  SkillCreateResult,
+  SkillDeleteInput,
+  SkillDeleteResult,
+  SkillLibraryError,
+  SkillSaveInput,
+  SkillSetEnabledInput,
+  SkillShareInput,
+} from "./skills.ts";
+import {
+  StorageWorktreeDeleteInput,
+  StorageWorktreeDeletePlan,
+  StorageWorktreeError,
+  StorageWorktreeFreeResult,
+  StorageWorktreeList,
+  StorageWorktreeTarget,
+} from "./storageWorktrees.ts";
 import {
   StorageCleanupReport,
   DatabaseReclaimError,
@@ -454,6 +479,18 @@ export const WS_METHODS = {
 
   shellOpenInEditor: "shell.openInEditor",
 
+  // Personal build: managing skills from the Skills page.
+  skillsCreate: "skills.create",
+  skillsSave: "skills.save",
+  skillsSetEnabled: "skills.setEnabled",
+  skillsShare: "skills.share",
+  skillsDelete: "skills.delete",
+  // Personal build: the worktree list in Settings → Storage.
+  serverGetStorageWorktrees: "server.getStorageWorktrees",
+  serverFreeStorageWorktreePackages: "server.freeStorageWorktreePackages",
+  serverDeleteStorageWorktree: "server.deleteStorageWorktree",
+
+  // Filesystem methods
   filesystemBrowse: "filesystem.browse",
   filesystemGetMetadata: "filesystem.getMetadata",
   agentSessionsScan: "agentSessions.scan",
@@ -577,6 +614,8 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+  // Personal build: where a weekly limit went, for Usage → Limits.
+  serverGetUsageBreakdown: "server.getUsageBreakdown",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -1067,6 +1106,13 @@ const WsServerPrepareTriageRpc = Rpc.make(WS_METHODS.serverPrepareTriage, {
 const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
   payload: UsageSummaryInput,
   success: UsageSummary,
+  error: Schema.Union([EnvironmentAuthorizationError, UsageReadError]),
+});
+
+/** Personal build: per-session usage inside one quota window, for Usage → Limits. */
+const WsServerGetUsageBreakdownRpc = Rpc.make(WS_METHODS.serverGetUsageBreakdown, {
+  payload: UsageBreakdownInput,
+  success: UsageBreakdown,
   error: Schema.Union([EnvironmentAuthorizationError, UsageReadError]),
 });
 
@@ -1579,6 +1625,53 @@ const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThre
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
+});
+
+// Personal build: managing skills from the Skills page.
+const SkillLibraryRpcError = Schema.Union([SkillLibraryError, EnvironmentAuthorizationError]);
+const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+  payload: SkillCreateInput,
+  success: SkillCreateResult,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsSaveRpc = Rpc.make(WS_METHODS.skillsSave, {
+  payload: SkillSaveInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
+  payload: SkillSetEnabledInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsShareRpc = Rpc.make(WS_METHODS.skillsShare, {
+  payload: SkillShareInput,
+  error: SkillLibraryRpcError,
+});
+const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
+  payload: SkillDeleteInput,
+  success: SkillDeleteResult,
+  error: SkillLibraryRpcError,
+});
+
+// Personal build: the worktree list in Settings → Storage.
+const StorageWorktreeRpcError = Schema.Union([StorageWorktreeError, EnvironmentAuthorizationError]);
+const WsServerGetStorageWorktreesRpc = Rpc.make(WS_METHODS.serverGetStorageWorktrees, {
+  payload: Schema.Struct({}),
+  success: StorageWorktreeList,
+  stream: true,
+  error: EnvironmentAuthorizationError,
+});
+const WsServerFreeStorageWorktreePackagesRpc = Rpc.make(
+  WS_METHODS.serverFreeStorageWorktreePackages,
+  {
+    payload: StorageWorktreeTarget,
+    success: StorageWorktreeFreeResult,
+    error: StorageWorktreeRpcError,
+  },
+);
+const WsServerDeleteStorageWorktreeRpc = Rpc.make(WS_METHODS.serverDeleteStorageWorktree, {
+  payload: StorageWorktreeDeleteInput,
+  success: StorageWorktreeDeletePlan,
+  error: StorageWorktreeRpcError,
 });
 
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
@@ -2254,7 +2347,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const UpstreamWsRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
@@ -2491,3 +2584,23 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeCommandOutputRpc,
   WsOrchestrationV2SubscribePromptSuggestionRpc,
 ).middleware(RpcScopeAuthorization);
+
+/**
+ * Personal build: the fork's own methods (Skills page, Usage → Limits
+ * breakdown, Storage worktree list). They live in their own group so the server can build their
+ * handlers apart from upstream's: one handler object for every method
+ * exceeds TypeScript's instantiation depth.
+ */
+export const ForkWsRpcGroup = RpcGroup.make(
+  WsServerGetUsageBreakdownRpc,
+  WsSkillsCreateRpc,
+  WsSkillsSaveRpc,
+  WsSkillsSetEnabledRpc,
+  WsSkillsShareRpc,
+  WsSkillsDeleteRpc,
+  WsServerGetStorageWorktreesRpc,
+  WsServerFreeStorageWorktreePackagesRpc,
+  WsServerDeleteStorageWorktreeRpc,
+).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = UpstreamWsRpcGroup.merge(ForkWsRpcGroup);

@@ -54,10 +54,7 @@ export function SkillsSidebarNav() {
     keepOrder: searching,
   });
   const ordered = groups.flatMap((group) => group.entries);
-  const openKey =
-    search?.skill ??
-    groupSkillEntries(viewEntries).flatMap((group) => group.entries)[0]?.key ??
-    null;
+  const openKey = search?.skill ?? null;
 
   const selectView = (next: SkillsView) =>
     void navigate({ to: "/skills", search: { view: formatSkillsView(next) } });
