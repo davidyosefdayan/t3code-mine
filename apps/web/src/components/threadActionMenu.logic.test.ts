@@ -66,6 +66,15 @@ describe("buildThreadActionMenuItems", () => {
     },
   );
 
+  it("offers no snooze on a pinned thread, but still wakes one", () => {
+    const ids = (isSnoozed: boolean) =>
+      buildThreadActionMenuItems({ ...baseState, isPinned: true, isSnoozed }).map(
+        (item) => item.id,
+      );
+    expect(ids(false)).not.toContain("snooze");
+    expect(ids(true)).toContain("unsnooze");
+  });
+
   it("disables archive and turning into a project while the thread is running", () => {
     const items = buildThreadActionMenuItems({
       ...baseState,

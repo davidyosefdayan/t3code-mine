@@ -25,11 +25,11 @@ import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
+import { threadWorking } from "../state/threadWorking";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
   playNotificationSound,
-  setNotificationBadge,
   threadNotificationTag,
   unlockNotificationAudio,
 } from "../threadNotifications";
@@ -42,6 +42,7 @@ import {
   type ThreadNotificationObservation,
 } from "./ThreadNotificationCoordinator.logic";
 import { toastManager } from "./ui/toast";
+import { sidebarMessagePreview } from "./messagePreview";
 
 interface NotificationState extends ThreadNotificationObservation {
   readonly raw: OrchestrationV2ThreadShell;
@@ -80,7 +81,6 @@ export function startThreadNotifications(
   ) => {
     pending.get(notification.tag)?.notification.close();
     pending.set(notification.tag, { environmentId, threadId, notification });
-    setNotificationBadge(pending.size);
   };
   // Toast ids by thread key, so hiding or opening a thread, or removing its environment, closes them.
   const openToasts = new Map<string, Array<ToastId>>();
@@ -116,18 +116,15 @@ export function startThreadNotifications(
       : null;
     const shouldClose = (key: string) => hidden.has(key) || (live !== null && !live.has(key));
     closeToasts(shouldClose);
-    const count = pending.size;
     for (const [tag, entry] of pending) {
       if (!shouldClose(threadKey(entry))) continue;
       entry.notification.close();
       pending.delete(tag);
     }
-    if (count !== pending.size) setNotificationBadge(pending.size);
   };
   const clearPending = () => {
     for (const { notification } of pending.values()) notification.close();
     pending.clear();
-    setNotificationBadge(0);
   };
 
   const present = (
@@ -210,8 +207,14 @@ export function startThreadNotifications(
     )
       return;
     try {
-      const notification = new Notification(title, {
-        body: thread.title,
+      // Personal build: lead with the chat, like the sidebar card: its title,
+      // then what the agent said. Attention states keep their label as the
+      // body, since the latest finished reply predates the question or failure.
+      const notification = new Notification(thread.title, {
+        body:
+          (kind === "completion"
+            ? sidebarMessagePreview(thread.latestVisibleMessage?.text)
+            : null) ?? title,
         tag: threadNotificationTag(environmentId, thread.id),
         silent: true,
         // Windows drops clicks after a toast moves into Notification Center.
@@ -236,8 +239,10 @@ export function startThreadNotifications(
     environmentId: EnvironmentId,
     entry: WatchedEnvironment,
     threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+    workingMoved = false,
   ) => {
     const previous = entry.previous;
+    const isWorking = threadWorking.isWorking();
     const next = new Map<ThreadId, NotificationState>();
     // A parent here also hears of what its tasks on linked environments ask.
     const subagentRequests = registry.get(
@@ -259,6 +264,7 @@ export function startThreadNotifications(
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       if (
         !entry.reconnecting &&
+        !workingMoved &&
         prior?.raw === rawThread &&
         prior.subagentRequest === subagentRequest
       ) {
@@ -283,7 +289,9 @@ export function startThreadNotifications(
           ? `${status}:${requestId}`
           : `${thread.latestRun?.runId ?? ""}:${status}`;
       const completed = status === "ready" && thread.latestRun?.status === "completed";
-      const settled = completed && !monitorHoldsWakeCompletion(rawThread);
+      // Personal build: done only once the chat leaves Working, the same moment it turns
+      // unread there, so the beep, the dot, and the move happen together.
+      const settled = completed && !monitorHoldsWakeCompletion(rawThread) && !isWorking(thread);
       const parsedCompletedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const completedAt = Number.isFinite(parsedCompletedAt) ? parsedCompletedAt : null;
       const state = {
@@ -343,6 +351,9 @@ export function startThreadNotifications(
     const reobserve = () => {
       if (threads !== null) observeThreads(environmentId, entry, threads);
     };
+    const unsubscribeWorking = threadWorking.subscribe(() => {
+      if (threads !== null) observeThreads(environmentId, entry, threads, true);
+    });
     const unsubscribeRequests = registry.subscribe(
       environmentThreadShells.pendingSubagentRequestsAtom(environmentId),
       reobserve,
@@ -353,6 +364,7 @@ export function startThreadNotifications(
     );
     entry.unsubscribe = () => {
       unsubscribeShell();
+      unsubscribeWorking();
       unsubscribeRequests();
       unsubscribeDelegated();
       entry.gate.clear();
@@ -379,13 +391,11 @@ export function startThreadNotifications(
   const pruneRemovedEnvironments = () => {
     const activeIds = new Set(registry.get(environmentSummaries.environmentIdsAtom));
     closeToasts((key) => !activeIds.has(parseThreadKey(key).environmentId));
-    const count = pending.size;
     for (const [tag, entry] of pending) {
       if (activeIds.has(entry.environmentId)) continue;
       entry.notification.close();
       pending.delete(tag);
     }
-    if (count !== pending.size) setNotificationBadge(pending.size);
   };
 
   // Listeners that only exist for some notification modes, rebuilt when the mode changes.

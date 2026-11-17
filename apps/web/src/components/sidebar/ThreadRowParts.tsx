@@ -1,0 +1,700 @@
+// Personal build: the pieces of the thread list's look that upstream does not
+// have: calm two-line rows with the chat's avatar, the group titles, the
+// contact-card hover card, and the row's hover actions. Sidebar.tsx keeps
+// upstream's row logic and renders these.
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
+import {
+  threadIssueKeyOf,
+  type EnvironmentMachineKind,
+  type ScopedThreadRef,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
+import {
+  AlarmClockOffIcon,
+  ArrowRightLeftIcon,
+  BellOffIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CircleAlertIcon,
+  FolderGit2Icon,
+  FolderIcon,
+  GitBranchIcon,
+  MailIcon,
+  MailOpenIcon,
+  PinOffIcon,
+  TerminalIcon,
+  Undo2Icon,
+  XIcon,
+} from "lucide-react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+
+import { cn } from "~/lib/utils";
+import { useRightPanelStore } from "~/rightPanelStore";
+import { useServerConfigs } from "~/state/entities";
+import { useLinkedIssueDetail } from "~/state/issues";
+import { IssueGlyph, issueStatePresentation } from "../issue/issuePresentation";
+import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
+import type { SidebarThreadSummary } from "../../types";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { liveWorkLine } from "../liveWorkLine";
+import { sidebarMessagePreview } from "../messagePreview";
+import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
+import {
+  ThreadPullRequestsMiniList,
+  type TerminalStatusIndicator,
+} from "../ThreadStatusIndicators";
+import { MiddleTruncate } from "../ui/middle-truncate";
+import { formatWorktreePathForDisplay } from "../../worktreeCleanup";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+
+type ProviderBadgeEntry = Pick<
+  ProviderInstanceEntry,
+  "driverKind" | "displayName" | "accentColor" | "acpRegistryAgentId" | "acpRegistryIconUrl"
+>;
+
+// Flat, Arc-like surfaces. List rows have no fill at rest and the open row is
+// solid with a hairline in the divider color, so it stands out on a light list.
+// Unsent work reads as a "Draft" label on the row's second line rather than a
+// tint, which looked like a selection.
+export const restSurfaceClassName = "bg-transparent hover:bg-row-hover";
+export const activeSurfaceClassName = "bg-row-active ring-1 ring-inset ring-row-active-border";
+export const selectedSurfaceClassName =
+  "bg-row-selected ring-1 ring-inset ring-row-selected-border";
+
+/** One title style for every group (New threads, Needs you, Pinned, Open,
+    Working, Snoozed, Settled). Clicking it collapses or expands the group. */
+export function SidebarGroupButton(props: {
+  label: string;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  /** The lifted row would land in this group. */
+  isDropTarget?: boolean | undefined;
+  /** The count reads as a badge: these chats are waiting on you. */
+  emphasis?: boolean | undefined;
+  /** The keyboard tree's id for this title (see lib/sidebarTree). */
+  rowId?: string | undefined;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onToggle}
+      aria-expanded={props.expanded}
+      {...(props.rowId ? { "data-sidebar-row": props.rowId } : {})}
+      className={cn(
+        "group/label flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-left text-2xs font-semibold tracking-wider uppercase outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        props.isDropTarget
+          ? "text-primary"
+          : "text-sidebar-muted-foreground/80 hover:text-sidebar-foreground",
+      )}
+    >
+      {props.label}
+      {props.emphasis ? (
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-semibold text-primary-foreground tabular-nums">
+          {props.count}
+        </span>
+      ) : (
+        <span className="font-medium text-sidebar-muted-foreground/60 tabular-nums">
+          {props.count}
+        </span>
+      )}
+      <ChevronDownIcon
+        aria-hidden
+        className={cn(
+          "ml-auto size-3.5 opacity-0 transition group-hover/label:opacity-100 group-focus-visible/label:opacity-100",
+          !props.expanded && "-rotate-90 opacity-100",
+        )}
+      />
+    </button>
+  );
+}
+
+/** The hover card: the title with its latest reply (or, while it works, what
+    it's doing) under it, then the details, project first. Pull requests live
+    here, not on the row. */
+export function SidebarThreadCardBody(props: {
+  thread: SidebarThreadSummary;
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  environmentLabel: string | null;
+  environmentMachine: EnvironmentMachineKind;
+  providerEntry: ProviderBadgeEntry | null;
+  showInstanceBadge: boolean;
+  modelInstanceId: string;
+  modelLabel: string;
+  previousProviderNames: readonly string[];
+  branchMismatch: { threadBranch: string; currentBranch: string } | null;
+  terminalStatus: TerminalStatusIndicator | null;
+  terminalProcessLabel: string;
+  showPullRequests: boolean;
+  onOpenPullRequest?: (event: ReactMouseEvent<HTMLAnchorElement>, url: string) => void;
+  onOpenIssue?: () => void;
+}) {
+  const { thread, providerEntry } = props;
+  const pullRequests = props.showPullRequests ? thread.pullRequests : [];
+  const issues = thread.issues ?? [];
+  const driverKind = providerEntry?.driverKind ?? null;
+  const latestReply =
+    resolveSidebarThreadStatus(thread) === "working"
+      ? liveWorkLine(thread) || null
+      : sidebarMessagePreview(thread.latestVisibleMessage?.text);
+  return (
+    <div className="flex w-72 min-w-0 flex-col gap-2.5 px-1 pt-2 pb-3">
+      <div className="grid min-w-0 gap-1">
+        <div className="truncate text-sm leading-tight font-semibold text-foreground">
+          {thread.title}
+        </div>
+        {latestReply ? (
+          <p className="line-clamp-3 text-xs leading-relaxed text-foreground/80">{latestReply}</p>
+        ) : null}
+      </div>
+      <div className="grid gap-1.5 border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
+        {props.projectDisplayName ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {props.project ? (
+              <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
+            ) : (
+              <FolderIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            )}
+            <div className="min-w-0 truncate text-foreground/75">{props.projectDisplayName}</div>
+          </div>
+        ) : null}
+        {props.environmentLabel ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <EnvironmentMachineIcon
+              kind={props.environmentMachine}
+              className="size-3 shrink-0 stroke-muted-foreground"
+            />
+            <div className="min-w-0 truncate text-foreground/75">{props.environmentLabel}</div>
+          </div>
+        ) : null}
+        {thread.branch ? (
+          <div className="flex min-w-0 items-center gap-2 text-foreground/75">
+            <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <MiddleTruncate value={thread.branch} className="flex" />
+          </div>
+        ) : null}
+        {thread.worktreePath?.trim() ? (
+          <div className="flex min-w-0 items-center gap-2 text-foreground/75">
+            <FolderGit2Icon className="size-3 shrink-0 stroke-muted-foreground" />
+            <MiddleTruncate
+              value={formatWorktreePathForDisplay(thread.worktreePath.trim())}
+              className="flex"
+            />
+          </div>
+        ) : null}
+        {props.branchMismatch ? (
+          <div className="flex min-w-0 items-start gap-2 text-warning">
+            <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
+            <div className="min-w-0 flex-1 wrap-break-word">
+              You're currently checked out on another branch.
+            </div>
+          </div>
+        ) : null}
+        {driverKind ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <ProviderInstanceIcon
+              driverKind={driverKind}
+              displayName={
+                providerEntry?.displayName ?? thread.runtime?.providerName ?? props.modelInstanceId
+              }
+              accentColor={providerEntry?.accentColor}
+              acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
+              acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+              showBadge={props.showInstanceBadge && providerEntry?.accentColor !== undefined}
+              badgeContent="none"
+              badgeClassName="h-2 min-w-2 px-0"
+              iconClassName="size-3 shrink-0 opacity-60"
+            />
+            <div className="min-w-0 truncate text-foreground/75">
+              {props.showInstanceBadge && providerEntry
+                ? `${props.modelLabel} · ${providerEntry.displayName}`
+                : props.modelLabel}
+            </div>
+          </div>
+        ) : null}
+        {props.previousProviderNames.length > 0 ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <div className="min-w-0 truncate text-foreground/75">
+              Handed off from {props.previousProviderNames.join(", ")}
+            </div>
+          </div>
+        ) : null}
+        {props.terminalStatus ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <TerminalIcon
+              aria-hidden
+              className={cn("size-3 shrink-0", props.terminalStatus.colorClass)}
+            />
+            <div className="min-w-0 truncate text-foreground/75">{props.terminalProcessLabel}</div>
+          </div>
+        ) : null}
+        {thread.runtime?.lastError ? (
+          <div
+            className={cn(
+              "flex min-w-0 items-center gap-2",
+              thread.runtime.lastErrorClass === "usage_limit" ? "text-warning" : "text-error",
+            )}
+          >
+            <CircleAlertIcon className="size-3 shrink-0 stroke-current" />
+            <div className="min-w-0 truncate">
+              {thread.runtime.lastErrorClass === "usage_limit"
+                ? "Usage limit reached"
+                : "Error occurred"}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {pullRequests.length > 0 || issues.length > 0 ? (
+        <div className="flex flex-col gap-1 border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
+          {pullRequests.length > 0 ? (
+            <ThreadPullRequestsMiniList
+              pullRequests={pullRequests}
+              {...(props.onOpenPullRequest ? { onOpenPullRequest: props.onOpenPullRequest } : {})}
+            />
+          ) : null}
+          {issues.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {issues.map((link) => (
+                <ThreadIssueMiniListItem
+                  key={threadIssueKeyOf(link)}
+                  link={link}
+                  threadRef={scopeThreadRef(thread.environmentId, thread.id)}
+                  onOpen={props.onOpenIssue}
+                />
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A linked issue in the hover card, laid out like the pull request rows above it. */
+function ThreadIssueMiniListItem(props: {
+  link: ThreadIssueLink;
+  threadRef: ScopedThreadRef;
+  onOpen: (() => void) | undefined;
+}) {
+  const { link, threadRef } = props;
+  const configs = useServerConfigs();
+  const detail = useLinkedIssueDetail(threadRef.environmentId, link, "sidebar-tooltip");
+  const state = detail === null ? null : issueStatePresentation(detail.state);
+  const Icon = state?.Icon ?? IssueGlyph.issue;
+  return (
+    <li>
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-1 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          if (configs.get(threadRef.environmentId)?.environment.capabilities.issues !== true) {
+            return;
+          }
+          event.preventDefault();
+          useRightPanelStore.getState().openIssue(threadRef, link);
+          props.onOpen?.();
+        }}
+      >
+        <Icon
+          aria-label={state?.label}
+          aria-hidden={state === null ? true : undefined}
+          className={cn("size-3 shrink-0", state?.toneClassName ?? "stroke-muted-foreground")}
+        />
+        <span className="shrink-0 font-mono tabular-nums">{link.displayKey}</span>
+        <span className="min-w-0 truncate text-foreground/75">{detail?.title ?? link.title}</span>
+      </a>
+    </li>
+  );
+}
+
+const hoverActionClassName =
+  "inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground";
+const hoverLabeledActionClassName =
+  "-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground";
+
+type RowClick = (event: ReactMouseEvent) => void;
+
+/** The row's hover actions: icons first, then one labeled way out of the
+    chat's section (Dismiss, Unpin, Settle, Wake or Restore). Settle stays in
+    the context menu everywhere.
+    Each button acts on its own row: upstream's drag-to-sweep is left out. */
+export function ThreadRowHoverActions(props: {
+  variantAction: "settle" | "unsettle" | "unsnooze";
+  isPinnedRow: boolean;
+  hasUnsentDraft: boolean;
+  canToggleRead: boolean;
+  isWaitingOnYou: boolean;
+  showsAsUnread: boolean;
+  snoozeSupported: boolean;
+  settlementSupported: boolean;
+  snoozeMenuOpen: boolean;
+  snoozeButton: ReactNode;
+  onUnpin: RowClick;
+  onDiscardDraft: RowClick;
+  onToggleRead: RowClick;
+  onClearWaitingOnYou: RowClick;
+  onUnsnooze: RowClick;
+  onUnsettle: RowClick;
+  onSettle: RowClick;
+}) {
+  const readLabel = props.showsAsUnread ? "Mark as read" : "Mark as unread";
+  return (
+    <span
+      className={cn(
+        // focus-visible, not focus-within: a mouse click leaves the Settle
+        // button focused, and a plain focus-within would keep the controls
+        // pinned over the time once the pointer moves away (e.g. after a
+        // failed settle) instead of cross-fading back.
+        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
+        props.snoozeMenuOpen && "pointer-events-auto static opacity-100",
+      )}
+    >
+      {props.isPinnedRow && props.isWaitingOnYou ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Unpin thread"
+                onClick={props.onUnpin}
+                className={hoverActionClassName}
+              />
+            }
+          >
+            <PinOffIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Unpin thread</TooltipPopup>
+        </Tooltip>
+      ) : null}
+      {props.hasUnsentDraft ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Discard draft"
+                onClick={props.onDiscardDraft}
+                className={hoverActionClassName}
+              />
+            }
+          >
+            <XIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Discard draft</TooltipPopup>
+        </Tooltip>
+      ) : null}
+      {props.canToggleRead ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={readLabel}
+                onClick={props.onToggleRead}
+                className={hoverActionClassName}
+              />
+            }
+          >
+            {props.showsAsUnread ? (
+              <MailOpenIcon className="size-3.5" />
+            ) : (
+              <MailIcon className="size-3.5" />
+            )}
+          </TooltipTrigger>
+          <TooltipPopup side="top">{readLabel}</TooltipPopup>
+        </Tooltip>
+      ) : null}
+      {props.snoozeButton}
+      {props.variantAction === "unsnooze" ? (
+        props.snoozeSupported ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Wake thread now"
+                  onClick={props.onUnsnooze}
+                  className={hoverLabeledActionClassName}
+                />
+              }
+            >
+              <AlarmClockOffIcon className="size-3.5" />
+              Wake
+            </TooltipTrigger>
+            <TooltipPopup>Wake thread now</TooltipPopup>
+          </Tooltip>
+        ) : null
+      ) : props.variantAction === "unsettle" ? (
+        props.settlementSupported ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Un-settle thread"
+                  onClick={props.onUnsettle}
+                  className={hoverLabeledActionClassName}
+                />
+              }
+            >
+              <Undo2Icon className="size-3.5" />
+              Restore
+            </TooltipTrigger>
+            <TooltipPopup>Un-settle thread</TooltipPopup>
+          </Tooltip>
+        ) : null
+      ) : props.isWaitingOnYou ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Dismiss from Needs you"
+                onClick={props.onClearWaitingOnYou}
+                className={hoverLabeledActionClassName}
+              />
+            }
+          >
+            <BellOffIcon className="size-3.5" />
+            Dismiss
+          </TooltipTrigger>
+          <TooltipPopup>Dismiss from Needs you</TooltipPopup>
+        </Tooltip>
+      ) : props.isPinnedRow ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Unpin thread"
+                onClick={props.onUnpin}
+                className={hoverLabeledActionClassName}
+              />
+            }
+          >
+            <PinOffIcon className="size-3.5" />
+            Unpin
+          </TooltipTrigger>
+          <TooltipPopup>Unpin thread</TooltipPopup>
+        </Tooltip>
+      ) : props.settlementSupported ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Settle thread"
+                onClick={props.onSettle}
+                className={hoverLabeledActionClassName}
+              />
+            }
+          >
+            <CheckIcon className="size-3.5" />
+            Settle
+          </TooltipTrigger>
+          <TooltipPopup>Settle thread</TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </span>
+  );
+}
+
+/** The row's second line: the status in its color ("Failed: …"), then the
+    details in gray. Color is reserved for status. */
+export function ThreadRowSecondLine(props: {
+  status: { label: string; className: string } | null;
+  details: string;
+  trailing: ReactNode;
+}) {
+  return (
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-foreground">
+      <span className="min-w-0 flex-1 truncate">
+        {props.status ? (
+          <span className={cn("font-medium", props.status.className)}>{props.status.label}</span>
+        ) : null}
+        {props.status && props.details ? ": " : null}
+        {props.details}
+      </span>
+      {props.trailing}
+    </div>
+  );
+}
+
+type StackProviderEntry = ProviderBadgeEntry & { readonly enabled: boolean };
+
+/** Every agent the chat has used, oldest first, the current one in front. */
+function ThreadRowProviderStack(props: {
+  thread: SidebarThreadSummary;
+  providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
+}) {
+  const stack = resolveThreadProviderStack(props.thread);
+  return (
+    <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+      {stack.map((instanceId, index) => {
+        const entry = props.providerEntryByInstanceId.get(instanceId);
+        if (entry === undefined) return null;
+        const current = index === stack.length - 1;
+        return (
+          <ProviderInstanceIcon
+            key={instanceId}
+            driverKind={entry.driverKind}
+            displayName={entry.displayName}
+            accentColor={current ? entry.accentColor : undefined}
+            acpRegistryAgentId={entry.acpRegistryAgentId}
+            acpRegistryIconUrl={entry.acpRegistryIconUrl}
+            showBadge={
+              current && shouldShowInstanceBadge(entry, props.providerEntryByInstanceId.values())
+            }
+            size="compact"
+            iconClassName={current ? "opacity-60" : "size-3 opacity-35 grayscale"}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
+// Even padding on every side of a row card. The top and bottom differ by the
+// lines' leading so the text itself sits evenly inside the card.
+export const rowContentClassName = "relative z-10 flex flex-col gap-1 px-3.5 pt-2 pb-2.5";
+
+/** The row's bottom line: where the chat lives (project, branch) and who's
+    talking, a step lighter than the message above it. */
+function RowMetaLine(props: {
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  branch: string | null;
+  trailing: ReactNode;
+}) {
+  return (
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground/75">
+      {props.project ? (
+        <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
+      ) : null}
+      {props.projectDisplayName ? (
+        <span className={cn("truncate", props.branch ? "max-w-[45%] shrink-0" : "min-w-0")}>
+          {props.projectDisplayName}
+        </span>
+      ) : null}
+      {props.branch ? (
+        <>
+          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+          {/* Plain truncation: middle truncation measured too wide beside the logos. */}
+          <span className="min-w-0 flex-1 truncate">{props.branch}</span>
+        </>
+      ) : null}
+      {props.trailing}
+    </div>
+  );
+}
+
+export function ThreadRowMetaLine(props: {
+  thread: SidebarThreadSummary;
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  providerEntryByInstanceId: ReadonlyMap<string, StackProviderEntry>;
+  pullRequestBadge?: ReactNode;
+}) {
+  return (
+    <RowMetaLine
+      project={props.project}
+      projectDisplayName={props.projectDisplayName}
+      branch={props.thread.branch}
+      trailing={
+        <>
+          {props.pullRequestBadge}
+          <ThreadRowProviderStack
+            thread={props.thread}
+            providerEntryByInstanceId={props.providerEntryByInstanceId}
+          />
+        </>
+      }
+    />
+  );
+}
+
+/** A new-thread draft, laid out like a thread row: "New thread", the typed
+    text as the draft, then the project and agent it will start in. */
+export function DraftRowBody(props: {
+  project: ProjectFaviconProject | null;
+  projectDisplayName: string | null;
+  providerEntry: ProviderBadgeEntry | null;
+  preview: string;
+  onDiscard: RowClick;
+  /** Upstream's numbered-jump badge; it hides the discard button while shown. */
+  jumpHint?: { badge: ReactNode; slotClassName: string } | null;
+}) {
+  const { providerEntry } = props;
+  return (
+    <div className={rowContentClassName}>
+      <div className="flex h-5 min-w-0 items-center gap-2">
+        <span
+          aria-hidden
+          className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground"
+        >
+          New thread
+        </span>
+        <span
+          className={cn(
+            "ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end",
+            props.jumpHint?.slotClassName,
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Discard draft"
+                  onClick={props.onDiscard}
+                  className="pointer-events-none -mr-1.5 inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Discard draft</TooltipPopup>
+          </Tooltip>
+          {props.jumpHint?.badge}
+        </span>
+      </div>
+      <div aria-hidden>
+        <ThreadRowSecondLine
+          status={{ label: "Draft", className: "text-warning-foreground" }}
+          details={props.preview}
+          trailing={null}
+        />
+      </div>
+      <RowMetaLine
+        project={props.project}
+        projectDisplayName={props.projectDisplayName}
+        branch={null}
+        trailing={
+          providerEntry ? (
+            <span className="ml-auto inline-flex shrink-0 items-center">
+              <ProviderInstanceIcon
+                driverKind={providerEntry.driverKind}
+                displayName={providerEntry.displayName}
+                accentColor={providerEntry.accentColor}
+                acpRegistryAgentId={providerEntry.acpRegistryAgentId}
+                acpRegistryIconUrl={providerEntry.acpRegistryIconUrl}
+                size="compact"
+                iconClassName="opacity-60"
+              />
+            </span>
+          ) : null
+        }
+      />
+    </div>
+  );
+}

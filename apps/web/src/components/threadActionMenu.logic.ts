@@ -12,6 +12,7 @@ export type ThreadActionMenuId =
   | "project-settings"
   | "pin"
   | "unpin"
+  | "clear-waiting-on-you"
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -106,6 +107,8 @@ export interface ThreadActionMenuState {
     readonly isActive: boolean;
   } | null;
   readonly isPinned: boolean;
+  /** Personal build: an agent put this thread in Needs you. */
+  readonly isWaitingOnYou?: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -121,6 +124,7 @@ export interface ThreadActionMenuState {
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
+    /** Personal build: this surface can open the icon picker (the sidebar). */
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
@@ -179,6 +183,17 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: resolve(msg("Pin thread")), icon: "pin" },
         ]
       : []),
+    ...(state.isWaitingOnYou
+      ? [
+          {
+            id: "clear-waiting-on-you" as const,
+            label: "Dismiss from Needs you",
+            icon: "bell-off",
+          },
+        ]
+      : []),
+    // Settling a pinned thread clears the pin ("done" beats "keep on top").
+    // Snoozing would hide a chat pinned to stay in view, so pinned ones can't.
     ...(state.supports.settlement
       ? [
           state.isSettled
@@ -190,7 +205,7 @@ export function buildThreadActionMenuItems(
             : { id: "settle" as const, label: resolve(msg("Settle thread")), icon: "circle-check" },
         ]
       : []),
-    ...(state.supports.snooze
+    ...(state.supports.snooze && (state.isSnoozed || !state.isPinned)
       ? [
           state.isSnoozed
             ? { id: "unsnooze" as const, label: resolve(msg("Wake thread")), icon: "clock" }

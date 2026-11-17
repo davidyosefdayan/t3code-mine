@@ -2841,6 +2841,10 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__html_render",
   "mcp__t3-code__send_to_user",
   "mcp__t3-code__t3_submit_output",
+  // Personal build: Needs you and compacting after the turn change only what
+  // the user sees, so they never ask.
+  "mcp__t3-code__t3_needs_you",
+  "mcp__t3-code__t3_compact_after_turn",
 ];
 
 // request_secret can wait an hour; exceed Claude's default 60 s timeout.
@@ -13302,7 +13306,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     Effect.orElseSucceed(() => adapterOptions.settings.idleCompaction),
                   )
                 : adapterOptions.settings.idleCompaction;
-              if (idleCompaction === "off") {
+              // Personal build: only "When you return" (the global default) asks to compact on resume.
+              if (idleCompaction !== "onReturn" && idleCompaction !== "default") {
                 return { behavior: "completed" as const, result: "continue" as const };
               }
               const ageMinutes =

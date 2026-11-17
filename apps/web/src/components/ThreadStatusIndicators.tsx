@@ -343,7 +343,7 @@ function prStatusLabels(
   }
 }
 
-function resolveThreadPullRequestBadgePresentation(
+export function resolveThreadPullRequestBadgePresentation(
   {
     badge,
     number,

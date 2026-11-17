@@ -27,6 +27,7 @@ export type SettingsPath =
   | "/settings/diffs"
   | "/settings/keybindings"
   | "/settings/snap-shot"
+  | "/settings/read-aloud"
   | "/settings/providers"
   | "/settings/threads"
   | "/settings/browser"
@@ -105,6 +106,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diffs": msg("Diffs & pull requests"),
   "/settings/keybindings": msg("Keybindings"),
   "/settings/snap-shot": msg("SnapShots"),
+  "/settings/read-aloud": msg("Read aloud"),
   "/settings/providers": msg("Providers"),
   "/settings/threads": msg("Threads"),
   "/settings/browser": msg("Browser"),
@@ -150,6 +152,8 @@ const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<SettingsNavGroup> = [
       "/settings/keybindings",
       "/settings/voice",
       "/settings/snap-shot",
+      // Personal build: Read aloud.
+      "/settings/read-aloud",
     ],
   },
   {
@@ -360,11 +364,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("colors borders interface")],
   },
   {
-    // Prefixed because the slider control already owns the `glass-opacity` id.
-    id: "setting-glass-opacity",
-    title: msg("Glass opacity"),
+    // Personal build.
+    id: "setting-panel-opacity",
+    title: "Panel opacity",
     to: "/settings/appearance",
-    searchTerms: [msg("transparent transparency solid menus dialogs composer")],
+    searchTerms: ["transparency transparent see-through photo background thread list chat"],
+  },
+  {
+    // Personal build.
+    id: "setting-panel-blur",
+    title: "Panel blur",
+    to: "/settings/appearance",
+    searchTerms: ["blur frosted photo background thread list chat"],
   },
   {
     id: "diff-color-scheme",
@@ -500,27 +511,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/threads",
     searchTerms: [msg("usage quota rate limit reset recover continue")],
   },
-  {
-    id: "working-shelf",
-    title: msg("Working section"),
-    to: "/settings/general",
-    searchTerms: [msg("hide fold running monitoring threads inbox sidebar shelf")],
-  },
-  {
-    id: "boring-sidebar",
-    title: msg("Boring sidebar (group by project)"),
-    to: "/settings/labs",
-    searchTerms: [msg("beta folders project tree classic sidebar")],
-  },
-  {
-    id: "boring-sidebar-multiline",
-    title: msg("Two-line folder rows"),
-    to: "/settings/labs",
-    // Shown inside the boring sidebar row only while it is on, so search lands on the parent.
-    targetId: "boring-sidebar",
-    searchTerms: [msg("beta boring sidebar folder rows multiline branch pull request details")],
-  },
-
   {
     id: "tool-call-visibility",
     title: msg("Tool calls in chat"),
@@ -1083,6 +1073,25 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/snap-shot",
     targetId: "snap-shot-enabled",
   },
+  // Personal build: read aloud.
+  {
+    id: "read-aloud-voice",
+    title: "Read aloud voice",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts speak listen kokoro male female british american"],
+  },
+  {
+    id: "read-aloud-speed",
+    title: "Read aloud speed",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts playback rate faster slower"],
+  },
+  {
+    id: "read-aloud-model",
+    title: "Voice model",
+    to: "/settings/read-aloud",
+    searchTerms: ["text to speech tts kokoro download delete storage"],
+  },
   {
     id: "providers",
     title: msg("Providers"),
@@ -1540,6 +1549,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/chat": null,
   "/settings/diffs": null,
   "/settings/snap-shot": null,
+  "/settings/read-aloud": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
   "/settings/threads": null,

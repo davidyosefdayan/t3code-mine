@@ -677,6 +677,127 @@ it.effect("rejects an unknown organize target instead of archiving the calling t
   );
 });
 
+// Personal build: the agent's mid-turn messages to the user, and Needs you.
+const messagesToolkitWith = (dispatched: Array<unknown>) =>
+  McpHttpServer.layerMessagesToolkit.pipe(
+    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+        getProjectThreadRecords: ({ threadId: id }) => {
+          const projection = McpToolAccessTestkit.idleThreadProjection(
+            McpToolAccessTestkit.liveThreadShell(id),
+          );
+          return Effect.succeed({
+            ...projection,
+            thread: { ...projection.thread, pullRequests: [linkedPullRequest] },
+          } as never);
+        },
+        dispatch: (command) => {
+          dispatched.push(command);
+          return Effect.succeed({ sequence: 1 } as never);
+        },
+      }),
+    ),
+  );
+const linkedPullRequest = {
+  host: "github.com",
+  repository: "acme/app",
+  number: 7,
+  url: "https://github.com/acme/app/pull/7",
+  source: "agent" as const,
+  linkedAt: "2026-11-01T00:00:00.000Z",
+  snapshot: null,
+  stack: null,
+};
+
+it.effect("shows message_user to thread agents only, always loaded", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const registered = server.tools.find(({ tool }) => tool.name === "message_user");
+    expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
+    const call = (invocation: McpInvocationContext.McpInvocationScope) =>
+      server
+        .callTool({ name: "message_user", arguments: { message: "Found it." } })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    expect((yield* call(scope)).structuredContent).toEqual({ shown: true });
+    const outside = yield* call({ ...scope, thread: undefined });
+    expect(outside.isError).toBe(true);
+    expect(outside.content[0]).toMatchObject({
+      text: expect.stringContaining("needs an agent running inside T3 Code"),
+    });
+  }).pipe(Effect.provide(messagesToolkitWith([]))),
+);
+
+it.effect("sets and clears Needs you, tied to a linked PR when named", () => {
+  const dispatched: Array<unknown> = [];
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const registered = server.tools.find(({ tool }) => tool.name === "t3_needs_you");
+    expect(registered?.tool._meta).toMatchObject({ "anthropic/alwaysLoad": true });
+    const call = (
+      args: Record<string, unknown>,
+      invocation: McpInvocationContext.McpInvocationScope = scope,
+    ) =>
+      server
+        .callTool({ name: "t3_needs_you", arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const set = yield* call({ action: "set", kind: "merge", reason: "PR #1058 is ready to merge" });
+    expect(set.structuredContent).toEqual({
+      waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
+    });
+    expect((yield* call({ action: "clear" })).structuredContent).toEqual({ waitingOnYou: null });
+    const tied = yield* call({
+      action: "set",
+      kind: "merge",
+      reason: "PR #7",
+      pullRequest: 7,
+      wakeOnMerge: true,
+    });
+    expect(tied.structuredContent).toMatchObject({
+      waitingOnYou: {
+        pullRequest: { host: "github.com", repository: "acme/app", number: 7 },
+        wakeOnMerge: true,
+      },
+    });
+    expect(dispatched).toMatchObject([
+      {
+        type: "thread.waiting-on-you.set",
+        threadId,
+        waitingOnYou: { kind: "merge", reason: "PR #1058 is ready to merge" },
+      },
+      { type: "thread.waiting-on-you.set", threadId, waitingOnYou: null },
+      {
+        type: "thread.waiting-on-you.set",
+        threadId,
+        waitingOnYou: { pullRequest: { repository: "acme/app", number: 7 }, wakeOnMerge: true },
+      },
+    ]);
+    const unlinked = yield* call({ action: "set", kind: "merge", reason: "x", pullRequest: 8 });
+    expect(unlinked.isError).toBe(true);
+    expect(unlinked.content[0]).toMatchObject({
+      text: expect.stringContaining("PR #8 is not linked"),
+    });
+
+    const missingReason = yield* call({ action: "set", kind: "decision" });
+    expect(missingReason.isError).toBe(true);
+    expect(missingReason.content[0]).toMatchObject({
+      text: expect.stringContaining("set needs `kind` and `reason`"),
+    });
+    const outside = yield* call({ action: "clear" }, { ...scope, thread: undefined });
+    expect(outside.isError).toBe(true);
+    expect(dispatched).toHaveLength(3);
+  }).pipe(Effect.provide(messagesToolkitWith(dispatched)));
+});
+
 it.effect("keeps unexpected handler defects private through the production registration", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
