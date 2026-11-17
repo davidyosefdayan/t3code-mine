@@ -40,7 +40,6 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
@@ -350,16 +349,15 @@ export function ResetCredits({
   );
 }
 
-/** Advance now only on explicit refresh to avoid page repaints from ticking. */
-export function UsageLimitsSection({
-  selectedEnvironmentIds,
-  hiddenProviders,
-  now,
-}: {
-  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-  readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
-  readonly now: number;
-}) {
+/**
+ * The selected environments' presentations with hidden providers taken out,
+ * which the Limits view pools per provider. Personal build: the pools render
+ * in `UsageLimitsDashboard`, so this is a hook rather than upstream's section.
+ */
+export function useLimitPresentations(
+  selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null,
+  hiddenProviders: ReadonlySet<UsageProviderKind>,
+) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const hiddenDrivers = new Set<ServerProvider["driver"]>(
     [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
@@ -390,5 +388,5 @@ export function UsageLimitsSection({
       ];
     }),
   );
-  return <UsageLimitsPooled presentations={selected} now={now} />;
+  return selected;
 }

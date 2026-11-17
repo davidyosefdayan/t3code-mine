@@ -3,6 +3,8 @@ import {
   AuthDiagnosticsReadScope,
   USAGE_CONTRACT_VERSION,
   type EnvironmentId,
+  type UsageBreakdownInput,
+  type UsageBreakdownSession,
   type UsageBucket,
   type UsageSummary,
   type UsageProviderKind,
@@ -10,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { refreshUsage, usageSummaryInput } from "@t3tools/client-runtime/state/usage";
 import { resolveUsageAccess } from "@t3tools/client-runtime/state/usage-access";
+import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useState } from "react";
 
@@ -243,4 +246,73 @@ export function useUsage(
     isPartial: answeredCount > 0 && stillReporting > 0,
     refresh,
   };
+}
+
+// Personal build: per-session usage for Usage → Limits' forecast and breakdown.
+
+export interface UsageBreakdownAnswer {
+  readonly environmentId: EnvironmentId;
+  readonly sessions: readonly UsageBreakdownSession[];
+}
+
+const liveBreakdownTargets = new Set<{
+  readonly environmentId: EnvironmentId;
+  readonly input: UsageBreakdownInput;
+}>();
+
+/** Rescans every breakdown on screen; their keys only change when a week resets. */
+export function refreshUsageBreakdowns(): void {
+  for (const target of liveBreakdownTargets) {
+    appAtomRegistry.refresh(serverEnvironment.usageBreakdown(target));
+  }
+}
+
+const usageBreakdownAtom = Atom.family((key: string) =>
+  Atom.make((get) => {
+    const { input, environmentIds } = JSON.parse(key) as {
+      input: UsageBreakdownInput;
+      environmentIds: EnvironmentId[] | null;
+    };
+    const presentations = get(environmentPresentations.presentationsAtom);
+    const answers: UsageBreakdownAnswer[] = [];
+    let waiting = 0;
+    for (const [environmentId, presentation] of presentations) {
+      if (environmentIds !== null && !environmentIds.includes(environmentId)) continue;
+      const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
+      const access = resolveUsageAccess({
+        connectionPhase: presentation.connection.phase,
+        session: Option.getOrNull(AsyncResult.value(sessionResult)),
+        hasSessionError: sessionResult._tag === "Failure",
+      });
+      if (!access.canReadDiagnostics || presentation.connection.phase !== "connected") continue;
+      const target = { environmentId, input };
+      liveBreakdownTargets.add(target);
+      get.addFinalizer(() => liveBreakdownTargets.delete(target));
+      const result = get(serverEnvironment.usageBreakdown(target));
+      const value = Option.getOrNull(AsyncResult.value(result));
+      if (value) answers.push({ environmentId, sessions: value.sessions });
+      else if (result.waiting) waiting += 1;
+    }
+    return { answers, isPending: answers.length === 0 && waiting > 0 };
+  }).pipe(Atom.withLabel(`web-usage:breakdown:${key}`)),
+);
+
+const emptyBreakdownAtom = Atom.make(() => ({
+  answers: [] as UsageBreakdownAnswer[],
+  isPending: false,
+})).pipe(Atom.withLabel("web-usage:breakdown:none"));
+
+/**
+ * Per-session usage for one provider window from every selected environment.
+ * Pass `null` to skip the read (no window to explain).
+ */
+export function useUsageBreakdown(
+  input: UsageBreakdownInput | null,
+  selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null,
+) {
+  const key = JSON.stringify({
+    input,
+    environmentIds: selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds].sort(),
+  });
+  return useAtomValue(input === null ? emptyBreakdownAtom : usageBreakdownAtom(key));
 }

@@ -557,7 +557,7 @@ function PoolWindowCard({
 }) {
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
   return (
-    <div className="grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]">
+    <div className="grid items-center gap-x-6 gap-y-3 rounded-xl border border-border/60 bg-card/40 px-3 py-3.5 shadow-xs/5 sm:px-4 md:grid-cols-[11rem_minmax(0,1fr)]">
       <div className="flex flex-col gap-1">
         {label !== null ? (
           <span className="text-sm font-medium text-foreground">{label ?? pool.label}</span>
@@ -585,22 +585,33 @@ function PoolWindowCard({
   );
 }
 
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
+/** Every window of one provider's pool as cards, under its name. */
+export function PoolSection({
+  pool,
+  now,
+  showHeading = true,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly showHeading?: boolean;
+}) {
   const color = barColor(pool.driver);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          displayName={label}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {label}
-      </h2>
+      {showHeading ? (
+        <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <ProviderInstanceIcon
+            driverKind={pool.driver}
+            displayName={label}
+            indicatorBackground="var(--background)"
+            className="size-5"
+            iconClassName="size-4 text-foreground/80"
+          />
+          {label}
+        </h2>
+      ) : null}
       {windows.map((window) => {
         const details =
           pool.driver === "cursor" ? cursorUsageWindowDetails(window.id, pool) : undefined;
@@ -619,6 +630,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
   );
 }
 
+/** Every provider's pool with its segment popover, then what no bar can show. */
 export function UsageLimitsPooled({
   presentations,
   now,
@@ -626,8 +638,6 @@ export function UsageLimitsPooled({
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
 }) {
-  const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
-  const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
@@ -638,13 +648,36 @@ export function UsageLimitsPooled({
           No provider on the selected environments reports subscription limits.
         </p>
       ) : null}
-      <SegmentPopoverContext value={segmentPopover}>
+      <SegmentPopoverScope pools={pools} now={now}>
         {pools.map((pool) => (
           <Fragment key={pool.driver}>
             <PoolSection pool={pool} now={now} />
           </Fragment>
         ))}
-      </SegmentPopoverContext>
+      </SegmentPopoverScope>
+      <UsageLimitsExtras presentations={presentations} />
+    </div>
+  );
+}
+
+/**
+ * Personal build: the pools render in `UsageLimitsDashboard`, so the one
+ * segment popover the page shares wraps them there instead of here.
+ */
+export function SegmentPopoverScope({
+  pools,
+  now,
+  children,
+}: {
+  readonly pools: readonly LimitPool[];
+  readonly now: number;
+  readonly children: ReactNode;
+}) {
+  const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
+  const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
+  return (
+    <>
+      <SegmentPopoverContext value={segmentPopover}>{children}</SegmentPopoverContext>
       <Popover handle={segmentPopover} actionsRef={segmentPopoverActions}>
         {({ payload }) =>
           payload ? (
@@ -658,17 +691,35 @@ export function UsageLimitsPooled({
           ) : null
         }
       </Popover>
+    </>
+  );
+}
+
+/**
+ * Personal build: what the Limits view cannot draw as a bar, under it: links
+ * to provider-owned usage pages and sources that failed to read. The pools themselves render in `UsageLimitsDashboard`.
+ */
+export function UsageLimitsExtras({
+  presentations,
+}: {
+  readonly presentations: Parameters<typeof collectLimitAccounts>[0];
+}) {
+  const notices = collectLimitNotices(presentations);
+  const externalLinks = collectExternalUsageLinks(presentations);
+  if (notices.length === 0 && externalLinks.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-4">
       {externalLinks.map((link) => (
         <section
           key={link.url}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/40 px-3 py-3.5 shadow-xs/5 sm:px-4"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {link.url === CHATGPT_USAGE_URL ? (
               <OpenAI className="size-5 shrink-0" aria-hidden="true" />
             ) : null}
             <div className="min-w-0 space-y-1">
-              <h2 className="text-sm font-medium">{link.label}</h2>
+              <h2 className="text-sm font-medium text-foreground">{link.label}</h2>
               <p className="text-xs break-words text-muted-foreground">
                 {link.accounts.join(", ")}
               </p>

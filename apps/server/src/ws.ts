@@ -101,6 +101,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  ForkWsRpcGroup,
+  UpstreamWsRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import {
@@ -246,6 +248,9 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { commandFeatureUsage, featureUsage } from "./telemetry/FeatureUsage.ts";
 import type { TelemetryOwner } from "./telemetry/Identify.ts";
 import * as UsageService from "./usage/UsageService.ts";
+// Personal build: Usage → Limits and the Skills page.
+import { readUsageBreakdown } from "./usage/usageBreakdown.ts";
+import * as SkillLibrary from "./skills/SkillLibrary.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -710,12 +715,15 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+// Personal build: the fork's methods get their own handler layer (see ForkWsRpcGroup).
+const UpstreamServerWsRpcGroup = UpstreamWsRpcGroup.middleware(RpcInstrumentation);
+const ForkServerWsRpcGroup = ForkWsRpcGroup.middleware(RpcInstrumentation);
 
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in
 // the group, so its type cost grows with handlers × RPCs. Near 200 methods that
 // crosses TypeScript's instantiation limit and the layer's requirements degrade to
 // `any`, so the handlers are registered as two disjoint, smaller groups.
-type ServerWsRpc = RpcGroup.Rpcs<typeof ServerWsRpcGroup>;
+type ServerWsRpc = RpcGroup.Rpcs<typeof UpstreamServerWsRpcGroup>;
 const SPLIT_WS_RPC_PREFIXES = ["server", "pullRequests", "provider", "orchestration"] as const;
 type SplitWsRpc = Extract<
   ServerWsRpc,
@@ -725,9 +733,34 @@ const isSplitWsRpc = (rpc: ServerWsRpc): rpc is SplitWsRpc =>
   SPLIT_WS_RPC_PREFIXES.some((prefix) => rpc._tag.startsWith(`${prefix}.`));
 const isOtherWsRpc = (rpc: ServerWsRpc): rpc is Exclude<ServerWsRpc, SplitWsRpc> =>
   !isSplitWsRpc(rpc);
-const serverWsRpcs = Array.from(ServerWsRpcGroup.requests.values());
+const serverWsRpcs = Array.from(UpstreamServerWsRpcGroup.requests.values());
 const SplitWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isSplitWsRpc));
 const OtherWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isOtherWsRpc));
+
+const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const usage = yield* UsageService.UsageService;
+    const sql = yield* SqlClient.SqlClient;
+    const skillLibrary = yield* SkillLibrary.SkillLibrary;
+    const storageCleanup = yield* StorageCleanup.StorageCleanup;
+    return ForkServerWsRpcGroup.of({
+      [WS_METHODS.serverGetUsageBreakdown]: (input) =>
+        readUsageBreakdown(input).pipe(
+          Effect.provideService(UsageService.UsageService, usage),
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      [WS_METHODS.skillsCreate]: (input) => skillLibrary.create(input),
+      [WS_METHODS.skillsSave]: (input) => skillLibrary.save(input),
+      [WS_METHODS.skillsSetEnabled]: (input) => skillLibrary.setEnabled(input),
+      [WS_METHODS.skillsShare]: (input) => skillLibrary.share(input),
+      [WS_METHODS.skillsDelete]: (input) => skillLibrary.delete(input),
+      [WS_METHODS.serverGetStorageWorktrees]: () => storageCleanup.worktrees,
+      [WS_METHODS.serverFreeStorageWorktreePackages]: (input) =>
+        storageCleanup.freeWorktreePackages(input),
+      [WS_METHODS.serverDeleteStorageWorktree]: (input) => storageCleanup.deleteWorktree(input),
+    });
+  }),
+);
 function toAuthAccessStreamEvent(
   change: Exclude<
     PairingGrantStore.BootstrapCredentialChange | SessionStore.SessionCredentialChange,
@@ -1961,7 +1994,7 @@ export const layerWsRpc = (
         return yield* mutateProjectWithClone(projectService, projectCloneTracker, mutation);
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = UpstreamServerWsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -3648,6 +3681,7 @@ export const layer = Layer.unwrap(
               reportProfiles,
               readSettingsClient(url.value),
             ).pipe(
+              Layer.merge(layerForkWsRpc),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),
