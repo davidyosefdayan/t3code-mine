@@ -3,13 +3,14 @@ import { useState } from "react";
 import {
   computeStableMessagesTimelineRows,
   handoffRunsSignature,
-  type MessagesTimelineRowsInput,
   sameRowsInput,
   deriveMessagesTimelineRowsWithState,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
+import { type ChatTimelineRowsInput } from "./chatTimelineRows";
+import type { MessageResolver } from "../../i18n/messages";
 
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
 
@@ -42,7 +43,10 @@ export function useStableHandoffRuns(
  */
 export function useIncrementalTimelineRows(
   identity: string,
-  input: MessagesTimelineRowsInput,
+  input: ChatTimelineRowsInput,
+  // Personal build: the chat-style layout passes its own row builder; it is
+  // part of the identity, so a projection never mixes the two.
+  derive: (input: ChatTimelineRowsInput, resolve: MessageResolver) => MessagesTimelineRow[],
 ): MessagesTimelineRow[] {
   // Keyed on the locale: without a GTProvider, useMessages() returns a new function every render.
   const locale = useLocale();
@@ -51,7 +55,7 @@ export function useIncrementalTimelineRows(
     identity,
     input,
     locale,
-    projection: deriveMessagesTimelineRowsWithState(input, null, resolve),
+    projection: deriveMessagesTimelineRowsWithState(input, null, derive, resolve),
   }));
   const reusable = state.identity === identity && state.locale === locale;
   if (reusable && sameRowsInput(state.input, input)) {
@@ -60,6 +64,7 @@ export function useIncrementalTimelineRows(
   const projection = deriveMessagesTimelineRowsWithState(
     input,
     reusable ? state.projection : null,
+    derive,
     resolve,
   );
   setState({ identity, input, locale, projection });

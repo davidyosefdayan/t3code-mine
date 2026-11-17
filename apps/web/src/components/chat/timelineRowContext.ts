@@ -53,6 +53,8 @@ export interface TimelineRowSharedState {
   onRespondToApproval:
     | ((requestId: RuntimeRequestId, decision: ProviderApprovalDecision) => Promise<unknown>)
     | undefined;
+  /** Personal build: rows render in the chat-style layout (chatTimelineRows.ts). */
+  chatStyle: boolean;
   citationRequest: AssistantCitationTarget | null;
   /** Absent hides "Reply", as in the guest view. */
   onReplyToResponse: ((response: ResponseContextRecord) => boolean) | undefined;

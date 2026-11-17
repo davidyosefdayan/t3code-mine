@@ -21,7 +21,6 @@ import {
 import { Button } from "../ui/button";
 import { BackgroundThreadContext } from "./backgroundThread";
 import { ReadAloudSelectionButton } from "./ReadAloudSelectionButton";
-import { registerMessageCiter } from "./citeWholeMessage";
 
 export function AssistantSelectionToolbar({
   viewport,
@@ -53,12 +52,6 @@ export function AssistantSelectionToolbar({
   }, [selection]);
 
   // Personal build: lets the Cite button under each answer cite it whole.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this viewport's citer in the module-level registry the Cite buttons read
-  useEffect(
-    () => (viewport ? registerMessageCiter(viewport, { threadRef, onCite }) : undefined),
-    [viewport, threadRef, onCite],
-  );
-
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document selectionchange and keydown to track text selections in the viewport
   useEffect(() => {
     if (!viewport) return;
@@ -220,7 +213,9 @@ export function AssistantSelectionToolbar({
         size="xs"
         variant="glass"
         disabled={tooLong}
-        aria-label={tooLong ? gt("Selection is too long to cite") : gt("Cite selection in composer")}
+        aria-label={
+          tooLong ? gt("Selection is too long to cite") : gt("Cite selection in composer")
+        }
         onPointerDown={(event) => event.preventDefault()}
         onClick={cite}
       >
