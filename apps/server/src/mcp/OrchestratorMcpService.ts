@@ -2937,6 +2937,12 @@ const make = Effect.gen(function* () {
           "A local task runs in this thread's project. Omit target.projectId, or pass target.environmentId to run it in that environment's project.",
         );
       }
+      if (input.baseRef !== undefined) {
+        return yield* failure(
+          "invalid_request",
+          'A local worktree task starts from this checkout\'s commit. Omit baseRef, or pass target.environmentId with isolation "worktree".',
+        );
+      }
       const parentRun =
         ThreadManagementService.latestActiveRun(parent) ??
         (yield* backgroundSubagentRun(scope, parent.thread.id));
