@@ -116,6 +116,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getClientPlatform: () => clientPlatform,
   restartAudioService: () => ipcRenderer.invoke(IpcChannels.RESTART_AUDIO_SERVICE_CHANNEL),
+  setDockPaletteIcon: (palette) =>
+    ipcRenderer.invoke(IpcChannels.SET_DOCK_PALETTE_ICON_CHANNEL, palette),
   setNotificationBadge: (badge) =>
     ipcRenderer.invoke(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, badge),
   onNotificationBadgeClear: (listener) => {
@@ -309,6 +311,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getWindowFullscreenState: () =>
     ipcRenderer.sendSync(IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL) === true,
   getWindowZoomFactor: () => webFrame.getZoomFactor(),
+  zoomWindow: (direction) => ipcRenderer.invoke(IpcChannels.ZOOM_WINDOW_CHANNEL, direction),
   onWindowFullscreenStateChange: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, fullscreen: unknown) => {
       if (typeof fullscreen !== "boolean") return;
