@@ -33,5 +33,6 @@ describe("forkInstallPrompt", () => {
     );
     expect(prompt).toContain("/releases/download/v0.1.701/T3-Code-0.1.701-arm64.zip");
     expect(prompt).toContain("v0.1.601");
+    expect(prompt).toContain('rm -rf "$APP" && ditto "$NEW" "$APP"');
   });
 });
