@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
@@ -7,10 +6,12 @@ import {
   type EffortDisplay,
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
-  MAX_GLASS_OPACITY,
+  MAX_PANEL_BLUR,
+  MAX_PANEL_OPACITY,
+  MIN_PANEL_BLUR,
+  MIN_PANEL_OPACITY,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MIN_APPEARANCE_CONTRAST,
-  MIN_GLASS_OPACITY,
   MIN_PANEL_ANIMATION_DURATION_MS,
 } from "@t3tools/contracts/settings";
 import {
@@ -18,12 +19,12 @@ import {
   type SidebarStageBackdropVariant,
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
-import { useCustomThemes } from "../../hooks/useCustomThemes";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
-import { useTheme } from "../../hooks/useTheme";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { useCustomThemes } from "../../hooks/useCustomThemes";
+import { useTheme } from "../../hooks/useTheme";
 import { ThemeLibrary } from "./ThemeSettings";
 import {
   SettingResetButton,
@@ -121,12 +122,6 @@ export function AppearanceSettingsPanel() {
     : environmentStageVariant
       ? "Choose how Dev and Nightly environments are identified."
       : "Show Dev or Nightly artwork in the sidebar header.";
-  const glassOpacityRatio =
-    (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
-  const glassOpacitySliderStyle = {
-    "--settings-slider-progress": `${glassOpacityRatio * 100}%`,
-    "--settings-slider-fill-offset": `${0.5 - glassOpacityRatio}rem`,
-  } as CSSProperties;
   const appearanceContrastRatio =
     (settings.appearanceContrast - MIN_APPEARANCE_CONTRAST) /
     (MAX_APPEARANCE_CONTRAST - MIN_APPEARANCE_CONTRAST);
@@ -211,15 +206,17 @@ export function AppearanceSettingsPanel() {
           }
         />
 
+        {/* Personal build: no glass, so no glass opacity setting. Panel opacity lets a
+            photo theme show through the thread list and chat. */}
         <SettingsRow
-          {...searchableSetting("setting-glass-opacity")}
-          description="Higher values make menus, dialogs, and the composer more solid."
+          {...searchableSetting("setting-panel-opacity")}
+          description="On themes with a photo, lower this to see the photo through the chat. The thread list always shows a little more."
           resetAction={
-            settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
+            settings.panelOpacity !== DEFAULT_UNIFIED_SETTINGS.panelOpacity ? (
               <SettingResetButton
-                label="glass opacity"
+                label="panel opacity"
                 onClick={() =>
-                  updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
+                  updateSettings({ panelOpacity: DEFAULT_UNIFIED_SETTINGS.panelOpacity })
                 }
               />
             ) : null
@@ -228,35 +225,87 @@ export function AppearanceSettingsPanel() {
             <div className="flex w-full items-center gap-3 sm:w-52">
               <output
                 className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                htmlFor="glass-opacity"
+                htmlFor="panel-opacity"
               >
-                {settings.glassOpacity}%
+                {settings.panelOpacity}%
               </output>
               <input
-                aria-label="Glass opacity"
+                aria-label="Panel opacity"
                 className="settings-slider min-w-0 flex-1"
-                id="glass-opacity"
-                max={MAX_GLASS_OPACITY}
-                min={MIN_GLASS_OPACITY}
+                id="panel-opacity"
+                max={MAX_PANEL_OPACITY}
+                min={MIN_PANEL_OPACITY}
                 onChange={(event) => {
-                  const glassOpacity = Number(event.currentTarget.value);
+                  const panelOpacity = Number(event.currentTarget.value);
                   if (
-                    Number.isInteger(glassOpacity) &&
-                    glassOpacity >= MIN_GLASS_OPACITY &&
-                    glassOpacity <= MAX_GLASS_OPACITY
+                    Number.isInteger(panelOpacity) &&
+                    panelOpacity >= MIN_PANEL_OPACITY &&
+                    panelOpacity <= MAX_PANEL_OPACITY
                   ) {
-                    updateSettings({ glassOpacity });
+                    updateSettings({ panelOpacity });
                   }
                 }}
                 step={5}
-                style={glassOpacitySliderStyle}
+                style={
+                  {
+                    "--settings-slider-progress": `${((settings.panelOpacity - MIN_PANEL_OPACITY) / (MAX_PANEL_OPACITY - MIN_PANEL_OPACITY)) * 100}%`,
+                    "--settings-slider-fill-offset": `${0.5 - (settings.panelOpacity - MIN_PANEL_OPACITY) / (MAX_PANEL_OPACITY - MIN_PANEL_OPACITY)}rem`,
+                  } as CSSProperties
+                }
                 type="range"
-                value={settings.glassOpacity}
+                value={settings.panelOpacity}
               />
             </div>
           }
         />
-
+        <SettingsRow
+          {...searchableSetting("setting-panel-blur")}
+          description="On themes with a photo, how much the photo behind the thread list and chat is blurred."
+          resetAction={
+            settings.panelBlur !== DEFAULT_UNIFIED_SETTINGS.panelBlur ? (
+              <SettingResetButton
+                label="panel blur"
+                onClick={() => updateSettings({ panelBlur: DEFAULT_UNIFIED_SETTINGS.panelBlur })}
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center gap-3 sm:w-52">
+              <output
+                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                htmlFor="panel-blur"
+              >
+                {settings.panelBlur}px
+              </output>
+              <input
+                aria-label="Panel blur"
+                className="settings-slider min-w-0 flex-1"
+                id="panel-blur"
+                max={MAX_PANEL_BLUR}
+                min={MIN_PANEL_BLUR}
+                onChange={(event) => {
+                  const panelBlur = Number(event.currentTarget.value);
+                  if (
+                    Number.isInteger(panelBlur) &&
+                    panelBlur >= MIN_PANEL_BLUR &&
+                    panelBlur <= MAX_PANEL_BLUR
+                  ) {
+                    updateSettings({ panelBlur });
+                  }
+                }}
+                step={2}
+                style={
+                  {
+                    "--settings-slider-progress": `${(settings.panelBlur / MAX_PANEL_BLUR) * 100}%`,
+                    "--settings-slider-fill-offset": `${0.5 - settings.panelBlur / MAX_PANEL_BLUR}rem`,
+                  } as CSSProperties
+                }
+                type="range"
+                value={settings.panelBlur}
+              />
+            </div>
+          }
+        />
         <SettingsRow
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."

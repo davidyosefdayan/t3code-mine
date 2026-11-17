@@ -55,7 +55,8 @@ export function ProjectPinButton(props: {
       >
         {props.pinned ? (
           <>
-            <PinIcon className="size-3.5 group-hover/pin:hidden" />
+            {/* Personal build: filled when pinned, so a highlighted unpinned row reads differently. */}
+            <PinIcon className="size-3.5 fill-current group-hover/pin:hidden" />
             <PinOffIcon className="hidden size-3.5 group-hover/pin:block" />
           </>
         ) : (

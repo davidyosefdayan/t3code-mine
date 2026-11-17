@@ -36,8 +36,15 @@ import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { getThemeRoleLabel, ThemeColorField } from "./ThemeColorPicker";
 import { ThemeCssEditor } from "./ThemeCssEditor";
+import { getThemeRoleLabel, ThemeColorField, ThemeColorPicker } from "./ThemeColorPicker";
+import { ThemeIconField } from "./ThemeEditorExtras";
+import {
+  buildMineThemeColors,
+  counterpartSeed,
+  defaultMineThemeColors,
+  mineThemeSeedOf,
+} from "../../mineThemes";
 import {
   clearThemeInspectorHover,
   clearThemeInspectorHighlights,
@@ -49,7 +56,10 @@ import {
   type ThemeElementInspection,
 } from "./themeInspector";
 
-const THEME_EDITOR_SIMPLE_ROLES: ReadonlyArray<ThemeColorRole> = ["canvas", "accent"];
+const THEME_EDITOR_SIMPLE_ROLES: ReadonlyArray<ThemeColorRole> = ["accent", "canvas"];
+// Personal build: the rail is a guided color too, but not one of upstream's roles.
+const isGuidedRole = (role: ThemeColorRole | "rail") =>
+  role === "rail" || THEME_EDITOR_SIMPLE_ROLES.includes(role);
 
 type ThemeEditorColorFamily = Readonly<{
   id: string;
@@ -252,8 +262,9 @@ function getThemeEditorColorFamily(role: ThemeColorRole): ThemeEditorColorFamily
 type ThemeEditorColors = ThemeColors;
 type ThemeEditorColorsByAppearance = Record<ThemeAppearance, ThemeEditorColors>;
 
+// Personal build: new themes start from the fork's recipe (neutral chat area, Paper's rail).
 function getThemeEditorDefaults(appearance: ThemeAppearance): ThemeEditorColors {
-  return { ...getStandardThemeColors(appearance) };
+  return defaultMineThemeColors(appearance);
 }
 
 function getThemeEditorColorsByAppearance(): ThemeEditorColorsByAppearance {
@@ -267,16 +278,12 @@ function isThemeEditorColor(value: string): boolean {
   return isThemeColor(value.trim());
 }
 
+// Personal build: guided colors use the fork's recipe: rail, accent and background, the rest derived.
 function getManagedEditorColors(
   appearance: ThemeAppearance,
   colors: ThemeEditorColors,
 ): ThemeEditorColors {
-  const defaults = getStandardThemeColors(appearance);
-  return createVividThemeColors(
-    appearance,
-    isThemeEditorColor(colors.canvas) ? colors.canvas : defaults.canvas,
-    isThemeEditorColor(colors.accent) ? colors.accent : defaults.accent,
-  );
+  return buildMineThemeColors(mineThemeSeedOf(colors, appearance), appearance);
 }
 
 const PANEL_MARGIN = 8;
@@ -341,6 +348,8 @@ export function ThemeEditorPanel({
 }) {
   const isEditing = editingTheme !== null;
   const [name, setName] = useState("");
+  const [icon, setIcon] = useState<string | undefined>(undefined);
+  const [iconDark, setIconDark] = useState<string | undefined>(undefined);
   const [activeAppearance, setActiveAppearance] = useState<ThemeAppearance>(initialAppearance);
   const [isAdvanced, setIsAdvanced] = useState(false);
   const [colorsByAppearance, setColorsByAppearance] = useState<ThemeEditorColorsByAppearance>(() =>
@@ -398,6 +407,9 @@ export function ThemeEditorPanel({
       }
 
       setName(editingTheme?.label ?? seedName ?? "");
+      // A new theme or copy starts without an icon, so two themes never share one.
+      setIcon(editingTheme?.icon);
+      setIconDark(editingTheme?.iconDark);
       setActiveAppearance(nextAppearance);
       // Open unmanaged themes in advanced mode to preserve imported or hand-tuned colors.
       setIsAdvanced(sourceTheme !== null && sourceTheme.managed !== true);
@@ -466,22 +478,43 @@ export function ThemeEditorPanel({
     };
   }, [open, restoreTheme]);
 
-  const updateColor = (role: ThemeColorRole, value: string) => {
+  const updateColor = (role: ThemeColorRole | "rail", value: string) => {
     setColorsByAppearance((current) => {
       const nextColors = { ...current[activeAppearance], [role]: value };
-      const shouldManageColors =
-        !isAdvanced && THEME_EDITOR_SIMPLE_ROLES.includes(role) && isThemeEditorColor(value);
+      // Personal build: a new theme's other appearance follows until it is picked itself.
+      const otherAppearance = activeAppearance === "light" ? "dark" : "light";
+      const followOther =
+        !isAdvanced &&
+        !isEditing &&
+        !seedName &&
+        !simpleColorsDirtyByAppearance[otherAppearance] &&
+        isThemeEditorColor(value) &&
+        (role === "rail" || role === "accent");
+      if (followOther) {
+        const managed = getManagedEditorColors(activeAppearance, nextColors);
+        return {
+          ...current,
+          [activeAppearance]: managed,
+          [otherAppearance]: buildMineThemeColors(
+            counterpartSeed(mineThemeSeedOf(managed, activeAppearance), otherAppearance),
+            otherAppearance,
+          ),
+        };
+      }
+      const shouldManageColors = !isAdvanced && isGuidedRole(role) && isThemeEditorColor(value);
 
       return {
         ...current,
         [activeAppearance]: isAdvanced
-          ? updateThemeColorFamily(activeAppearance, current[activeAppearance], role, value)
+          ? role === "rail"
+            ? nextColors
+            : updateThemeColorFamily(activeAppearance, current[activeAppearance], role, value)
           : shouldManageColors
             ? getManagedEditorColors(activeAppearance, nextColors)
             : nextColors,
       };
     });
-    if (!isAdvanced && THEME_EDITOR_SIMPLE_ROLES.includes(role) && isThemeEditorColor(value)) {
+    if (!isAdvanced && isGuidedRole(role) && isThemeEditorColor(value)) {
       setSimpleColorsDirtyByAppearance((current) => ({
         ...current,
         [activeAppearance]: true,
@@ -812,6 +845,10 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
+          ...((icon ?? mergeTarget.icon) ? { icon: icon ?? mergeTarget.icon } : {}),
+          ...((iconDark ?? mergeTarget.iconDark)
+            ? { iconDark: iconDark ?? mergeTarget.iconDark }
+            : {}),
         });
         retiredTheme = editingTheme;
         retireMergedTheme(editingTheme, mergeTarget);
@@ -832,6 +869,8 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(editingTheme.collection ? { collection: editingTheme.collection } : {}),
+          ...(icon ? { icon } : {}),
+          ...(iconDark ? { iconDark } : {}),
         });
       } else if (mergeTarget) {
         if (takenAppearances.includes(activeAppearance)) {
@@ -856,18 +895,25 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
+          ...((icon ?? mergeTarget.icon) ? { icon: icon ?? mergeTarget.icon } : {}),
+          ...((iconDark ?? mergeTarget.iconDark)
+            ? { iconDark: iconDark ?? mergeTarget.iconDark }
+            : {}),
         });
       } else {
-        savedTheme = installCustomTheme(
-          parseThemeFile({
+        // Personal build: a guided theme is made with both appearances at once.
+        savedTheme = installCustomTheme({
+          ...parseThemeFile({
             version: THEME_FILE_VERSION,
             name,
-            appearance: activeAppearance,
-            colors: colorsForSave[activeAppearance],
-            ...(isAdvanced ? {} : { managed: true }),
+            appearance: isAdvanced ? activeAppearance : "light",
+            colors: colorsForSave[isAdvanced ? activeAppearance : "light"],
+            ...(isAdvanced ? {} : { variants: { dark: colorsForSave.dark }, managed: true }),
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
-        );
+          ...(icon ? { icon } : {}),
+          ...(iconDark ? { iconDark } : {}),
+        });
       }
       if (
         !onSaved(savedTheme, {
@@ -961,7 +1007,7 @@ export function ThemeEditorPanel({
       <div>
         <h3 className="text-sm font-medium">Colors</h3>
         {isAdvanced ? null : (
-          <p className="text-xs text-muted-foreground">Two colors, rest derived</p>
+          <p className="text-xs text-muted-foreground">Three colors, rest derived</p>
         )}
       </div>
       <div className="flex min-w-0 items-start gap-3">
@@ -1022,8 +1068,26 @@ export function ThemeEditorPanel({
             .includes(query),
       ),
     })).filter((group) => group.families.length > 0);
+    const railField = (
+      <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+          Rail (left and top bar)
+        </span>
+        <ThemeColorPicker
+          label="Rail"
+          onChange={(value) => updateColor("rail", value)}
+          onEditCancel={cancelColorEdit}
+          onEditStart={startColorEdit}
+          value={
+            colorsByAppearance[activeAppearance].rail ??
+            colorsByAppearance[activeAppearance].sidebar
+          }
+        />
+      </div>
+    );
     return isAdvanced ? (
       <div className="space-y-5">
+        {railField}
         {groups.map((group) => (
           <section className="space-y-2" key={group.id}>
             <h4 className="text-sm font-medium text-foreground">{group.title}</h4>
@@ -1034,6 +1098,7 @@ export function ThemeEditorPanel({
       </div>
     ) : (
       <div className="grid gap-1">
+        {railField}
         {THEME_EDITOR_SIMPLE_ROLES.map((role) => (
           <ThemeColorField
             key={role}
@@ -1231,6 +1296,11 @@ export function ThemeEditorPanel({
               </p>
             ) : null}
             {renderAppearanceButtons()}
+            <ThemeIconField
+              appearance={activeAppearance}
+              icon={activeAppearance === "dark" ? (iconDark ?? icon) : icon}
+              onChange={(next) => (activeAppearance === "dark" ? setIconDark(next) : setIcon(next))}
+            />
             <div className="space-y-3">
               {renderColorsHeader()}
               {renderColorFields()}

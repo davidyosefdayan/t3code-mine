@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactElement } from "react";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
-import { readThemeHalvesRaw } from "../../hooks/useTheme";
+import { readThemeHalvesRaw, useRenderedAppearance } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
 import {
   getThemeDefinition,
@@ -22,11 +22,6 @@ import {
   type ThemeAppearance,
   type ThemeDefinition,
   type ThemeHalves,
-  T3_CHAT_THEME,
-  EMBER_THEME,
-  GROVE_THEME,
-  IRIS_THEME,
-  OCEAN_THEME,
 } from "../../themePalette";
 import {
   AlertDialog,
@@ -46,21 +41,15 @@ import { useThemeEditorStore } from "./themeEditorStore";
 import {
   STANDARD_THEME_CARDS,
   getThemeCardDefinition,
-  previewColorsOf,
   ThemePreviewCircles,
   ThemePreviewCircle,
   type ThemeCardDefinition,
   type ThemeMode,
 } from "./ThemePreviewCircles";
-import { ThemeWireframe } from "./ThemeWireframe";
+import { MINE_THEMES } from "../../mineThemes";
+import { getStandardThemeColors, getThemeColorsForMode } from "../../themePalette";
+import { ThemeLayoutPreview } from "./ThemeLayoutPreview";
 
-const MAINTAINER_THEMES: ReadonlyArray<ThemeDefinition> = [
-  T3_CHAT_THEME,
-  GROVE_THEME,
-  OCEAN_THEME,
-  EMBER_THEME,
-  IRIS_THEME,
-];
 
 function collectionVariantLabels(themes: ReadonlyArray<ThemeDefinition>): ReadonlyArray<string> {
   if (themes.length === 0) return [];
@@ -129,6 +118,9 @@ function ThemeLibraryCard({
   };
 }) {
   const cardModes = theme.previews.map((preview) => preview.mode);
+  // Personal build: an icon tile has no mode rings, so the card itself shows it is in use.
+  const highlighted = isActive || (theme.icon !== undefined && activeModes.length > 0);
+  const icon = useRenderedAppearance() === "dark" ? (theme.iconDark ?? theme.icon) : theme.icon;
   const [radialModeOpen, setRadialModeOpen] = useState<ThemeAppearance | null>(null);
   const radialModeGroups = (["light", "dark"] as const).map((mode) => {
     const options =
@@ -149,11 +141,11 @@ function ThemeLibraryCard({
           <div
             className={cn(
               "cursor-pointer overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:bg-accent/10",
-              isActive && "bg-accent/30",
+              highlighted && "bg-accent/30",
             )}
             data-theme-library-card={theme.id}
             onClick={onUse}
-            style={isActive ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
+            style={highlighted ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
           >
             <div className="relative">
               {variantNavigation ? (
@@ -283,6 +275,15 @@ function ThemeLibraryCard({
                       </div>
                     );
                   })}
+                </div>
+              ) : icon ? (
+                <div className="flex h-20 items-center justify-center">
+                  <img
+                    src={icon}
+                    alt=""
+                    draggable={false}
+                    className="size-14 rounded-xl object-cover drop-shadow-sm"
+                  />
                 </div>
               ) : (
                 <ThemePreviewCircles
@@ -624,17 +625,6 @@ export function ThemeLibrary({
   const activeThemeForAppearance =
     getThemeDefinition((initialAppearance === "light" ? lightOwner : darkOwner) ?? "") ?? null;
 
-  const cardDefById = (id: string | null): ThemeCardDefinition => {
-    if (id === null) return STANDARD_THEME_CARDS[0]!;
-    const definition = getThemeDefinition(id);
-    return definition ? getThemeCardDefinition(definition) : STANDARD_THEME_CARDS[0]!;
-  };
-
-  const pickColors = (id: string | null, appearance: ThemeAppearance) => {
-    const card = cardDefById(id);
-    return previewColorsOf(card, appearance) ?? card.previews[0]!.colors;
-  };
-
   const setMode = (mode: ThemeMode) => {
     if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
   };
@@ -651,21 +641,26 @@ export function ThemeLibrary({
     return rings;
   };
 
-  const wireframeColors = (appearance: ThemeAppearance) =>
-    pickColors(appearance === "light" ? lightOwner : darkOwner, appearance);
+  // Personal build: the mode tiles are a to-scale miniature of the app, in full theme colors.
+  const layoutColors = (appearance: ThemeAppearance) => {
+    const definition = getThemeDefinition((appearance === "light" ? lightOwner : darkOwner) ?? "");
+    return (
+      (definition && getThemeColorsForMode(definition, appearance)) ??
+      getStandardThemeColors(appearance)
+    );
+  };
 
   const renderWireframe = (mode: ThemeMode) => (
-    <ThemeWireframe
-      className="h-[8.75rem]"
-      panes={
-        mode === "system"
-          ? [
-              { clip: "left", colors: wireframeColors("light") },
-              { clip: "right", colors: wireframeColors("dark") },
-            ]
-          : [{ colors: wireframeColors(mode === "dark" ? "dark" : "light") }]
-      }
-    />
+    <span className="relative block h-36 overflow-hidden rounded-lg">
+      {mode === "system" ? (
+        <>
+          <ThemeLayoutPreview colors={layoutColors("light")} mode="light" clip="left" />
+          <ThemeLayoutPreview colors={layoutColors("dark")} mode="dark" clip="right" />
+        </>
+      ) : (
+        <ThemeLayoutPreview colors={layoutColors(mode)} mode={mode} />
+      )}
+    </span>
   );
 
   const renderModeTiles = () => (
@@ -740,27 +735,25 @@ export function ThemeLibrary({
             theme={standardTheme}
           />
         ))}
-        {MAINTAINER_THEMES.map((maintainerTheme) => {
-          const card = getThemeCardDefinition(maintainerTheme);
-          return (
-            <ThemeLibraryCard
-              activeModes={pickedModesFor(maintainerTheme.id)}
-              isActive={false}
-              key={maintainerTheme.id}
-              onDuplicate={() =>
-                openThemeEditor({
-                  editingThemeId: null,
-                  seedThemeId: maintainerTheme.id,
-                  seedName: `${maintainerTheme.label} copy`,
-                  initialAppearance,
-                })
-              }
-              onUse={() => persistTheme(maintainerTheme.id)}
-              onUseMode={handlePairPick(maintainerTheme.id)}
-              theme={card}
-            />
-          );
-        })}
+        {MINE_THEMES.map((mineTheme) => (
+          <ThemeLibraryCard
+            activeModes={pickedModesFor(mineTheme.id)}
+            isActive={false}
+            key={mineTheme.id}
+            onDuplicate={() =>
+              openThemeEditor({
+                editingThemeId: null,
+                seedThemeId: mineTheme.id,
+                seedName: `${mineTheme.label} copy`,
+                initialAppearance,
+              })
+            }
+            onUse={() => persistTheme(mineTheme.id)}
+            onUseMode={handlePairPick(mineTheme.id)}
+            theme={getThemeCardDefinition(mineTheme)}
+          />
+        ))}
+        {/* Personal build: upstream's built-in themes are left out of the library. */}
         {environmentThemes
           .filter(
             // Saved themes win id resolution; show only their card to avoid duplicate keys.

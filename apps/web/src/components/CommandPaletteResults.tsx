@@ -295,7 +295,7 @@ function CommandPaletteResultRow(props: {
         </span>
       )}
       {props.item.titleTrailingContent}
-      {props.item.kind === "action" && props.item.pin ? (
+      {props.item.pin ? (
         <ProjectPinButton
           name={props.item.pin.name}
           pinned={props.item.pin.pinned}

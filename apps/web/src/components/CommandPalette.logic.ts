@@ -76,6 +76,8 @@ export type SearchOverlayMode = "command" | "files" | "content";
 
 export type CommandPaletteOpenIntent =
   | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
+  // Personal build: a top bar quick action runs its row, or opens it if it's a submenu.
+  | { readonly kind: "run"; readonly value: string; readonly title: string }
   | {
       readonly kind: "search";
       readonly query: string;
@@ -104,6 +106,7 @@ export type CommandPaletteUiAction =
   | { readonly _tag: "OpenAddProject" }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "OpenChangeTheme" }
+  | { readonly _tag: "RunItem"; readonly value: string; readonly title: string }
   | {
       readonly _tag: "OpenChildSearch";
       readonly mode: "files" | "content";
@@ -161,6 +164,8 @@ export function reduceCommandPaletteUiState(
       return openWithIntent({ kind: "new-thread-in" });
     case "OpenChangeTheme":
       return openWithIntent({ kind: "change-theme" });
+    case "RunItem":
+      return openWithIntent({ kind: "run", value: action.value, title: action.title });
   }
 }
 
@@ -206,14 +211,14 @@ export interface CommandPaletteItem {
   readonly titleTrailingContent?: ReactNode;
   readonly shortcutCommand?: KeybindingCommand;
   readonly secondary?: boolean;
+  /** A pin toggle on the row, also reached with the pin shortcut while the row is highlighted. */
+  readonly pin?: CommandPaletteItemPin | null;
 }
 
 export interface CommandPaletteActionItem extends CommandPaletteItem {
   readonly kind: "action";
   readonly keepOpen?: boolean;
   readonly run: () => Promise<void>;
-  /** A pin toggle on the row, also reached with the pin shortcut while the row is highlighted. */
-  readonly pin?: CommandPaletteItemPin;
   /** Set on toggle rows; exposed to assistive technology as `aria-checked`. */
   readonly checked?: boolean;
 }

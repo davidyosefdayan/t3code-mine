@@ -20,6 +20,7 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
+import { AppZoomIndicator } from "../components/AppZoomIndicator";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { DevReplayHost } from "../components/DevReplayHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
@@ -55,7 +56,10 @@ import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedProm
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useAtomValue } from "@effect/atom-react";
 import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/server";
-import { readProject } from "../state/entities";
+import { readProject, useAllEnvironmentShellsBootstrapped } from "../state/entities";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironmentShellHasSnapshot } from "../state/shell";
+import { releaseBootSplash } from "../bootSplash";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { isChunkLoadError } from "../lib/chunkReloadGuard";
@@ -154,6 +158,15 @@ function RootRouteBranch() {
     authGateState.status === "hosted-static",
   );
 
+  // Personal build: pages outside the workspace have no startup data to wait for.
+  const workspaceRoute =
+    primaryEnvironmentAuthenticated &&
+    pathname !== GUEST_PAGE_PATH &&
+    pathname !== "/pair" &&
+    pathname !== "/connect" &&
+    pathname !== "/connect-agent";
+  useReleaseBootSplash(!workspaceRoute);
+
   if (pathname === GUEST_PAGE_PATH) return <Outlet />;
 
   if (
@@ -184,6 +197,8 @@ function RootRouteBranch() {
         <DesktopWebLinkCoordinator />
       ) : null}
       {isElectron ? <RunningThreadKeepAlive /> : null}
+      {/* Personal build: shows the app zoom while you change it (desktop only). */}
+      <AppZoomIndicator />
       <RelayClientInstallDialog />
       <ConnectOnboardingDialog />
       <SshPasswordPromptDialog />
@@ -232,6 +247,30 @@ function RootRouteBranch() {
       <ThemeEditorHost />
     </>
   );
+}
+
+/** Personal build: uncovers the startup splash once this machine's first data
+ * has landed: the primary environment's shell snapshot and server config,
+ * which together decide what the sidebar and thread view show. Other
+ * environments fill in afterwards, so a slow remote never holds the splash. */
+function useReleaseBootSplash(skip: boolean) {
+  const primaryShellReady = useEnvironmentShellHasSnapshot(usePrimaryEnvironmentId());
+  // Every environment settled (including the primary failing to connect) also
+  // releases it, so the splash never outlives an unreachable primary.
+  const allSettled = useAllEnvironmentShellsBootstrapped();
+  const bootstrapped = primaryShellReady || allSettled;
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const serverWelcome = useAtomValue(primaryServerWelcomeAtom);
+  const pathname = useLocation({ select: (location) => location.pathname });
+  // EventRouter moves a fresh "/" into the welcome's bootstrap thread; wait for
+  // the welcome and that hop so the empty start page never flashes first.
+  const bootstrapHopPending =
+    pathname === "/" && (serverWelcome === null || Boolean(serverWelcome.bootstrapThreadId));
+  const ready = skip || (bootstrapped && serverConfig !== null && !bootstrapHopPending);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- removes the static boot splash from the DOM once the app is ready
+  useEffect(() => {
+    if (ready) releaseBootSplash();
+  }, [ready]);
 }
 
 function RootRouteErrorView({ error }: ErrorComponentProps) {

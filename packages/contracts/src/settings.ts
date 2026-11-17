@@ -153,7 +153,25 @@ export const AppearanceContrast = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_APPEARANCE_CONTRAST, maximum: MAX_APPEARANCE_CONTRAST }),
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
-const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+// Personal build: a stronger default contrast.
+const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 150;
+// Personal build: a command palette row pinned to the top bar.
+export const PinnedQuickAction = Schema.Struct({ value: Schema.String, title: Schema.String });
+export type PinnedQuickAction = typeof PinnedQuickAction.Type;
+
+// Personal build: how solid the thread list and chat are over a photo theme.
+export const MIN_PANEL_OPACITY = 40;
+export const MAX_PANEL_OPACITY = 100;
+export const PanelOpacity = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_PANEL_OPACITY, maximum: MAX_PANEL_OPACITY }),
+);
+export type PanelOpacity = typeof PanelOpacity.Type;
+export const MIN_PANEL_BLUR = 0;
+export const MAX_PANEL_BLUR = 40;
+export const PanelBlur = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_PANEL_BLUR, maximum: MAX_PANEL_BLUR }),
+);
+export type PanelBlur = typeof PanelBlur.Type;
 export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
 export const MAX_PANEL_ANIMATION_DURATION_MS = 400;
 export const PanelAnimationDurationMs = Schema.Int.check(
@@ -414,6 +432,17 @@ export const ClientSettingsSchema = Schema.Struct({
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  panelOpacity: PanelOpacity.pipe(Schema.withDecodingDefault(Effect.succeed(75))),
+  panelBlur: PanelBlur.pipe(Schema.withDecodingDefault(Effect.succeed(4))),
+  // Personal build: command palette rows pinned to the top bar, by row value and title.
+  pinnedQuickActions: Schema.Array(PinnedQuickAction).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed([
+        { value: "action:usage", title: "Open usage" },
+        { value: "action:shuffle-theme", title: "Shuffle theme" },
+      ]),
+    ),
+  ),
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
   ),
@@ -1721,6 +1750,20 @@ export const resolveIdleCompaction = (
   return override === "default" ? globalIdleCompaction(settings) : override;
 };
 
+/** Personal build: the instance's "Auto-compact after" in tokens, or null for Claude's default. */
+export const resolveClaudeAutoCompactWindow = (
+  settings: Pick<ServerSettings, "providerInstances">,
+  instanceId: ProviderInstanceId,
+): number | null => {
+  const instance = Object.hasOwn(settings.providerInstances, instanceId)
+    ? settings.providerInstances[instanceId]
+    : undefined;
+  return decodeClaudeSettings(instance?.config ?? {}).pipe(
+    Option.map((config) => Number(config.autoCompactWindow) || null),
+    Option.getOrElse(() => null),
+  );
+};
+
 export const ServerSettingsOperation = Schema.Literals([
   "normalize",
   "check-exists",
@@ -2041,6 +2084,9 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  panelOpacity: Schema.optionalKey(PanelOpacity),
+  panelBlur: Schema.optionalKey(PanelBlur),
+  pinnedQuickActions: Schema.optionalKey(Schema.Array(PinnedQuickAction)),
   panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),

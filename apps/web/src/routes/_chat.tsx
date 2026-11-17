@@ -11,6 +11,8 @@ import { useShownThreadRouteTarget } from "../hooks/useShownThreadRouteTarget";
 function ChatRouteLayout() {
   // Render both routes here so draft promotion keeps the same ChatView mounted.
   const { shownTarget, modalOpen } = useShownThreadRouteTarget();
+  // Personal build: Settings and Usage are pages, so nothing renders behind them.
+  if (modalOpen) return <Outlet />;
   return (
     <>
       {shownTarget?.kind === "server" && !modalOpen ? (

@@ -236,7 +236,7 @@ function ThemeColorPickerPanel({
   );
 }
 
-function ThemeColorPicker({
+export function ThemeColorPicker({
   label,
   value,
   onChange,
