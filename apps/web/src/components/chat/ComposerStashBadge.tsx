@@ -56,7 +56,8 @@ export const ComposerStashBadge = memo(function ComposerStashBadge(props: {
         <ComposerBanner.Icon>
           <BookmarkIcon />
         </ComposerBanner.Icon>
-        <ComposerBanner.Content>
+        {/* Personal build: just the icon and count when the read-aloud bar needs the room. */}
+        <ComposerBanner.Content className="@max-[28rem]/dock:hidden">
           {gt("Stash", { $context: "noun, saved prompts set aside for later" })}
         </ComposerBanner.Content>
         <ComposerBanner.Actions>{count}</ComposerBanner.Actions>

@@ -868,6 +868,80 @@
       "name": "iobuffer",
       "license": "MIT",
       "sourceUrl": "https://github.com/image-js/iobuffer"
+    },
+    {
+      "license": "MIT",
+      "name": "onnxruntime-web",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "onnxruntime-common",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
+    },
+    {
+      "license": "ISC",
+      "name": "guid-typescript",
+      "sourceUrl": "https://github.com/NicolasDeveloper/guid-typescript",
+      "generatedNotice": {
+        "licenseId": "ISC"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-darwin-arm64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-darwin-x64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-linux-arm64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-linux-x64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-linuxmusl-arm64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotice": {
+        "licenseId": "LGPL-3.0-or-later"
+      }
     }
   ]
 }

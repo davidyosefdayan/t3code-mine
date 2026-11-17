@@ -115,6 +115,7 @@ import {
 } from "../../composerDraftStore";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../../threadRoutes";
 import { ComposerStashBadge } from "./ComposerStashBadge";
+import { ReadAloudPlayerBar } from "./ReadAloudPlayerBar";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerMenuItems } from "./useComposerMenuItems";
@@ -3476,7 +3477,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
-      <ComposerBanner.Dock>
+      {/* Personal build: a container, so the stash tab can shrink to its icon when narrow. */}
+      <ComposerBanner.Dock className="@container/dock">
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />
           {showComposerTopDrawer ? (
@@ -3503,6 +3505,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
+          {/* Personal build: read-aloud controls, in reach wherever the chat is scrolled. */}
+          <ReadAloudPlayerBar routeThreadRef={routeThreadRef} />
         </ComposerBanner.Column>
         <ComposerStashBadge
           count={stashQueue.length}
