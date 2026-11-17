@@ -390,20 +390,13 @@ function resolveRuntimeState(input: {
           !address.internal && address.family === "IPv4" && isTailscaleIpv4Address(address.address),
       ),
     );
-  const exposure = unavailable
-    ? resolveDesktopServerExposure({
-        mode: "local-only",
-        port: input.port,
-        networkInterfaces: input.networkInterfaces,
-        ...(advertisedHostOverride ? { advertisedHostOverride } : {}),
-      })
-    : requestedExposure;
-
+  // Personal build: no local-only fallback. At login Wi-Fi often has no address yet, and the
+  // fallback stuck until relaunch; binding every interface lets the address appear later.
   return {
     state: runtimeStateFromResolvedExposure({
       requestedMode: input.requestedMode,
       settings: input.settings,
-      exposure,
+      exposure: requestedExposure,
       port: input.port,
     }),
     unavailable,
