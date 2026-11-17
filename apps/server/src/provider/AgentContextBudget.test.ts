@@ -124,9 +124,11 @@ it.effect("only request_secret and send_to_user ask Claude Code to load them up 
     const alwaysLoad = mcp.tools
       .filter(({ tool }) => tool._meta?.["anthropic/alwaysLoad"] !== undefined)
       .map(({ tool }) => [tool.name, tool._meta]);
-    expect(alwaysLoad).toEqual([
-      ["request_secret", { "anthropic/alwaysLoad": true }],
-      ["send_to_user", { "anthropic/alwaysLoad": true }],
+    // Personal build: the fork's t3_needs_you loads up front too.
+    expect(alwaysLoad.map(([name]) => name).toSorted()).toEqual([
+      "request_secret",
+      "send_to_user",
+      "t3_needs_you",
     ]);
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );

@@ -62,6 +62,8 @@ it("records the visit of the next thread at once after switching threads", async
   vi.setSystemTime(NOW);
   // A palette pick already sent B's open with its query, so B's visit is a plain watermark advance.
   claimThreadOpen(threadB.environmentId, threadB.threadId, NOW);
+  // Personal build: a chat only counts as read while the window has focus.
+  using _focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
 
   await using screen = await render(
     <AppAtomRegistryProvider>
