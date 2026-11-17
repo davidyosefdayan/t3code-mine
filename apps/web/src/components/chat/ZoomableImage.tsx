@@ -43,12 +43,15 @@ export function ZoomableImage({
   name,
   mimeType,
   onError,
+  reservedHeight = 160,
   ref,
 }: {
   src: string;
   name: string;
   mimeType?: string | undefined;
   onError: () => void;
+  /** Personal build: room kept free for the lightbox's top bar and film strip. */
+  reservedHeight?: number;
   ref?: Ref<ZoomableImageHandle>;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -70,7 +73,10 @@ export function ZoomableImage({
   } | null>(null);
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const maxHeight = Math.max(1, Math.min(viewerSize.height * 0.86, viewerSize.height - 160));
+  const maxHeight = Math.max(
+    1,
+    Math.min(viewerSize.height * 0.86, viewerSize.height - reservedHeight),
+  );
   // A vector scales without loss, and an SVG without width and height reports a tiny default size.
   const fit = Math.min(
     mimeType === "image/svg+xml" ? Infinity : 1,
