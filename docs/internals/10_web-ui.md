@@ -75,3 +75,41 @@ that calls no hook. Lint misses some bailouts, notably `try` with `finally` and
 compiles every file and fails on any skip. Async handlers rarely need `try`: an
 atom command settles into a result, so cleanup can follow the `await`. `useStableCallback` still
 marks handlers that leave a large component, as described above.
+
+## Page anatomy
+
+Every full page is app rail, page sidebar, then the page, and reads the same wherever you land.
+Pages move onto [`Page`](../../apps/web/src/components/page/Page.tsx) one at a time; Issues is
+first, and these rules change as each page shows what they miss.
+
+- **Sidebar picks what you see**: a title row, the search bar, then the list. Anything that
+  switches what the page shows lives here, never in the header.
+- **Only the header stays**: `Page` draws one header, as tall as the sidebar's title row. The
+  left is where the open item lives (a repo and its number, a skill's agent), never the page's
+  own name or the item's title, then the item's tabs (`PageHeaderTabs`). The right holds icon
+  actions and at most one main button. A shared detail view that also lives in a side panel
+  checks `useInPage()`, drops its own header row, and portals its tabs and actions there.
+- **Title scrolls**: the item's title and the line about it are the first thing in the scroller.
+  Nothing is pinned under the header, and nothing collapses or changes while you scroll. A
+  toolbar that acts on the content, such as the code view's, stays at the top of that content.
+- **Body has two widths**: reading width (the chat column's) for things you read, wide for data.
+  `PageBody` is the scroller for a page's own content; a view with its own scroller uses
+  `PAGE_SCROLLER`.
+- **Writing a comment** is a round button at the bottom right that opens the composer, never a
+  box floating over what you read.
+- **Nothing open until you pick**: a page opens on `PageEmpty` (its rail icon, a title and one
+  line) and shows an item only once you choose one in the sidebar.
+- **Tabs only for sections of one item**, such as a pull request's summary and files. List pages
+  have no tabs: the sidebar list does that job. A segmented `ToggleGroup` switches between views
+  of one thing (a provider's limits, cost or tokens), at the top of the content or as a section's
+  action.
+- **Sidebar groups** use the thread list's group title (`SidebarListGroup`), which folds its group.
+- **Sections**: [`PageSection`](../../apps/web/src/components/page/PageSection.tsx) titles a
+  block with an optional description and one action. Its content is one or more `PageCard`s, the
+  same surface as `SettingsGroup`, with the title inset to line up with the card's text.
+- **Numbers**: `PageStat`. A page leads with at most one `hero` stat.
+- **Bottom**: notes about a card's numbers go in its `footer`, not as loose text after it.
+- **Empty and loading**: `PageMessage` says there is nothing to show. A placeholder takes the
+  real content's footprint, and a refresh keeps the previous numbers on screen (dimmed) rather
+  than dropping back to a placeholder. Never draw a stand-in value, such as a straight line, that
+  the real data then redraws.

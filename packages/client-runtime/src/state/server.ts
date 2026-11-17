@@ -23,8 +23,10 @@ import {
   shouldRecommendDatabaseCompaction,
   type UsageSummary,
   type WorkflowRunsSnapshot,
+  UsageBreakdown,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { persistQuery } from "./queryPersistence.ts";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -1717,6 +1719,15 @@ export function createServerEnvironmentAtoms<R, E>(
           }),
         );
       },
+    }),
+    // Personal build: where a weekly limit went, for Usage → Limits. Saved, so
+    // the page opens on the last answer while a slow transcript scan reruns.
+    usageBreakdown: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-breakdown",
+      tag: WS_METHODS.serverGetUsageBreakdown,
+      persistence: persistQuery(UsageBreakdown),
+      staleTimeMs: 60_000,
+      refreshTrigger: ({ environmentId }) => usageScanSettingsAtom(environmentId),
     }),
     resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry",
