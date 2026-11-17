@@ -5,6 +5,7 @@ import { memo, type MouseEvent as ReactMouseEvent } from "react";
 import { T, useGT, useMessages } from "gt-react";
 
 import {
+  CURRENT_CHECKOUT_VALUE,
   resolveCurrentWorkspaceLabel,
   resolveEnvModeLabel,
   resolveLockedWorkspaceLabel,
@@ -36,6 +37,7 @@ interface BranchToolbarEnvModeSelectorProps {
   previousWorktreeLabel?: string | null;
   previousWorktreeBranch?: string | null;
   onUsePreviousWorktree?: () => void;
+  onUseCurrentCheckout?: (() => void) | null;
 }
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
@@ -47,6 +49,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   previousWorktreeLabel,
   previousWorktreeBranch = null,
   onUsePreviousWorktree,
+  onUseCurrentCheckout = null,
 }: BranchToolbarEnvModeSelectorProps) {
   const gt = useGT();
   const m = useMessages();
@@ -57,6 +60,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   );
   const showPreviousWorktree = Boolean(previousWorktreeLabel && onUsePreviousWorktree);
   const envModeItems = [
+    ...(onUseCurrentCheckout
+      ? [{ value: CURRENT_CHECKOUT_VALUE, label: resolveEnvModeLabel("local", m) }]
+      : []),
     {
       value: "local",
       label: resolveCurrentWorkspaceLabel(activeWorktreePath, m),
@@ -116,6 +122,10 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           onUsePreviousWorktree?.();
           return;
         }
+        if (value === CURRENT_CHECKOUT_VALUE) {
+          onUseCurrentCheckout?.();
+          return;
+        }
         onEnvModeChange(value as EnvMode);
       }}
       items={envModeItems}
@@ -160,6 +170,14 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           <SelectGroupLabel>
             <T>Workspace</T>
           </SelectGroupLabel>
+          {onUseCurrentCheckout ? (
+            <SelectItem value={CURRENT_CHECKOUT_VALUE}>
+              <span className="inline-flex items-center gap-1.5">
+                <FolderIcon className="size-3" />
+                {resolveEnvModeLabel("local", m)}
+              </span>
+            </SelectItem>
+          ) : null}
           <SelectItem value="local">
             <span className="inline-flex items-center gap-1.5">
               {activeWorktreePath ? (

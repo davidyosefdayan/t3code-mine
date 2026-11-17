@@ -29,6 +29,7 @@ import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useThreadShellsForProjectRefs } from "../state/entities";
 import {
+  CURRENT_CHECKOUT_VALUE,
   ADD_TO_MACHINE_LABEL_CLASS,
   type EnvMode,
   type EnvironmentOption,
@@ -168,6 +169,7 @@ interface RunContextSelectorProps {
   previousWorktreeLabel: string | null;
   previousWorktreeBranch: string | null;
   onUsePreviousWorktree: () => void;
+  onUseCurrentCheckout: (() => void) | null;
   addTargets: readonly AddProjectTarget[];
   onAddToMachine: (environmentId: EnvironmentId) => void;
 }
@@ -191,6 +193,7 @@ const RunContextSelector = memo(function RunContextSelector({
   previousWorktreeLabel,
   previousWorktreeBranch,
   onUsePreviousWorktree,
+  onUseCurrentCheckout,
   addTargets,
   onAddToMachine,
 }: RunContextSelectorProps) {
@@ -428,9 +431,21 @@ const RunContextSelector = memo(function RunContextSelector({
                 onUsePreviousWorktree();
                 return;
               }
+              if (value === CURRENT_CHECKOUT_VALUE) {
+                onUseCurrentCheckout?.();
+                return;
+              }
               onEnvModeChange(value as EnvMode);
             }}
           >
+            {onUseCurrentCheckout ? (
+              <MenuRadioItem disabled={envModeLocked} value={CURRENT_CHECKOUT_VALUE} closeOnClick>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <FolderIcon className="size-3" />
+                  <span className="min-w-0 truncate">{resolveEnvModeLabel("local")}</span>
+                </span>
+              </MenuRadioItem>
+            ) : null}
             <MenuRadioItem disabled={envModeLocked || forceNewWorktree} value="local" closeOnClick>
               <span className="flex min-w-0 items-center gap-1.5">
                 {activeWorktreePath ? (
@@ -670,6 +685,18 @@ export const BranchToolbar = memo(function BranchToolbar({
   const previousWorktreeLabel = previousWorktreeSeed
     ? resolvePreviousWorktreeLabel(previousWorktreeSeed, m)
     : null;
+  // Personal build: a new chat set to an existing worktree can go back to the
+  // project's own folder, which the "local" choice no longer means once it has one.
+  const onUseCurrentCheckout =
+    !isServerThread && !envModeLocked && !forceNewWorktree && activeWorktreePath !== null
+      ? () =>
+          setDraftThreadContext(draftId ?? threadRef, {
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+            projectRef: activeProjectRef,
+          })
+      : null;
   const onUsePreviousWorktree = () => {
     if (!previousWorktreeSeed) return;
     setDraftThreadContext(draftId ?? threadRef, {
@@ -740,6 +767,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             previousWorktreeLabel={previousWorktreeLabel}
             previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            onUseCurrentCheckout={onUseCurrentCheckout}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
           />
@@ -790,6 +818,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             previousWorktreeLabel={previousWorktreeLabel}
             previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            onUseCurrentCheckout={onUseCurrentCheckout}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
           />
@@ -833,6 +862,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               previousWorktreeLabel={previousWorktreeLabel}
               previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
               onUsePreviousWorktree={onUsePreviousWorktree}
+              onUseCurrentCheckout={onUseCurrentCheckout}
             />
           ) : null}
         </div>
