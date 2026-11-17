@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
+import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as GuestRouteImport } from './routes/guest'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
@@ -33,6 +34,7 @@ import { Route as ChatSettingsSourceControlRouteImport } from './routes/_chat.se
 import { Route as ChatSettingsSnapShotRouteImport } from './routes/_chat.settings.snap-shot'
 import { Route as ChatSettingsSecretsRouteImport } from './routes/_chat.settings.secrets'
 import { Route as ChatSettingsScheduledTasksRouteImport } from './routes/_chat.settings.scheduled-tasks'
+import { Route as ChatSettingsReadAloudRouteImport } from './routes/_chat.settings.read-aloud'
 import { Route as ChatSettingsProvidersRouteImport } from './routes/_chat.settings.providers'
 import { Route as ChatSettingsProjectsRouteImport } from './routes/_chat.settings.projects'
 import { Route as ChatSettingsOpenSourceLicensesRouteImport } from './routes/_chat.settings.open-source-licenses'
@@ -59,6 +61,11 @@ import { Route as ChatLinkedViaEnvironmentIdLinkedEnvironmentIdLinkedThreadIdRou
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -178,6 +185,11 @@ const ChatSettingsScheduledTasksRoute =
     path: '/scheduled-tasks',
     getParentRoute: () => ChatSettingsRoute,
   } as any)
+const ChatSettingsReadAloudRoute = ChatSettingsReadAloudRouteImport.update({
+  id: '/read-aloud',
+  path: '/read-aloud',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
 const ChatSettingsProvidersRoute = ChatSettingsProvidersRouteImport.update({
   id: '/providers',
   path: '/providers',
@@ -302,6 +314,7 @@ export interface FileRoutesByFullPath {
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
+  '/skills': typeof SkillsRoute
   '/welcome': typeof WelcomeRoute
   '/issues': typeof ChatIssuesRoute
   '/new': typeof ChatNewRoute
@@ -331,6 +344,7 @@ export interface FileRoutesByFullPath {
   '/settings/open-source-licenses': typeof ChatSettingsOpenSourceLicensesRoute
   '/settings/projects': typeof ChatSettingsProjectsRoute
   '/settings/providers': typeof ChatSettingsProvidersRoute
+  '/settings/read-aloud': typeof ChatSettingsReadAloudRoute
   '/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
   '/settings/secrets': typeof ChatSettingsSecretsRoute
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
@@ -348,6 +362,7 @@ export interface FileRoutesByTo {
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
+  '/skills': typeof SkillsRoute
   '/welcome': typeof WelcomeRoute
   '/issues': typeof ChatIssuesRoute
   '/new': typeof ChatNewRoute
@@ -378,6 +393,7 @@ export interface FileRoutesByTo {
   '/settings/open-source-licenses': typeof ChatSettingsOpenSourceLicensesRoute
   '/settings/projects': typeof ChatSettingsProjectsRoute
   '/settings/providers': typeof ChatSettingsProvidersRoute
+  '/settings/read-aloud': typeof ChatSettingsReadAloudRoute
   '/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
   '/settings/secrets': typeof ChatSettingsSecretsRoute
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
@@ -397,6 +413,7 @@ export interface FileRoutesById {
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
+  '/skills': typeof SkillsRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/issues': typeof ChatIssuesRoute
   '/_chat/new': typeof ChatNewRoute
@@ -427,6 +444,7 @@ export interface FileRoutesById {
   '/_chat/settings/open-source-licenses': typeof ChatSettingsOpenSourceLicensesRoute
   '/_chat/settings/projects': typeof ChatSettingsProjectsRoute
   '/_chat/settings/providers': typeof ChatSettingsProvidersRoute
+  '/_chat/settings/read-aloud': typeof ChatSettingsReadAloudRoute
   '/_chat/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
   '/_chat/settings/secrets': typeof ChatSettingsSecretsRoute
   '/_chat/settings/snap-shot': typeof ChatSettingsSnapShotRoute
@@ -447,6 +465,7 @@ export interface FileRouteTypes {
     | '/connect-agent'
     | '/guest'
     | '/pair'
+    | '/skills'
     | '/welcome'
     | '/issues'
     | '/new'
@@ -476,6 +495,7 @@ export interface FileRouteTypes {
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/read-aloud'
     | '/settings/scheduled-tasks'
     | '/settings/secrets'
     | '/settings/snap-shot'
@@ -493,6 +513,7 @@ export interface FileRouteTypes {
     | '/connect-agent'
     | '/guest'
     | '/pair'
+    | '/skills'
     | '/welcome'
     | '/issues'
     | '/new'
@@ -523,6 +544,7 @@ export interface FileRouteTypes {
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/read-aloud'
     | '/settings/scheduled-tasks'
     | '/settings/secrets'
     | '/settings/snap-shot'
@@ -541,6 +563,7 @@ export interface FileRouteTypes {
     | '/connect-agent'
     | '/guest'
     | '/pair'
+    | '/skills'
     | '/welcome'
     | '/_chat/issues'
     | '/_chat/new'
@@ -571,6 +594,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/open-source-licenses'
     | '/_chat/settings/projects'
     | '/_chat/settings/providers'
+    | '/_chat/settings/read-aloud'
     | '/_chat/settings/scheduled-tasks'
     | '/_chat/settings/secrets'
     | '/_chat/settings/snap-shot'
@@ -590,6 +614,7 @@ export interface RootRouteChildren {
   ConnectAgentRoute: typeof ConnectAgentRoute
   GuestRoute: typeof GuestRoute
   PairRoute: typeof PairRoute
+  SkillsRoute: typeof SkillsRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
   ThreadsEnvironmentIdThreadIdRoute: typeof ThreadsEnvironmentIdThreadIdRoute
@@ -602,6 +627,13 @@ declare module '@tanstack/react-router' {
       path: '/welcome'
       fullPath: '/welcome'
       preLoaderRoute: typeof WelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {
@@ -763,6 +795,13 @@ declare module '@tanstack/react-router' {
       path: '/scheduled-tasks'
       fullPath: '/settings/scheduled-tasks'
       preLoaderRoute: typeof ChatSettingsScheduledTasksRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
+    '/_chat/settings/read-aloud': {
+      id: '/_chat/settings/read-aloud'
+      path: '/read-aloud'
+      fullPath: '/settings/read-aloud'
+      preLoaderRoute: typeof ChatSettingsReadAloudRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
     '/_chat/settings/providers': {
@@ -942,6 +981,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsOpenSourceLicensesRoute: typeof ChatSettingsOpenSourceLicensesRoute
   ChatSettingsProjectsRoute: typeof ChatSettingsProjectsRoute
   ChatSettingsProvidersRoute: typeof ChatSettingsProvidersRoute
+  ChatSettingsReadAloudRoute: typeof ChatSettingsReadAloudRoute
   ChatSettingsScheduledTasksRoute: typeof ChatSettingsScheduledTasksRoute
   ChatSettingsSecretsRoute: typeof ChatSettingsSecretsRoute
   ChatSettingsSnapShotRoute: typeof ChatSettingsSnapShotRoute
@@ -972,6 +1012,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsOpenSourceLicensesRoute: ChatSettingsOpenSourceLicensesRoute,
   ChatSettingsProjectsRoute: ChatSettingsProjectsRoute,
   ChatSettingsProvidersRoute: ChatSettingsProvidersRoute,
+  ChatSettingsReadAloudRoute: ChatSettingsReadAloudRoute,
   ChatSettingsScheduledTasksRoute: ChatSettingsScheduledTasksRoute,
   ChatSettingsSecretsRoute: ChatSettingsSecretsRoute,
   ChatSettingsSnapShotRoute: ChatSettingsSnapShotRoute,
@@ -1022,6 +1063,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectAgentRoute: ConnectAgentRoute,
   GuestRoute: GuestRoute,
   PairRoute: PairRoute,
+  SkillsRoute: SkillsRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
   ThreadsEnvironmentIdThreadIdRoute: ThreadsEnvironmentIdThreadIdRoute,
