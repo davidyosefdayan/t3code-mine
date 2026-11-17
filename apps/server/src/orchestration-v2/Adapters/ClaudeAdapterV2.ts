@@ -5551,6 +5551,8 @@ interface ClaudeLiveQueryContext {
   selection: CompiledClaudeModelSelection;
   readonly program: string | undefined;
   readonly startedWithApiModelId: string;
+  // Personal build: the chat's compact limit this process runs with; null is the provider's.
+  compactWindow: number | null;
   readonly closed: Deferred.Deferred<void, never>;
   lastTurn: ActiveClaudeTurnContext | null;
   // "early" echoes on the first frame; "acknowledged" confirms uuid acceptance, but resume turns can still precede the prompt.
@@ -6163,6 +6165,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     cwd: string | null,
     modelSelection: ModelSelection,
     launchArgSettings: ClaudeSdkSettings | undefined,
+    chatWindow?: number | null,
   ) {
     // With auto-compaction off Claude never compacts, so there is no threshold to report.
     for (const name of ["DISABLE_COMPACT", "DISABLE_AUTO_COMPACT"]) {
@@ -6182,6 +6185,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       }
     }
     if (autoCompactEnabled === false) return "";
+    if (chatWindow != null) return String(chatWindow);
     if (adapterOptions.settings.autoCompactWindow !== "")
       return adapterOptions.settings.autoCompactWindow;
     const validWindow = (value: unknown) => {
@@ -13505,6 +13509,37 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           live.selection = selection;
         });
 
+        // Personal build: a changed compact limit goes to the running process. Through env,
+        // since Claude ranks CLAUDE_CODE_AUTO_COMPACT_WINDOW above the autoCompactWindow setting.
+        const applyCompactWindowLive = Effect.fnUntraced(function* (
+          live: ClaudeLiveQueryContext,
+          turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
+          const window = turnInput.appThread.autoCompactWindow ?? null;
+          if (live.compactWindow === window) return;
+          const value =
+            window !== null
+              ? String(window)
+              : yield* resolveAutoCompactWindow(
+                  live.settingsCwd,
+                  turnInput.modelSelection,
+                  live.launchArgSettings,
+                );
+          // A null entry removes the variable, leaving Claude's own default.
+          const env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: value === "" ? null : value };
+          yield* live.query.applyFlagSettings({ env: env as Record<string, string> }).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                live.compactWindow = window;
+              }),
+            ),
+            Effect.catchTags({
+              ClaudeAgentSdkQueryRunnerError: (cause) =>
+                Effect.logWarning("orchestration-v2.claude-compact-window-apply-failed", { cause }),
+            }),
+          );
+        });
+
         const openQuery = Effect.fnUntraced(function* (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
           nativeThreadId: string,
@@ -13647,6 +13682,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   }),
                 );
             }
+            yield* applyCompactWindowLive(existing, turnInput);
             return existing;
           }
 
@@ -13716,7 +13752,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { workspace: turnInput.runtimePolicy.workspace }),
             attachmentsDir,
-            settings: adapterOptions.settings,
+            // Personal build: the chat's own compact limit replaces the provider's.
+            settings:
+              turnInput.appThread.autoCompactWindow == null
+                ? adapterOptions.settings
+                : {
+                    ...adapterOptions.settings,
+                    autoCompactWindow: String(turnInput.appThread.autoCompactWindow),
+                  },
             // Delegated threads have no one typing, so they never ask for suggestions.
             promptSuggestions:
               !isDelegatedAppThread(turnInput.appThread) && (yield* promptSuggestionsEnabled),
@@ -13818,6 +13861,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             selection: compiledSelection,
             program,
             startedWithApiModelId: compiledSelection.apiModelId,
+            compactWindow: turnInput.appThread.autoCompactWindow ?? null,
             closed,
             lastTurn: null,
             promptEchoMode: "unknown",
@@ -14117,6 +14161,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               querySession.settingsCwd,
               turnInput.modelSelection,
               querySession.launchArgSettings,
+              turnInput.appThread.autoCompactWindow,
             );
             const context: ActiveClaudeTurnContext = {
               input: turnInput,

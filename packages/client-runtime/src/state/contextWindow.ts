@@ -313,7 +313,8 @@ export function compactBeforeSendTokens(input: {
     provider === undefined ||
     !input.threadIdle ||
     COMPACT_COMMAND_PATTERN.test(input.text) ||
-    resolveIdleCompaction(input.settings, provider.instanceId) === "off" ||
+    // Personal build: only "When you return" compacts on send; past the cache, the token limit decides.
+    resolveIdleCompaction(input.settings, provider.instanceId) !== "onReturn" ||
     !provider.slashCommands.some((command) => command.name === "compact") ||
     resolvePendingHandoff(projection, input.selection, input.providers) !== null ||
     projection.runtimeRequests.some((request) => request.status === "pending") ||

@@ -29,6 +29,7 @@ import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadRepositorySections } from "./ThreadRepositorySections";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
+  type ThreadDetailsAutoCompact,
   ThreadDetailsContext,
   ThreadDetailsUsage,
   type ThreadDetailsUsageInput,
@@ -95,6 +96,10 @@ interface ThreadDetailsPanelProps extends Pick<
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
   usage: ThreadDetailsUsageInput;
+  /** Personal build: compacts the thread from the context row's details. */
+  onCompactContext?: (() => void) | undefined;
+  /** Personal build: what idle compaction will do with this chat. */
+  autoCompact?: ThreadDetailsAutoCompact | undefined;
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
@@ -329,7 +334,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               {visible.usage ? <ThreadDetailsUsage {...props.usage} /> : null}
 
               {visible.context && props.usage.contextWindow ? (
-                <ThreadDetailsContext usage={props.usage.contextWindow} />
+                <ThreadDetailsContext
+                  usage={props.usage.contextWindow}
+                  onCompact={props.onCompactContext}
+                  autoCompact={props.autoCompact}
+                />
               ) : null}
 
               {/* Shown only when no section above has content, so an emptied card can be refilled. */}

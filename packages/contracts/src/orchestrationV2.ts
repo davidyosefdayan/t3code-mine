@@ -557,6 +557,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
   // Personal build: this chat's idle compaction switch, and the run its agent asked to compact after.
   autoCompactDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  // Personal build: when Claude compacts this chat, in tokens; null follows the provider setting.
+  autoCompactWindow: Schema.optional(Schema.NullOr(PositiveInt)),
   compactAfterRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -3489,6 +3491,10 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     enabled: Schema.optional(Schema.Boolean),
     afterRunId: Schema.optional(Schema.NullOr(RunId)),
+    // When Claude compacts this chat, the same range as the provider's "Auto-compact after".
+    window: Schema.optional(
+      Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 100_000, maximum: 1_000_000 }))),
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin.reorder"),
