@@ -2534,7 +2534,18 @@ export default function ChatView(props: ChatViewProps) {
   const autoCompactUsage =
     serverProjection === null ? undefined : latestSessionUsage(serverProjection);
   const autoCompactCacheEnd = Date.parse(autoCompactUsage?.promptCacheExpiresAt ?? "");
-  const setThreadAutoCompact = useOrchestrationCommand(threadEnvironment.setAutoCompact);
+  const runSetThreadAutoCompact = useOrchestrationCommand(threadEnvironment.setAutoCompact);
+  // A server without this personal-build command rejects it; say so instead of ignoring the choice.
+  const setThreadAutoCompact = async (value: Parameters<typeof runSetThreadAutoCompact>[0]) => {
+    const result = await runSetThreadAutoCompact(value);
+    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: "Couldn't change compaction for this chat",
+      description: error instanceof Error ? error.message : undefined,
+    });
+  };
   const autoCompact =
     autoCompactStatus === null || !activeThread
       ? undefined
