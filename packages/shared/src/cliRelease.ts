@@ -3,7 +3,8 @@ import * as Schema from "effect/Schema";
 
 import { compareSemverVersions } from "./semver.ts";
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+// Fork: releases, the release index and CLI archive downloads come from the fork, not official T3.
+const CLI_RELEASE_REPOSITORY = "davidyosefdayan/t3code-mine";
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -148,9 +149,17 @@ export function newestCliReleaseVersion(
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
     if (version === undefined) continue;
-    if (cliReleaseChannelOf(version) === channel) return version;
+    if (cliReleaseChannelOf(version) === channel) return forkReleaseUpstreamVersion(version);
   }
   return undefined;
+}
+
+/** Fork: a fork release tag (0.1.1001, patch times 100 plus the fork release) as the upstream
+ * version its `t3` reports and its CLI archives are named and also tagged with (0.1.10). */
+function forkReleaseUpstreamVersion(version: string): string {
+  const match = /^(\d+\.\d+\.)(\d+)$/.exec(version);
+  if (match?.[1] === undefined || match[2] === undefined || Number(match[2]) < 100) return version;
+  return `${match[1]}${Math.floor(Number(match[2]) / 100)}`;
 }
 
 const NpmReleaseMigrationManifest = Schema.Struct({

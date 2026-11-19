@@ -38,5 +38,7 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion(releases, "nightly")).toBe("1.2.4-nightly.20260912.7");
     expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3");
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
+    expect(newestCliReleaseVersion([{ tag_name: "v0.1.1001" }], "stable")).toBe("0.1.10");
+    expect(newestCliReleaseVersion([{ tag_name: "v0.1.10" }], "stable")).toBe("0.1.10");
   });
 });
