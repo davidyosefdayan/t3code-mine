@@ -936,6 +936,16 @@ describe("server state projection", () => {
         status: "failed",
         reason: "The service launcher resumed without committing the requested server version.",
       });
+      // Personal build: a fork server reports upstream's version and its fork build beside it.
+      const committed = ready("committed");
+      yield* validateServerUpdateReadyEvent({ ...result, targetVersion: "0.0.30+3002" }, {
+        ...committed,
+        payload: {
+          ...committed.payload,
+          environment: { serverVersion: "0.0.30", forkBuild: { version: "0.0.30+3002" } },
+          updateOutcome: { ...committed.payload.updateOutcome!, targetVersion: "0.0.30+3002" },
+        },
+      } as typeof committed);
     }),
   );
 

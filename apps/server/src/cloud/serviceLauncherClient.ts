@@ -11,7 +11,8 @@ import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import {
   pinnedRuntimePaths,
   pinnedRuntimeVersionsDir,

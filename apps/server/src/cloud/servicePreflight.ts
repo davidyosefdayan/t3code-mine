@@ -2,7 +2,8 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import { BUILD_MIGRATION_HEAD, recordedMigrations } from "../persistence/databaseMigrationHead.ts";
 import { skippedV2Migrations } from "../persistence/Migrations.ts";
 import { reconciledV2PreviewHistory } from "../persistence/reconcileV2PreviewMigration.ts";

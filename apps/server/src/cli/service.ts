@@ -9,7 +9,8 @@ import * as Path from "effect/Path";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import * as BootService from "../cloud/bootService.ts";
 import * as ServiceProtection from "../cloud/serviceProtection.ts";
 import { compareExactServiceVersions, SERVICE_ENV_FILE } from "../cloud/serviceProtocol.ts";

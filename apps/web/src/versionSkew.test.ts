@@ -13,6 +13,7 @@ import {
   isServerUpdateFailureDismissed,
   isVersionMismatchDismissed,
   manualServerUpdateCommand,
+  resolveServerConfigVersionMismatch,
   resolveVersionMismatch,
 } from "./versionSkew";
 
@@ -72,6 +73,20 @@ describe("versionSkew", () => {
       serverVersion: "0.0.33",
       hint: MISMATCH_HINT,
     });
+  });
+
+  it("offers a fork server's newer fork build of the same upstream version", () => {
+    const config = (forkBuild?: { version: string; update?: string }) =>
+      ({ environment: { serverVersion: "0.0.34", ...(forkBuild ? { forkBuild } : {}) } }) as never;
+    expect(
+      resolveServerConfigVersionMismatch(config({ version: "0.0.34+3401", update: "0.0.34+3402" })),
+    ).toEqual({
+      clientVersion: "0.0.34+3402",
+      serverVersion: "0.0.34+3401",
+      hint: "A newer build of this server is available.",
+    });
+    expect(resolveServerConfigVersionMismatch(config({ version: "0.0.34+3401" }))).toBeNull();
+    expect(resolveServerConfigVersionMismatch(config())).toBeNull();
   });
 
   it("does not warn when the server is ahead of the client", () => {

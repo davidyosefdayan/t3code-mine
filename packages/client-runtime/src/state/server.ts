@@ -203,12 +203,17 @@ const SERVER_UPDATE_RESUME_TIMEOUT = Duration.minutes(32);
 // A live host replays its ready on subscribe within a round trip; past this, update without a baseline.
 const SERVER_UPDATE_ACCEPTING_READY_TIMEOUT = Duration.seconds(5);
 
+/** Personal build: a fork server reports its fork build (0.1.10+1003) as the version it updated to. */
+function readyServerVersion(event: ServerLifecycleStreamReadyEvent): string {
+  return event.payload.environment.forkBuild?.version ?? event.payload.environment.serverVersion;
+}
+
 export function matchesServerUpdateReadyEvent(
   result: ServerSelfUpdateResult,
   event: ServerLifecycleStreamReadyEvent,
 ): boolean {
   return result.updateId === undefined
-    ? event.payload.environment.serverVersion === result.targetVersion
+    ? readyServerVersion(event) === result.targetVersion
     : event.payload.updateOutcome?.id === result.updateId;
 }
 
@@ -239,7 +244,7 @@ export function validateServerUpdateReadyEvent(
   if (
     outcome?.status === "committed" &&
     outcome.targetVersion === result.targetVersion &&
-    event.payload.environment.serverVersion === result.targetVersion
+    readyServerVersion(event) === result.targetVersion
   ) {
     return Effect.void;
   }
