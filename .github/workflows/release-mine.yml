@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      upstream: ${{ steps.version.outputs.upstream }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -58,6 +59,7 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
 
       # The updater only offers a higher version, so republishing one would
       # reach nobody. Refuse early instead of after the builds.
@@ -185,13 +187,14 @@ jobs:
           fi
 
       # The headless server: the same `t3` archive upstream ships, built from the
-      # server bundle the desktop build just made. Its archive name carries the
-      # fork's version; `t3 --version` reports upstream's, like the packages.
+      # server bundle the desktop build just made. Its archive name carries
+      # upstream's version, like `t3 --version`, because server updaters ask
+      # for that version.
       - name: Build server archive
         if: matrix.cli_archive
         shell: bash
         env:
-          VERSION: ${{ needs.preflight.outputs.version }}
+          VERSION: ${{ needs.preflight.outputs.upstream }}
         run: |
           set -euo pipefail
           node apps/server/scripts/cli.ts build-exe --verbose
@@ -239,6 +242,21 @@ jobs:
           path: release-files
           merge-multiple: true
 
+      # The server updater refuses to install a CLI archive without this file.
+      - name: Write CLI archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-files
+          shopt -s nullglob
+          archives=(t3-*.tar.gz t3-*.zip)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No CLI archives were produced." >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -263,4 +281,25 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "T3 Code (Mine) v$VERSION" \
-            --notes-file notes.md
+            --notes-file notes.md \
+            --latest
+
+      # Server updaters download v<upstream version>/t3-<upstream version>-*, so
+      # the archives are also published under the upstream version's tag. It is a
+      # pre-release so the desktop updater, which reads the latest release, skips
+      # it. A later fork release on the same upstream version replaces it.
+      - name: Publish server archives under the upstream version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          UPSTREAM: ${{ needs.preflight.outputs.upstream }}
+        run: |
+          set -euo pipefail
+          gh release delete "v$UPSTREAM" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "v$UPSTREAM" release-files/t3-* release-files/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Server archives for v$VERSION" \
+            --notes "The \`t3\` server archives of [v$VERSION](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION), where server updaters find them." \
+            --prerelease \
+            --latest=false
