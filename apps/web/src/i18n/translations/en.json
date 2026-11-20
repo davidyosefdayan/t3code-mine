@@ -1433,6 +1433,7 @@
   "85632ff85a7d923d": "The file is unavailable on this computer.",
   "3d2036743bbda4c9": "Unable to drag file",
   "111a308f2cba6e4b": "Version mismatch. Try syncing the client and server to the same T3 Code version.",
+  "6b289c31f31a8468": "A newer build of this server is available.",
   "4eb599c7f36c99ba": "That theme file is not valid JSON.",
   "29a5ff50ce55c4f9": "VS Code theme",
   "10348092dfed8b11": "That VS Code theme has no \"editor.background\" color, so there is nothing to build a palette from.",

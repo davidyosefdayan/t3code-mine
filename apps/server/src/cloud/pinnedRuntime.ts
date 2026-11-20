@@ -17,6 +17,7 @@ import {
   cliArchiveFileName,
   cliArchivePlatformKey,
   cliArchiveTarCommand,
+  cliReleaseArchiveLocation,
   cliReleaseAssetUrl,
   type CliArchivePlatformKey,
   parseChecksums,
@@ -276,7 +277,11 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
   const { fileName, expected } = yield* publishedArchive(input, platformKey);
   const archive = yield* fetchReleaseAsset(
     httpClient,
-    cliReleaseAssetUrl(input.version, fileName, input.releaseBaseUrl),
+    cliReleaseAssetUrl(
+      cliReleaseArchiveLocation(input.version).releaseVersion,
+      fileName,
+      input.releaseBaseUrl,
+    ),
     "downloading the t3 release archive",
     true,
     input.onProgress,
@@ -331,12 +336,14 @@ const publishedArchive = Effect.fn("cloud.pinned_runtime.published_archive")(fun
   input: PinnedRuntimeInstallInput,
   platformKey: CliArchivePlatformKey,
 ) {
-  const fileName = cliArchiveFileName(input.version, platformKey);
+  // Personal build: a fork build's archive is in its own release, named with the upstream version.
+  const { releaseVersion, archiveVersion } = cliReleaseArchiveLocation(input.version);
+  const fileName = cliArchiveFileName(archiveVersion, platformKey);
   const checksums = parseChecksums(
     new TextDecoder().decode(
       yield* fetchReleaseAsset(
         input.httpClient,
-        cliReleaseAssetUrl(input.version, CLI_RELEASE_CHECKSUMS_FILE, input.releaseBaseUrl),
+        cliReleaseAssetUrl(releaseVersion, CLI_RELEASE_CHECKSUMS_FILE, input.releaseBaseUrl),
         "downloading the t3 release checksums",
         false,
       ),

@@ -228,6 +228,16 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   /** Highest migration this server's database holds; absent on older servers. */
   databaseMigration: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
+  /**
+   * Personal build: the fork build a server runs (`0.1.10+1003`), and a newer one it found
+   * (`update`), which its "Update server" flow installs. Absent on other servers.
+   */
+  forkBuild: Schema.optionalKey(
+    Schema.Struct({
+      version: TrimmedNonEmptyString,
+      update: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+  ),
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;
 

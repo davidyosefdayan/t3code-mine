@@ -1433,6 +1433,7 @@
   "85632ff85a7d923d": "Die Datei ist auf diesem Computer nicht verfügbar.",
   "3d2036743bbda4c9": "Datei kann nicht gezogen werden",
   "111a308f2cba6e4b": "Versionskonflikt. Bringe Client und Server auf dieselbe T3-Code-Version.",
+  "6b289c31f31a8468": "Ein neuerer Build dieses Servers ist verfügbar.",
   "4eb599c7f36c99ba": "Diese Design-Datei ist kein gültiges JSON.",
   "29a5ff50ce55c4f9": "VS-Code-Design",
   "10348092dfed8b11": "Dieses VS-Code-Design hat keine Farbe „editor.background“, daher lässt sich keine Palette daraus erstellen.",

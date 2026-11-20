@@ -226,7 +226,11 @@ export function compareExactServiceVersions(left: string, right: string): number
     if (x !== y) return x < y ? -1 : 1;
   }
   if (a.prerelease.length === 0 || b.prerelease.length === 0) {
-    return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length === 0 ? 1 : -1;
+    if (a.prerelease.length !== b.prerelease.length) return a.prerelease.length === 0 ? 1 : -1;
+    // Personal build: fork builds of one upstream version (0.1.10+1003) order by fork release.
+    // Inlined rather than imported from cliRelease, which pulls Effect into the launcher.
+    const forkBuild = (version: string) => Number(/^[^+-]+\+([1-9]\d*)$/.exec(version)?.[1] ?? 0);
+    return Math.sign(forkBuild(left) - forkBuild(right));
   }
   const count = Math.max(a.prerelease.length, b.prerelease.length);
   for (let index = 0; index < count; index += 1) {

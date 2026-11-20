@@ -1433,6 +1433,7 @@
   "85632ff85a7d923d": "Le fichier n’est pas disponible sur cet ordinateur.",
   "3d2036743bbda4c9": "Impossible de faire glisser le fichier",
   "111a308f2cba6e4b": "Versions incompatibles. Essayez d’aligner le client et le serveur sur la même version de T3 Code.",
+  "6b289c31f31a8468": "Une version plus récente de ce serveur est disponible.",
   "4eb599c7f36c99ba": "Ce fichier de thème n’est pas un JSON valide.",
   "29a5ff50ce55c4f9": "Thème VS Code",
   "10348092dfed8b11": "Ce thème VS Code n’a pas de couleur « editor.background » ; impossible d’en dériver une palette.",

@@ -11,7 +11,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import { forkBuildOf } from "@t3tools/shared/cliRelease";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -20,6 +22,7 @@ import { readAgentActivityPublishingActive } from "../cloud/config.ts";
 import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
+import { forkBuildUpdate, RUNTIME_VERSION } from "../forkBuild.ts";
 import { databaseMigrationHead } from "../persistence/databaseMigrationHead.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isSpeechPlatformSupported } from "../speech/platform.ts";
@@ -309,10 +312,19 @@ export const make = Effect.gen(function* () {
   return ServerEnvironment.of({
     getEnvironmentId: Effect.succeed(environmentId),
     // Publishing opt-in and relay links change at runtime; read the capability per request.
-    getDescriptor: readAgentActivityPublishingActive(secrets).pipe(
-      Effect.map((agentActivityPublishing) => ({
+    getDescriptor: Effect.all([
+      readAgentActivityPublishingActive(secrets),
+      Ref.get(forkBuildUpdate),
+    ]).pipe(
+      Effect.map(([agentActivityPublishing, update]) => ({
         ...descriptor,
         capabilities: { ...descriptor.capabilities, agentActivityPublishing },
+        // Personal build: the fork build this server runs and a newer one it found.
+        ...(forkBuildOf(RUNTIME_VERSION) === undefined
+          ? {}
+          : {
+              forkBuild: { version: RUNTIME_VERSION, ...(update === undefined ? {} : { update }) },
+            }),
       })),
     ),
   });

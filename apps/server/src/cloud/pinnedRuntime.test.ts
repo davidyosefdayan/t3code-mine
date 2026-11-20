@@ -107,6 +107,33 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     }),
   );
 
+  it.effect("installs a fork build from its own release into its own folder", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-fork-" });
+      const requests: string[] = [];
+      const paths = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version: "1.2.3+1205",
+        fs,
+        path,
+        platform: "linux",
+        arch: "x64",
+        httpClient: releaseHttpClient(yield* validChecksums, requests),
+        releaseBaseUrl: "https://releases.example/download",
+        runner: extractingRunner(fs, path),
+        validate: () => Effect.void,
+      });
+      assert.equal(paths.versionDir, path.join(baseDir, "runtime", "versions", "1.2.3+1205"));
+      assert.deepEqual(requests, [
+        "https://releases.example/download/v1.2.1205/SHA256SUMS",
+        `https://releases.example/download/v1.2.1205/${archiveName}`,
+      ]);
+      assert.equal(yield* fs.readFileString(paths.sentinelPath), "1.2.3+1205\n");
+    }),
+  );
+
   it.effect("cleans up an interrupted download without reporting verification or extraction", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -661,6 +688,9 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
         "1.5.0",
         "2.0.0",
         "2.1.0",
+        // Personal build: fork builds of one upstream version sit side by side.
+        "2.0.0+2001",
+        "2.0.0+2002",
       ]);
       // A downgrade another process installed but has not pointed anything at yet.
       yield* install("0.5.0", "just now");
@@ -692,7 +722,7 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
 
       const removed = yield* prunePinnedRuntimes({
         baseDir,
-        keep: ["2.0.0"],
+        keep: ["2.0.0", "2.0.0+2002"],
         references: [`ExecStart=${path.join(versionsDir, "1.3.5", "t3")} __service-launcher`],
       }).pipe(
         Effect.provideService(
@@ -706,7 +736,7 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
       // 1.2.0 is the default launcher, 1.2.5 a recorded one, 1.3.0 running, 1.3.5 in the unit,
       // 1.4.0 active, 1.5.0 the rolled-back target, 2.0.0 the caller's, 0.5.0 just installed.
       // Being newer than the caller's version does not keep 2.1.0.
-      assert.deepEqual(removed.toSorted(), ["0.8.0", "1.0.0", "1.1.0", "2.1.0"]);
+      assert.deepEqual(removed.toSorted(), ["0.8.0", "1.0.0", "1.1.0", "2.0.0+2001", "2.1.0"]);
       // The launcher found on PATH is remembered for a service that cannot see it.
       assert.equal(
         yield* fs.readFileString(path.join(baseDir, "runtime", "launchers")),
@@ -724,6 +754,7 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
         "1.4.0",
         "1.5.0",
         "2.0.0",
+        "2.0.0+2002",
         "other",
       ]);
     }),

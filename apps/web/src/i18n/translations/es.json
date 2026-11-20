@@ -1433,6 +1433,7 @@
   "85632ff85a7d923d": "El archivo no está disponible en este equipo.",
   "3d2036743bbda4c9": "No se puede arrastrar el archivo",
   "111a308f2cba6e4b": "Las versiones no coinciden. Prueba a sincronizar el cliente y el servidor a la misma versión de T3 Code.",
+  "6b289c31f31a8468": "Hay una compilación más reciente de este servidor disponible.",
   "4eb599c7f36c99ba": "Ese archivo de tema no es un JSON válido.",
   "29a5ff50ce55c4f9": "Tema de VS Code",
   "10348092dfed8b11": "Ese tema de VS Code no tiene el color \"editor.background\", así que no hay nada a partir de lo que crear una paleta.",

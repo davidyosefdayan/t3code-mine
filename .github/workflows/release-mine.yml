@@ -188,13 +188,16 @@ jobs:
 
       # The headless server: the same `t3` archive upstream ships, built from the
       # server bundle the desktop build just made. Its archive name carries
-      # upstream's version, like `t3 --version`, because server updaters ask
-      # for that version.
+      # upstream's version, which clients and older server updaters ask for.
+      # T3CODE_FORK_VERSION embeds this release in the server, so it runs and
+      # reports as a fork build (0.1.10+1003 for v0.1.1003) and its updater
+      # installs each newer fork release from that release's own archives.
       - name: Build server archive
         if: matrix.cli_archive
         shell: bash
         env:
           VERSION: ${{ needs.preflight.outputs.upstream }}
+          T3CODE_FORK_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
           node apps/server/scripts/cli.ts build-exe --verbose
@@ -208,7 +211,7 @@ jobs:
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
           node scripts/smoke-cli-archive.ts --archive release-cli/* \
-            --expect-version "$(node -p 'require("./apps/server/package.json").version')"
+            --expect-version "$VERSION+${T3CODE_FORK_VERSION##*.}"
 
       - name: Collect release files
         shell: bash
@@ -275,7 +278,7 @@ jobs:
 
           **Linux desktop:** run the `.AppImage` (make it executable first), or install the `.deb` with `sudo apt install ./T3-Code-*.deb`. The AppImage updates itself from here.
 
-          **Linux server (headless):** download the `t3-*-linux-x64.tar.gz` (or `-arm64`) archive, unpack it, and run `./t3 serve`.
+          **Linux server (headless):** download the `t3-*-linux-x64.tar.gz` (or `-arm64`) archive, unpack it, and run `./t3 serve`. A server installed as a background service (`t3 service install`) checks for new releases every hour and switches to one when no chat is running. `t3 update` installs it at once.
           EOF
           gh release create "v$VERSION" release-files/* \
             --repo "$GITHUB_REPOSITORY" \
@@ -284,8 +287,9 @@ jobs:
             --notes-file notes.md \
             --latest
 
-      # Server updaters download v<upstream version>/t3-<upstream version>-*, so
-      # the archives are also published under the upstream version's tag. It is a
+      # Servers from before fork builds download v<upstream version>/t3-<upstream
+      # version>-*, so the archives are also published under the upstream
+      # version's tag. Fork builds read them from v<fork version> instead. It is a
       # pre-release so the desktop updater, which reads the latest release, skips
       # it. A later fork release on the same upstream version replaces it.
       - name: Publish server archives under the upstream version

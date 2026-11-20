@@ -75,6 +75,26 @@ it.effect("authenticates each release page until the requested channel is found"
   }),
 );
 
+it.effect("a fork build looks for the newest fork release, not upstream's version", () =>
+  Effect.gen(function* () {
+    const httpClient = HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          Response.json([{ tag_name: "v0.1.10" }, { tag_name: "v0.1.1003" }]),
+        ),
+      ),
+    );
+    const resolve = (forkBuilds: boolean) =>
+      resolveNewestVersion("stable", forkBuilds).pipe(
+        Effect.provideService(HostProcess.Environment, {}),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
+    assert.equal(yield* resolve(true), "0.1.10+1003");
+    assert.equal(yield* resolve(false), "0.1.10");
+  }),
+);
+
 it.effect("reads the newest version from the update feed file a mirror publishes", () =>
   Effect.gen(function* () {
     const requested: string[] = [];
@@ -614,6 +634,122 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
     }).pipe(
       Effect.provideService(HostProcess.Platform, "linux"),
       Effect.provideService(HostProcess.Environment, { PATH: "" }),
+    ),
+  );
+
+  it.effect("moves a service on upstream's version to a fork build from its own release", () =>
+    Effect.gen(function* () {
+      yield* withoutTerminals;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-update-fork-" });
+      const upstream = packageJson.version;
+      const [major, minor, patch] = upstream.split(".");
+      const forkRelease = `${major}.${minor}.${Number(patch) * 100 + 5}`;
+      const target = `${upstream}+${Number(patch) * 100 + 5}`;
+      const archiveName = `t3-${upstream}-linux-x64.tar.gz`;
+      const archive = new TextEncoder().encode("fork build archive");
+      const digest = new Uint8Array(
+        yield* Effect.promise(() => crypto.subtle.digest("SHA-256", archive)),
+      );
+      const checksums = `${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}  ${archiveName}\n`;
+      // A local stand-in for the release host, reached through T3CODE_RELEASE_BASE_URL.
+      const requested: string[] = [];
+      const releaseHost = HttpClient.make((request) => {
+        requested.push(request.url);
+        const { pathname } = new URL(request.url);
+        const body =
+          pathname === `/download/v${forkRelease}/SHA256SUMS`
+            ? checksums
+            : pathname === `/download/v${forkRelease}/${archiveName}`
+              ? archive
+              : undefined;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            body === undefined ? new Response("", { status: 404 }) : new Response(body),
+          ),
+        );
+      });
+      const unitPath = path.join(baseDir, "t3code.service");
+      const logPath = path.join(baseDir, "boot-service.log");
+      const installedFor: string[] = [];
+      const service = (cliVersion: string) =>
+        Layer.mock(BootService.BootService, {
+          status: Effect.succeed<BootService.BootServiceStatus>({
+            supported: true,
+            installed: true,
+            current: true,
+            installedVersion: upstream,
+            installedBaseDir: baseDir,
+            unitPath,
+            logPath,
+          }),
+          install: () =>
+            Effect.sync(() => installedFor.push(cliVersion)).pipe(
+              Effect.as({ program: [], baseDir, unitPath, logPath }),
+            ),
+        });
+      vi.spyOn(BootService, "layer").mockImplementation((input) => service(input.cliVersion));
+      const runner = ProcessRunner.ProcessRunner.of({
+        run: (input) =>
+          input.command === "tar"
+            ? fs
+                .writeFileString(path.join(input.args[input.args.indexOf("-C") + 1]!, "t3"), "")
+                .pipe(Effect.orDie, Effect.andThen(unrelatedLsof.run(input)))
+            : input.args?.includes("__service-preflight") === true
+              ? unrelatedLsof.run(input).pipe(
+                  Effect.map((result) => ({
+                    ...result,
+                    stdout: JSON.stringify({
+                      status: "ready",
+                      version: target,
+                      launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
+                    }),
+                  })),
+                )
+              : unrelatedLsof.run(input),
+      });
+
+      const output = yield* runUpdate({
+        baseDir,
+        logsDir: baseDir,
+        databasePath: path.join(baseDir, "statev2.sqlite"),
+        serverRuntimeStatePath: path.join(baseDir, "server-runtime.json"),
+        channel: undefined,
+        requestedVersion: target,
+        allowDowngrade: false,
+        assumeYes: true,
+      }).pipe(
+        Effect.andThen(TestConsole.logLines),
+        Effect.map((lines) => lines.join("\n")),
+        Effect.provide(
+          Layer.mergeAll(
+            service(upstream),
+            Layer.succeed(ProcessRunner.ProcessRunner, runner),
+            ManagedPolicy.layerTest(),
+            Layer.succeed(HttpClient.HttpClient, releaseHost),
+            Layer.fresh(TestConsole.layer),
+          ),
+        ),
+      );
+
+      assert.deepEqual(requested, [
+        `https://releases.example/download/v${forkRelease}/SHA256SUMS`,
+        `https://releases.example/download/v${forkRelease}/${archiveName}`,
+      ]);
+      const runtime = pinnedRuntimePaths(path, baseDir, target, "linux");
+      assert.equal(path.basename(runtime.versionDir), target);
+      assert.equal(yield* fs.readFileString(runtime.sentinelPath), `${target}\n`);
+      assert.deepEqual(installedFor, [target]);
+      assert.include(output, `Background service restarted on ${target}`);
+    }).pipe(
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Architecture, "x64"),
+      Effect.provideService(HostProcess.Environment, {
+        PATH: "",
+        T3CODE_RELEASE_BASE_URL: "https://releases.example/download",
+      }),
     ),
   );
 });

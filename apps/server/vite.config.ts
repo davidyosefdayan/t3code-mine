@@ -9,6 +9,7 @@ import { resolveTaggedSourceVersion } from "../../scripts/lib/tagged-source-vers
 import rootPackageJson from "../../package.json" with { type: "json" };
 import packageJson from "./package.json" with { type: "json" };
 import { WeightedShardSequencer } from "./src/testUtils/weightedShardSequencer.ts";
+import { forkRuntimeVersion } from "@t3tools/shared/cliRelease";
 
 // NSIS install time tracks file count, not bytes.
 import {
@@ -24,6 +25,14 @@ const serverManifestPath = NodePath.join(import.meta.dirname, "package.json");
 const buildVersion =
   process.env.APP_VERSION?.trim() ||
   resolveTaggedSourceVersion(NodePath.join(import.meta.dirname, "../.."), packageJson.version);
+// Personal build: release-mine.yml names the fork release a server archive is built for. A
+// version that is not a fork release of this upstream would ship a server that never updates.
+const forkVersion = process.env.T3CODE_FORK_VERSION?.trim() ?? "";
+if (forkVersion && forkRuntimeVersion(buildVersion, forkVersion) === undefined) {
+  throw new Error(
+    `T3CODE_FORK_VERSION ${forkVersion} is not a fork release of upstream ${buildVersion}.`,
+  );
+}
 const cliBuildChannel = /^[^-+]+-(?:nightly|preview)\./.test(buildVersion) ? "nightly" : "latest";
 // Official release workflows set the telemetry channel; local builds and forks use "dev".
 const TELEMETRY_CHANNELS = ["stable", "nightly", "preview", "dev"];
@@ -147,6 +156,8 @@ export default mergeConfig(
       define: {
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
         __T3CODE_TELEMETRY_CHANNEL__: JSON.stringify(telemetryChannel),
+        // Personal build: read by src/forkBuild.ts.
+        __T3CODE_FORK_VERSION__: JSON.stringify(forkVersion),
         __T3CODE_BUILD_RELAY_URL__: JSON.stringify(repoEnv.T3CODE_RELAY_URL?.trim() ?? ""),
         __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
           repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
