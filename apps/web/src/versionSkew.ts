@@ -80,7 +80,15 @@ export function resolveVersionMismatch(
 export function resolveServerConfigVersionMismatch(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): VersionMismatch | null {
-  return resolveVersionMismatch(serverConfig?.environment.serverVersion);
+  const mismatch = resolveVersionMismatch(serverConfig?.environment.serverVersion);
+  // Personal build: a fork server that found a newer fork build of its upstream version offers it.
+  const forkBuild = serverConfig?.environment.forkBuild;
+  if (mismatch !== null || forkBuild?.update === undefined) return mismatch;
+  return {
+    clientVersion: forkBuild.update,
+    serverVersion: forkBuild.version,
+    hint: "A newer build of this server is available.",
+  };
 }
 
 export function resolveServerSelfUpdateCapability(

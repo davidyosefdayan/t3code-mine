@@ -8,7 +8,8 @@ import * as Option from "effect/Option";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as BootService from "../cloud/bootService.ts";
 import * as CliState from "../cloud/CliState.ts";

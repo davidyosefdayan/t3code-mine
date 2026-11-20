@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cliArchiveTarCommand, newestCliReleaseVersion, parseChecksums } from "./cliRelease.ts";
+import {
+  cliArchiveTarCommand,
+  cliReleaseArchiveLocation,
+  forkBuildOf,
+  forkRuntimeVersion,
+  newestCliReleaseVersion,
+  newestForkBuildVersion,
+  parseChecksums,
+} from "./cliRelease.ts";
 
 describe("cliRelease", () => {
   it("parses sha256sum output including binary-mode markers", () => {
@@ -40,5 +48,43 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
     expect(newestCliReleaseVersion([{ tag_name: "v0.1.1001" }], "stable")).toBe("0.1.10");
     expect(newestCliReleaseVersion([{ tag_name: "v0.1.10" }], "stable")).toBe("0.1.10");
+  });
+
+  it("names fork builds after the fork release they were built for", () => {
+    expect(forkRuntimeVersion("0.1.10", "0.1.1003")).toBe("0.1.10+1003");
+    expect(forkRuntimeVersion("0.1.10", " 0.1.1003\n")).toBe("0.1.10+1003");
+    // No fork version, one for another upstream, or no fork release on it: no fork build.
+    for (const forkVersion of [undefined, "", "0.1.1103", "0.2.1003", "0.1.1000", "0.1.10", "x"]) {
+      expect(forkRuntimeVersion("0.1.10", forkVersion)).toBeUndefined();
+    }
+    expect(forkBuildOf("0.1.10+1003")).toBe(1003);
+    for (const version of ["0.1.10", "0.1.10+one", "0.1.10+build.1", "0.1.10-nightly.20260101.1"]) {
+      expect(forkBuildOf(version)).toBeUndefined();
+    }
+  });
+
+  it("downloads a fork build from its own release, named with the upstream version", () => {
+    expect(cliReleaseArchiveLocation("0.1.10+1003")).toEqual({
+      releaseVersion: "0.1.1003",
+      archiveVersion: "0.1.10",
+    });
+    expect(cliReleaseArchiveLocation("0.1.10")).toEqual({
+      releaseVersion: "0.1.10",
+      archiveVersion: "0.1.10",
+    });
+  });
+
+  it("finds the newest fork release, skipping the upstream-version archive release", () => {
+    const releases = [
+      { tag_name: "v0.1.10" },
+      { tag_name: "v0.1.1003" },
+      { tag_name: "v0.1.1004", draft: true },
+      { tag_name: "v0.1.1101-beta" },
+      { tag_name: "v0.1.1002" },
+      { tag_name: "v0.1.902" },
+    ];
+    expect(newestForkBuildVersion(releases)).toBe("0.1.10+1003");
+    expect(newestForkBuildVersion([{ tag_name: "v0.1.1101" }, ...releases])).toBe("0.1.11+1101");
+    expect(newestForkBuildVersion([{ tag_name: "v0.1.10" }])).toBeUndefined();
   });
 });

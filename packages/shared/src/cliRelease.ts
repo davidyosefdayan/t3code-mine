@@ -162,6 +162,59 @@ function forkReleaseUpstreamVersion(version: string): string {
   return `${match[1]}${Math.floor(Number(match[2]) / 100)}`;
 }
 
+/**
+ * Personal build: a server built for fork release 0.1.1003 of upstream 0.1.10 runs as `0.1.10+1003`.
+ * That names its pinned runtime folder and is what the fork's updater compares; upstream's
+ * version stays what clients see. Undefined when `forkVersion` is not a fork release of `upstream`.
+ */
+export function forkRuntimeVersion(
+  upstream: string,
+  forkVersion: string | undefined,
+): string | undefined {
+  const match = /^\d+\.\d+\.([1-9]\d*)$/.exec(forkVersion?.trim() ?? "");
+  const patch = Number(match?.[1]);
+  if (match === null || patch < 100 || patch % 100 === 0) return undefined;
+  return forkReleaseUpstreamVersion(match[0]) === upstream ? `${upstream}+${patch}` : undefined;
+}
+
+/** Personal build: the fork release number in a runtime version (1003 in `0.1.10+1003`). */
+export function forkBuildOf(version: string): number | undefined {
+  const build = /^\d+\.\d+\.\d+\+([1-9]\d*)$/.exec(version)?.[1];
+  return build === undefined ? undefined : Number(build);
+}
+
+/**
+ * Personal build: where a version's `t3` archive is published. A fork build (`0.1.10+1003`) is in
+ * its own release (v0.1.1003), whose archives carry the upstream version they report.
+ */
+export function cliReleaseArchiveLocation(version: string): {
+  readonly releaseVersion: string;
+  readonly archiveVersion: string;
+} {
+  const build = forkBuildOf(version);
+  if (build === undefined) return { releaseVersion: version, archiveVersion: version };
+  const archiveVersion = version.slice(0, version.indexOf("+"));
+  return { releaseVersion: archiveVersion.replace(/\d+$/, String(build)), archiveVersion };
+}
+
+/** Personal build: the newest fork release in a release index page, as a runtime version. */
+export function newestForkBuildVersion(
+  releases: ReadonlyArray<{ readonly tag_name: string; readonly draft?: boolean | undefined }>,
+): string | undefined {
+  let newest: string | undefined;
+  for (const release of releases) {
+    if (release.draft) continue;
+    const tag = /^v(\d+\.\d+\.\d+)$/.exec(release.tag_name)?.[1];
+    if (tag === undefined || (newest !== undefined && compareSemverVersions(tag, newest) <= 0)) {
+      continue;
+    }
+    if (forkRuntimeVersion(forkReleaseUpstreamVersion(tag), tag) !== undefined) newest = tag;
+  }
+  return newest === undefined
+    ? undefined
+    : forkRuntimeVersion(forkReleaseUpstreamVersion(newest), newest);
+}
+
 const NpmReleaseMigrationManifest = Schema.Struct({
   t3code: Schema.Struct({ databaseMigration: Schema.Int }),
 });

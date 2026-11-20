@@ -27,7 +27,8 @@ import {
   crossesReleaseTrack,
 } from "@t3tools/shared/cliRelease";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as DesktopUpdateMarker from "../desktopUpdate/DesktopUpdateMarker.ts";

@@ -9,7 +9,8 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import packageJson from "../../package.json" with { type: "json" };
+// Personal build: runtimes are named and compared by the fork build they carry.
+import { runtimePackageJson as packageJson } from "../forkBuild.ts";
 import {
   pinnedRuntimePaths,
   pinnedRuntimeVersionsDir,

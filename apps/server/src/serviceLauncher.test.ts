@@ -96,6 +96,12 @@ it("orders exact semantic versions without treating build metadata as precedence
   assert.equal(compareExactServiceVersions("2.0.0-alpha-beta", "2.0.0-alpha-alpha"), 1);
   assert.equal(compareExactServiceVersions("2.0.0", "2.0.0-rc.1"), 1);
   assert.equal(compareExactServiceVersions("2.0.0+one", "2.0.0+two"), 0);
+  // Personal build: fork builds of one upstream version order by fork release.
+  assert.equal(compareExactServiceVersions("0.1.10+1004", "0.1.10+1003"), 1);
+  assert.equal(compareExactServiceVersions("0.1.10+1003", "0.1.10"), 1);
+  assert.equal(compareExactServiceVersions("0.1.10", "0.1.10+1003"), -1);
+  assert.equal(compareExactServiceVersions("0.1.11+1101", "0.1.10+1009"), 1);
+  assert.equal(compareExactServiceVersions("0.1.10+1003", "0.1.10+one"), 1);
 });
 
 it("rejects contradictory service state", () => {
