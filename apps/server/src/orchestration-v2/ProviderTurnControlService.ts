@@ -8,6 +8,7 @@ import {
   ProviderTurnId,
   RunAttemptId,
   ThreadId,
+  withWaitingOnYouNotice,
 } from "@t3tools/contracts";
 import type * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
@@ -444,6 +445,7 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
+          const notice = (yield* projections.getThread(input.threadId)).waitingOnYouNotice;
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -455,10 +457,14 @@ export const layer: Layer.Layer<
                 : { modelSelection: input.modelSelection }),
               message: {
                 messageId: message.id,
-                text: projectComposerContextForProvider({
-                  text: message.text,
-                  records: message.context?.records ?? [],
-                }),
+                text: withWaitingOnYouNotice(
+                  projectComposerContextForProvider({
+                    text: message.text,
+                    records: message.context?.records ?? [],
+                  }),
+                  message.id,
+                  notice,
+                ),
                 attachments: message.attachments,
                 createdBy: message.createdBy,
                 creationSource: message.creationSource,

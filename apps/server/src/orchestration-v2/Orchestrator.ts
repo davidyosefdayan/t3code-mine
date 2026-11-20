@@ -4848,6 +4848,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     ...next,
                     since: current?.kind === next.kind ? current.since : DateTime.formatIso(now),
                   },
+            // A dismissed mark is told with the user's next message; any other change makes it stale.
+            waitingOnYouNotice:
+              command.dismissed === true && current !== null
+                ? { via: "dismiss", kind: current.kind, reason: current.reason }
+                : null,
             updatedAt: now,
           };
         }
@@ -7165,25 +7170,42 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     // Personal build: a reply answers what the agent marked, so it ends the
     // mark. Only a merge mark naming a pull request waits for the merge instead.
+    // The agent reads that with this message, or a dismissed mark with the first one after it.
     const waitingOnYou = projection.thread.waitingOnYou ?? null;
-    if (
-      command.createdBy === "user" &&
-      !automaticWake &&
-      waitingOnYou !== null &&
-      !(waitingOnYou.kind === "merge" && waitingOnYou.pullRequest !== undefined)
-    ) {
-      const now = yield* DateTime.now;
-      const event = yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: command.threadId,
-        providerInstanceId: projection.thread.providerInstanceId,
-        occurredAt: now,
-        payload: { ...projection.thread, waitingOnYou: null, updatedAt: now },
-      });
-      projection = applyToProjection(projection, event);
+    const heldNotice = projection.thread.waitingOnYouNotice ?? null;
+    if (command.createdBy === "user" && !automaticWake) {
+      const answered =
+        waitingOnYou !== null &&
+        !(waitingOnYou.kind === "merge" && waitingOnYou.pullRequest !== undefined);
+      const notice = answered
+        ? {
+            via: "reply" as const,
+            kind: waitingOnYou.kind,
+            reason: waitingOnYou.reason,
+            messageId: command.messageId,
+          }
+        : heldNotice !== null && heldNotice.messageId === undefined
+          ? { ...heldNotice, messageId: command.messageId }
+          : null;
+      if (answered || heldNotice !== null) {
+        const now = yield* DateTime.now;
+        const event = yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: projection.thread.providerInstanceId,
+          occurredAt: now,
+          payload: {
+            ...projection.thread,
+            ...(answered ? { waitingOnYou: null } : {}),
+            waitingOnYouNotice: notice,
+            updatedAt: now,
+          },
+        });
+        projection = applyToProjection(projection, event);
+      }
     }
     const userMessages = projection.messages.filter((message) => message.role === "user");
     // The recent runs of a compacted thread can hold only a `/compact` while an older prompt

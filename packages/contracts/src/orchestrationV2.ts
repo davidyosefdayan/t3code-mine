@@ -47,7 +47,11 @@ import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
 import { ThreadTitleRegenerationOutcome } from "./threadTitle.ts";
-import { ThreadWaitingOnYou, ThreadWaitingOnYouRequest } from "./threadWaitingOnYou.ts";
+import {
+  ThreadWaitingOnYou,
+  ThreadWaitingOnYouNotice,
+  ThreadWaitingOnYouRequest,
+} from "./threadWaitingOnYou.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -518,6 +522,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   tags: Schema.optional(StoredThreadTags),
   // Personal build: what the agent handed back to the user (`t3_needs_you`).
   waitingOnYou: ForwardCompatibleOptional(Schema.NullOr(ThreadWaitingOnYou)),
+  waitingOnYouNotice: Schema.optional(Schema.NullOr(ThreadWaitingOnYouNotice)),
   // Personal build: this chat's idle compaction switch, and the run its agent asked to compact after.
   autoCompactDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   // Personal build: when Claude compacts this chat, in tokens; null follows the provider setting.
@@ -3246,6 +3251,8 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     waitingOnYou: Schema.NullOr(ThreadWaitingOnYouRequest),
+    /** The user took it down (Dismiss), so their next message tells the agent. */
+    dismissed: Schema.optional(Schema.Boolean),
   }),
   // Personal build: `enabled` is the chat's idle compaction switch; `afterRunId` compacts once
   // that run completes, and null withdraws it.
