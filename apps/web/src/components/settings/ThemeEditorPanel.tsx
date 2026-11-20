@@ -13,9 +13,7 @@ import {
   applyThemeColorPreview,
   THEME_COLOR_ROLES,
   THEME_FILE_VERSION,
-  createVividThemeColors,
   getCustomThemes,
-  getStandardThemeColors,
   getThemeColorsForMode,
   getThemeModes,
   installCustomTheme,
@@ -39,7 +37,8 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThemeCssEditor } from "./ThemeCssEditor";
 import { getThemeRoleLabel, ThemeColorField, ThemeColorPicker } from "./ThemeColorPicker";
-import { ThemeIconField } from "./ThemeEditorExtras";
+import { ThemePhotoField } from "./ThemeEditorExtras";
+import type { PhotoThemeSeed } from "../../themePhotoColors";
 import {
   buildMineThemeColors,
   counterpartSeed,
@@ -358,10 +357,11 @@ export function ThemeEditorPanel({
   const gt = useGT();
   const isEditing = editingTheme !== null;
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState<string | undefined>(undefined);
-  const [iconDark, setIconDark] = useState<string | undefined>(undefined);
+  const [backdrop, setBackdrop] = useState<string | undefined>(undefined);
   const [activeAppearance, setActiveAppearance] = useState<ThemeAppearance>(initialAppearance);
   const [isAdvanced, setIsAdvanced] = useState(false);
+  // Personal build: a guided theme edits one set of colors; the other appearance follows unless separated.
+  const [separateAppearances, setSeparateAppearances] = useState(false);
   const [colorsByAppearance, setColorsByAppearance] = useState<ThemeEditorColorsByAppearance>(() =>
     getThemeEditorColorsByAppearance(),
   );
@@ -417,12 +417,14 @@ export function ThemeEditorPanel({
       }
 
       setName(editingTheme?.label ?? seedName ?? "");
-      // A new theme or copy starts without an icon, so two themes never share one.
-      setIcon(editingTheme?.icon);
-      setIconDark(editingTheme?.iconDark);
+      setBackdrop(editingTheme?.backdrop);
       setActiveAppearance(nextAppearance);
       // Open unmanaged themes in advanced mode to preserve imported or hand-tuned colors.
       setIsAdvanced(sourceTheme !== null && sourceTheme.managed !== true);
+      // An existing theme's sides may be tuned by hand, so editing one never rewrites the other.
+      setSeparateAppearances(sourceTheme !== null);
+      // An existing theme's sides may be tuned by hand, so editing one never rewrites the other.
+      setSeparateAppearances(sourceTheme !== null);
       setSimpleColorsDirtyByAppearance({ light: false, dark: false });
       setShouldRegenerateGuidedColors(sourceTheme !== null && sourceTheme.managed !== true);
       setColorsByAppearance(nextColors);
@@ -485,8 +487,13 @@ export function ThemeEditorPanel({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies the edited colors to the document as a live theme preview while the editor is open
   useEffect(() => {
     if (!open) return;
-    applyThemeColorPreview(colorsByAppearance[activeAppearance], activeAppearance, cssForSave);
-  }, [activeAppearance, colorsByAppearance, cssForSave, open]);
+    applyThemeColorPreview(
+      colorsByAppearance[activeAppearance],
+      activeAppearance,
+      cssForSave,
+      backdrop,
+    );
+  }, [activeAppearance, backdrop, colorsByAppearance, cssForSave, open]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores the document theme when the editor closes or unmounts
   useEffect(() => {
@@ -499,22 +506,24 @@ export function ThemeEditorPanel({
   const updateColor = (role: ThemeColorRole | "rail", value: string) => {
     setColorsByAppearance((current) => {
       const nextColors = { ...current[activeAppearance], [role]: value };
-      // Personal build: a new theme's other appearance follows until it is picked itself.
+      // Personal build: the other appearance follows unless the two are set separately.
       const otherAppearance = activeAppearance === "light" ? "dark" : "light";
-      const followOther =
-        !isAdvanced &&
-        !isEditing &&
-        !seedName &&
-        !simpleColorsDirtyByAppearance[otherAppearance] &&
-        isThemeEditorColor(value) &&
-        (role === "rail" || role === "accent");
-      if (followOther) {
+      if (!isAdvanced && !separateAppearances && isGuidedRole(role) && isThemeEditorColor(value)) {
         const managed = getManagedEditorColors(activeAppearance, nextColors);
+        const { rail, accent, canvas } = mineThemeSeedOf(managed, activeAppearance);
+        const followed = counterpartSeed(
+          { rail, accent, ...(role === "canvas" ? { canvas } : {}) },
+          otherAppearance,
+        );
         return {
           ...current,
           [activeAppearance]: managed,
           [otherAppearance]: buildMineThemeColors(
-            counterpartSeed(mineThemeSeedOf(managed, activeAppearance), otherAppearance),
+            {
+              ...mineThemeSeedOf(current[otherAppearance], otherAppearance),
+              chip: undefined,
+              ...followed,
+            },
             otherAppearance,
           ),
         };
@@ -778,6 +787,35 @@ export function ThemeEditorPanel({
     };
   }, [clearInspectorSelection, isInspecting, open, selectThemeRole]);
 
+  // Personal build: a photo's rail and accent, for both sides when linked, else the side shown.
+  const applyPhotoColors = (seed: PhotoThemeSeed) => {
+    const sides: ReadonlyArray<ThemeAppearance> = separateAppearances
+      ? [activeAppearance]
+      : ["light", "dark"];
+    setColorsByAppearance((current) => {
+      const next = { ...current };
+      for (const appearance of sides) {
+        const picked = counterpartSeed({ rail: seed.rail, accent: seed.accent }, appearance);
+        next[appearance] = buildMineThemeColors(
+          {
+            ...mineThemeSeedOf(current[appearance], appearance),
+            chip: undefined,
+            rail: picked.rail,
+            accent: picked.accent,
+          },
+          appearance,
+        );
+      }
+      return next;
+    });
+  };
+
+  // A new photo sets the colors only when linked, so hand-tuned sides are never rewritten.
+  const handlePhotoChange = (next: string | undefined, seed: PhotoThemeSeed | null) => {
+    setBackdrop(next);
+    if (seed && !isAdvanced && !separateAppearances) applyPhotoColors(seed);
+  };
+
   const handleAdvancedChange = (checked: boolean) => {
     setIsAdvanced(checked);
     if (checked) return;
@@ -866,9 +904,8 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
-          ...((icon ?? mergeTarget.icon) ? { icon: icon ?? mergeTarget.icon } : {}),
-          ...((iconDark ?? mergeTarget.iconDark)
-            ? { iconDark: iconDark ?? mergeTarget.iconDark }
+          ...((backdrop ?? mergeTarget.backdrop)
+            ? { backdrop: backdrop ?? mergeTarget.backdrop }
             : {}),
         });
         retiredTheme = editingTheme;
@@ -890,8 +927,7 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(editingTheme.collection ? { collection: editingTheme.collection } : {}),
-          ...(icon ? { icon } : {}),
-          ...(iconDark ? { iconDark } : {}),
+          ...(backdrop ? { backdrop } : {}),
         });
       } else if (mergeTarget) {
         if (takenAppearances.includes(activeAppearance)) {
@@ -918,9 +954,8 @@ export function ThemeEditorPanel({
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
           ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
-          ...((icon ?? mergeTarget.icon) ? { icon: icon ?? mergeTarget.icon } : {}),
-          ...((iconDark ?? mergeTarget.iconDark)
-            ? { iconDark: iconDark ?? mergeTarget.iconDark }
+          ...((backdrop ?? mergeTarget.backdrop)
+            ? { backdrop: backdrop ?? mergeTarget.backdrop }
             : {}),
         });
       } else {
@@ -934,8 +969,7 @@ export function ThemeEditorPanel({
             ...(isAdvanced ? {} : { variants: { dark: colorsForSave.dark }, managed: true }),
             ...(cssForSave ? { css: cssForSave } : {}),
           }),
-          ...(icon ? { icon } : {}),
-          ...(iconDark ? { iconDark } : {}),
+          ...(backdrop ? { backdrop } : {}),
         });
       }
       if (
@@ -1004,28 +1038,45 @@ export function ThemeEditorPanel({
     );
   };
 
+  const otherAppearanceLabel = activeAppearance === "light" ? "Dark" : "Light";
   const renderAppearanceButtons = () => (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-3">
-      <span className="text-sm font-medium">
-        <T>Appearance</T>
-      </span>
-      <ToggleGroup
-        aria-label={gt("Theme appearance")}
-        variant="segmented"
-        value={[activeAppearance]}
-        onValueChange={(next) => {
-          const appearance = next[0];
-          if (
-            (appearance === "light" || appearance === "dark") &&
-            appearanceLockReason(appearance) === null
-          ) {
-            setActiveAppearance(appearance);
-          }
-        }}
-      >
-        {renderAppearanceButton("light")}
-        {renderAppearanceButton("dark")}
-      </ToggleGroup>
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-3">
+        <ToggleGroup
+          aria-label={gt("Theme appearance")}
+          variant="segmented"
+          value={[activeAppearance]}
+          onValueChange={(next) => {
+            const appearance = next[0];
+            if (
+              (appearance === "light" || appearance === "dark") &&
+              appearanceLockReason(appearance) === null
+            ) {
+              setActiveAppearance(appearance);
+            }
+          }}
+        >
+          {renderAppearanceButton("light")}
+          {renderAppearanceButton("dark")}
+        </ToggleGroup>
+        {isAdvanced ? null : (
+          <label className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-sm font-medium">
+            <span>Set separately</span>
+            <Switch
+              aria-label="Set light and dark colors separately"
+              checked={separateAppearances}
+              onCheckedChange={(checked) => setSeparateAppearances(Boolean(checked))}
+            />
+          </label>
+        )}
+      </div>
+      {isAdvanced ? null : (
+        <p className="text-xs text-muted-foreground">
+          {separateAppearances
+            ? `Changes apply to ${activeAppearance} only.`
+            : `Showing ${activeAppearance}. ${otherAppearanceLabel} follows your changes.`}
+        </p>
+      )}
     </div>
   );
 
@@ -1037,7 +1088,7 @@ export function ThemeEditorPanel({
         </h3>
         {isAdvanced ? null : (
           <p className="text-xs text-muted-foreground">
-            <T>Three colors, rest derived</T>
+            <T>Three colors, the rest follow</T>
           </p>
         )}
       </div>
@@ -1101,21 +1152,31 @@ export function ThemeEditorPanel({
             .includes(query),
       ),
     })).filter((group) => group.families.length > 0);
+    // Personal build: "rail" is not one of upstream's roles, so its row mirrors ThemeColorField here.
+    const railValue =
+      colorsByAppearance[activeAppearance].rail ?? colorsByAppearance[activeAppearance].sidebar;
     const railField = (
       <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          Rail (left and top bar)
-        </span>
-        <ThemeColorPicker
-          label="Rail"
-          onChange={(value) => updateColor("rail", value)}
-          onEditCancel={cancelColorEdit}
-          onEditStart={startColorEdit}
-          value={
-            colorsByAppearance[activeAppearance].rail ??
-            colorsByAppearance[activeAppearance].sidebar
-          }
-        />
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">Primary</span>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <ThemeColorPicker
+            label="Primary"
+            onChange={(value) => updateColor("rail", value)}
+            onEditCancel={cancelColorEdit}
+            onEditStart={startColorEdit}
+            value={isThemeEditorColor(railValue) ? railValue : "#000000"}
+          />
+          <Input
+            aria-invalid={!isThemeEditorColor(railValue)}
+            aria-label="Primary hex value"
+            className="w-28 shrink-0"
+            font="mono"
+            nativeInput
+            onChange={(event) => updateColor("rail", event.currentTarget.value)}
+            size="compact"
+            value={railValue}
+          />
+        </div>
       </div>
     );
     return isAdvanced ? (
@@ -1332,21 +1393,22 @@ export function ThemeEditorPanel({
 
       {isMinimized ? null : (
         <>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pl-3 pr-1.5">
+          <div className="scrollbar-gutter-stable min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pl-3 pr-1.5">
             {renderNameField()}
             {error ? (
               <p aria-live="polite" className="text-sm text-destructive">
                 {error}
               </p>
             ) : null}
-            {renderAppearanceButtons()}
-            <ThemeIconField
-              appearance={activeAppearance}
-              icon={activeAppearance === "dark" ? (iconDark ?? icon) : icon}
-              onChange={(next) => (activeAppearance === "dark" ? setIconDark(next) : setIcon(next))}
+            <ThemePhotoField
+              photo={backdrop}
+              picksColors={!isAdvanced && !separateAppearances}
+              onChange={handlePhotoChange}
+              {...(isAdvanced ? {} : { onUseColors: applyPhotoColors })}
             />
             <div className="space-y-3">
               {renderColorsHeader()}
+              {renderAppearanceButtons()}
               {renderColorFields()}
             </div>
             <div className="space-y-2">

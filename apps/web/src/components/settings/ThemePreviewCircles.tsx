@@ -32,7 +32,7 @@ export type ThemeCardDefinition = {
   id: string;
   label: string;
   previews: ReadonlyArray<ThemeCardPreview>;
-  /** Personal build: a theme with an icon shows it instead of the color circles. */
+  /** Personal build: a theme with an icon or photo shows it instead of the color circles. */
   icon?: string;
   iconDark?: string;
 };
@@ -82,7 +82,7 @@ export function getThemeCardDefinition(theme: ThemeDefinition): ThemeCardDefinit
   return {
     id: theme.id,
     label: theme.label,
-    ...(theme.icon ? { icon: theme.icon } : {}),
+    ...((theme.icon ?? theme.backdrop) ? { icon: theme.icon ?? theme.backdrop } : {}),
     ...(theme.iconDark ? { iconDark: theme.iconDark } : {}),
     previews: getThemeModes(theme).map((mode) => {
       const colors = getThemeColorsForMode(theme, mode) ?? theme.colors;
