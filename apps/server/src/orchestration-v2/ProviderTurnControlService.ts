@@ -9,6 +9,7 @@ import {
   RunAttemptId,
   ThreadId,
   withMessageSenderNote,
+  withWaitingOnYouNotice,
 } from "@t3tools/contracts";
 import type * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
@@ -452,6 +453,7 @@ export const layer: Layer.Layer<
             mcpAppModelContext,
             input.threadId,
           );
+          const notice = (yield* projections.getThread(input.threadId)).waitingOnYouNotice;
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -464,12 +466,16 @@ export const layer: Layer.Layer<
               ...(appContext.length === 0 ? {} : { appContext }),
               message: {
                 messageId: message.id,
-                text: withMessageSenderNote(
-                  message,
-                  projectComposerContextForProvider({
-                    text: message.text,
-                    records: message.context?.records ?? [],
-                  }),
+                text: withWaitingOnYouNotice(
+                  withMessageSenderNote(
+                    message,
+                    projectComposerContextForProvider({
+                      text: message.text,
+                      records: message.context?.records ?? [],
+                    }),
+                  ),
+                  message.id,
+                  notice,
                 ),
                 attachments: message.attachments,
                 createdBy: message.createdBy,

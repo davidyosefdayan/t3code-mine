@@ -42,6 +42,7 @@ import {
   ThreadId,
   type ThreadPullRequestSnapshot,
   ThreadWaitingOnYouRequest,
+  withWaitingOnYouNotice,
   waitingOnYouRequestId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -3699,72 +3700,99 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
-  it.effect("a reply clears a Needs you mark unless it waits on a pull request to merge", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projectId = ProjectId.make("needs-you-reply-project");
-      yield* seedProject({
-        projectId,
-        title: "Needs you reply",
-        workspaceRoot: "/workspace/needs-you-reply",
-        defaultModelSelection: null,
-        createdAt: "2026-09-07T00:00:00.000Z",
-      });
-      const key = { host: "github.com", repository: "acme/app", number: 7 };
-      const waitingAfterReply = Effect.fn("test.waitingAfterReply")(function* (
-        name: string,
-        waitingOnYou: typeof ThreadWaitingOnYouRequest.Type,
-      ) {
-        const threadId = ThreadId.make(`needs-you-reply-${name}`);
-        yield* orchestrator.dispatch({
-          type: "thread.create",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make(`needs-you-reply-${name}-create`),
-          threadId,
+  it.effect(
+    "a reply or Dismiss clears a Needs you mark and the agent is told with the next message",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projectId = ProjectId.make("needs-you-reply-project");
+        yield* seedProject({
           projectId,
           title: "Needs you reply",
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          workspaceRoot: "/workspace/needs-you-reply",
+          defaultModelSelection: null,
+          createdAt: "2026-09-07T00:00:00.000Z",
         });
-        yield* orchestrator.dispatch({
-          type: "thread.waiting-on-you.set",
-          commandId: CommandId.make(`needs-you-reply-${name}-set`),
-          threadId,
-          waitingOnYou,
+        const key = { host: "github.com", repository: "acme/app", number: 7 };
+        const afterReply = Effect.fn("test.afterReply")(function* (
+          name: string,
+          marks: ReadonlyArray<typeof ThreadWaitingOnYouRequest.Type | "dismiss">,
+        ) {
+          const threadId = ThreadId.make(`needs-you-reply-${name}`);
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`needs-you-reply-${name}-create`),
+            threadId,
+            projectId,
+            title: "Needs you reply",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+          for (const [index, mark] of marks.entries()) {
+            yield* orchestrator.dispatch({
+              type: "thread.waiting-on-you.set",
+              commandId: CommandId.make(`needs-you-reply-${name}-set-${index}`),
+              threadId,
+              ...(mark === "dismiss"
+                ? { waitingOnYou: null, dismissed: true }
+                : { waitingOnYou: mark }),
+            });
+          }
+          const messageId = MessageId.make(`needs-you-reply-${name}-reply`);
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`needs-you-reply-${name}-reply`),
+            threadId,
+            messageId,
+            text: "Done.",
+            attachments: [],
+            dispatchMode: { type: "defer_start" },
+          });
+          const { thread } = yield* orchestrator.getThreadProjection(threadId);
+          return {
+            waiting: thread.waitingOnYou?.reason ?? null,
+            agentReads: withWaitingOnYouNotice("Done.", messageId, thread.waitingOnYouNotice),
+          };
         });
-        yield* orchestrator.dispatch({
-          type: "message.dispatch",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make(`needs-you-reply-${name}-reply`),
-          threadId,
-          messageId: MessageId.make(`needs-you-reply-${name}-reply`),
-          text: "Done.",
-          attachments: [],
-          dispatchMode: { type: "defer_start" },
-        });
-        return (yield* orchestrator.getThreadShell(threadId))?.waitingOnYou?.reason ?? null;
-      });
 
-      assert.isNull(
-        yield* waitingAfterReply("decision", { kind: "decision", reason: "Pick a plan" }),
-      );
-      assert.isNull(
-        yield* waitingAfterReply("pr-decision", {
-          kind: "decision",
-          reason: "PR #7: pick a plan",
-          pullRequest: key,
-        }),
-      );
-      assert.equal(
-        yield* waitingAfterReply("merge", { kind: "merge", reason: "PR #7", pullRequest: key }),
-        "PR #7",
-      );
-    }),
+        const plan = { kind: "decision", reason: "Pick a plan" } as const;
+        assert.deepEqual(yield* afterReply("decision", [plan]), {
+          waiting: null,
+          agentReads:
+            'Done.\n\n<needs_you_cleared>\nT3 Code took this thread out of Needs you ("Pick a plan") because the user replied. Set it again with t3_needs_you if you still need them.\n</needs_you_cleared>',
+        });
+        assert.deepInclude(
+          yield* afterReply("pr-decision", [
+            { kind: "decision", reason: "PR #7: pick a plan", pullRequest: key },
+          ]),
+          { waiting: null },
+        );
+        assert.deepEqual(
+          yield* afterReply("merge", [{ kind: "merge", reason: "PR #7", pullRequest: key }]),
+          { waiting: "PR #7", agentReads: "Done." },
+        );
+        assert.deepEqual(yield* afterReply("dismissed", [plan, "dismiss"]), {
+          waiting: null,
+          agentReads:
+            'Done.\n\n<needs_you_cleared>\nEarlier, the user dismissed this thread\'s Needs you ("Pick a plan") in T3 Code. Set it again with t3_needs_you if you still need them.\n</needs_you_cleared>',
+        });
+        // A mark the agent set after the dismiss makes the notice stale.
+        assert.deepEqual(
+          yield* afterReply("dismissed-then-set", [
+            plan,
+            "dismiss",
+            { kind: "merge", reason: "PR #7", pullRequest: key },
+          ]),
+          { waiting: "PR #7", agentReads: "Done." },
+        );
+      }),
   );
 
   it.effect("applies lifecycle commands idempotently and emits archive/removal shell deltas", () =>

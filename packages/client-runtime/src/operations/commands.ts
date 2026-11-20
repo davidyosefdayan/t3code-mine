@@ -701,6 +701,7 @@ export const clearThreadWaitingOnYou = Effect.fn("EnvironmentCommands.clearThrea
       commandId: yield* allocateCommandId(input),
       threadId: input.threadId,
       waitingOnYou: null,
+      dismissed: true,
     });
   },
 );

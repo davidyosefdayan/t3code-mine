@@ -20,6 +20,7 @@ import {
   RunAttemptId,
   NodeId,
   ThreadId,
+  withWaitingOnYouNotice,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -986,12 +987,16 @@ export const layer: Layer.Layer<
       });
       let effectiveHandoffs = handoffs;
       let resumeFellBack = false;
-      const userText = withMessageSenderNote(
-        providerMessage,
-        projectComposerContextForProvider({
-          text: providerMessage.text,
-          records: providerMessage.context?.records ?? [],
-        }),
+      const userText = withWaitingOnYouNotice(
+        withMessageSenderNote(
+          providerMessage,
+          projectComposerContextForProvider({
+            text: providerMessage.text,
+            records: providerMessage.context?.records ?? [],
+          }),
+        ),
+        providerMessage.id,
+        projection.thread.waitingOnYouNotice,
       );
       // Native goal commands go verbatim; handoff history waits a turn.
       const goalDriver =
