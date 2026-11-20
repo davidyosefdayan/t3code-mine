@@ -671,12 +671,12 @@ it.effect("sets and clears Needs you, tied to a linked PR when named", () => {
       kind: "merge",
       reason: "PR #7",
       pullRequest: 7,
-      wakeOnMerge: true,
+      guardPullRequest: true,
     });
     expect(tied.structuredContent).toMatchObject({
       waitingOnYou: {
         pullRequest: { host: "github.com", repository: "acme/app", number: 7 },
-        wakeOnMerge: true,
+        guardPullRequest: true,
       },
     });
     expect(dispatched).toMatchObject([
@@ -689,7 +689,10 @@ it.effect("sets and clears Needs you, tied to a linked PR when named", () => {
       {
         type: "thread.waiting-on-you.set",
         threadId,
-        waitingOnYou: { pullRequest: { repository: "acme/app", number: 7 }, wakeOnMerge: true },
+        waitingOnYou: {
+          pullRequest: { repository: "acme/app", number: 7 },
+          guardPullRequest: true,
+        },
       },
     ]);
     const unlinked = yield* call({ action: "set", kind: "merge", reason: "x", pullRequest: 8 });

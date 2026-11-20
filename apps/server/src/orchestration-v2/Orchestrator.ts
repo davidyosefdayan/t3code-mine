@@ -64,6 +64,7 @@ import {
   type OrchestrationV2TurnItem,
   latestProviderTurnForAttempt,
   parseGoalCommand,
+  pullRequestNotReadyReasons,
   orchestrationV2RunWorkStartedAt,
   ProviderInstanceId,
   ProviderInteractionMode,
@@ -4831,6 +4832,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ? current === null
               : current?.kind === next.kind &&
                 current.reason === next.reason &&
+                current.guardPullRequest === next.guardPullRequest &&
                 current.wakeOnMerge === next.wakeOnMerge &&
                 current.pullRequest?.number === next.pullRequest?.number &&
                 current.pullRequest?.repository === next.pullRequest?.repository
@@ -5270,13 +5272,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         occurredAt: now,
         payload: link,
       });
-      // Personal build: a "Needs you" mark naming this pull request ends when it merges or closes.
+      // Personal build: a "Needs you" mark naming this pull request ends when it merges or closes,
+      // and a guarded one also when the pull request stops being ready to merge.
       const waiting = updatedThread.waitingOnYou;
       const state = link.snapshot?.state;
+      const guarded = waiting?.guardPullRequest === true || waiting?.wakeOnMerge === true;
+      const notReady = guarded && state === "open" ? pullRequestNotReadyReasons(link.snapshot) : [];
       if (
         command.type === "thread.pull-request-link.sync" &&
         waiting?.pullRequest !== undefined &&
-        (state === "merged" || state === "closed") &&
+        (state === "merged" || state === "closed" || notReady.length > 0) &&
         threadPullRequestKeysEqual(
           normalizeThreadPullRequestKey(waiting.pullRequest),
           normalizeThreadPullRequestKey(command),
@@ -5292,9 +5297,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: { ...updatedThread, waitingOnYou: null, updatedAt: now },
         });
+        const merged = state === "merged";
         if (
-          waiting.wakeOnMerge === true &&
-          state === "merged" &&
+          guarded &&
+          (merged || notReady.length > 0) &&
           updatedThread.archivedAt === null &&
           updatedThread.settledOverride !== "settled"
         ) {
@@ -5305,12 +5311,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               type: "message.dispatch",
               commandId: command.commandId,
               threadId: command.threadId,
-              messageId: MessageId.make(`message:needs-you-merged:${command.commandId}`),
-              text: `Pull request #${link.number} (${link.url}) was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.`,
+              messageId: MessageId.make(
+                `message:needs-you-${merged ? "merged" : "not-ready"}:${command.commandId}`,
+              ),
+              text: merged
+                ? `Pull request #${link.number} (${link.url}) was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.`
+                : `Pull request #${link.number} (${link.url}) is no longer ready to merge: ${notReady.join(", ")}. T3 Code took this thread out of Needs you.`,
               notification: {
                 source: { kind: "monitor" },
                 outcome: "updated",
-                summary: `#${link.number}: merged`,
+                summary: `#${link.number}: ${merged ? "merged" : "no longer ready to merge"}`,
               },
               attachments: [],
               dispatchMode: { type: "queue_after_active" },
@@ -5324,7 +5334,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               Ref.set(events, committed.events).pipe(
                 Effect.andThen(Ref.set(effects, committed.effects)),
                 Effect.andThen(
-                  Effect.logWarning("Needs you merge wake could not start", {
+                  Effect.logWarning("Needs you wake could not start", {
                     threadId: command.threadId,
                     error,
                   }),
