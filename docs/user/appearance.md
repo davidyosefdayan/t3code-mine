@@ -52,7 +52,9 @@ without replaying its transitions.
 
 On web and desktop, choose **Create theme** to adjust a palette, or import a T3 Code or VS Code
 theme. The theme editor's color picker lets you select an area of the app to find the color to
-change. Export your theme as JSON to share it.
+change. Add a **Photo** to fill the frame around the chat: drop an image or choose one, and the
+theme takes its colors from it. On desktop, the Dock icon is made from the photo. Export your
+theme as JSON to share it.
 
 ### Custom CSS
 

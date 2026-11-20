@@ -78,7 +78,7 @@ describe("theme files", () => {
     expect(parseThemeFile({ ...file, name: " 夜 " }).id).toBe(night.id);
   });
 
-  it("reads rail colors and icons from theme files and reserves the built-in Mine theme ids", () => {
+  it("reads rail colors, icons and photos from theme files and reserves the built-in Mine theme ids", () => {
     const file = { version: THEME_FILE_VERSION, appearance: "dark", name: "Night" };
     const theme = parseThemeFile({ ...file, colors: { rail: "#101c5c", railControl: "#2a3570" } });
     expect(theme.colors.rail).toBeDefined();
@@ -89,6 +89,17 @@ describe("theme files", () => {
     expect(
       parseThemeFile({ ...file, icon: "https://example.com/x.png", colors: { canvas: "#101820" } })
         .icon,
+    ).toBeUndefined();
+    const backdrop = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+    const photoTheme = parseThemeFile({ ...file, backdrop, colors: { canvas: "#101820" } });
+    expect(photoTheme.backdrop).toBe(backdrop);
+    expect(JSON.parse(serializeThemeFile(photoTheme)).backdrop).toBe(backdrop);
+    expect(
+      parseThemeFile({
+        ...file,
+        backdrop: "https://example.com/x.jpg",
+        colors: { canvas: "#101820" },
+      }).backdrop,
     ).toBeUndefined();
     expect(() => parseThemeFile({ ...file, id: "paper", colors: { canvas: "#101820" } })).toThrow(
       /reserved/,
@@ -782,7 +793,9 @@ describe("stored theme preferences", () => {
       expect(canonicalThemePreference("constructor")).toBe("constructor");
       const publishedHalves = parseThemeHalves(JSON.stringify({ dark: "constructor" }));
       expect(publishedHalves).toEqual({ dark: "constructor" });
-      expect(resolveThemeAppearance("parchment", true, true, undefined, publishedHalves)).toBe("dark");
+      expect(resolveThemeAppearance("parchment", true, true, undefined, publishedHalves)).toBe(
+        "dark",
+      );
     } finally {
       vi.unstubAllGlobals();
       invalidateCustomThemes();

@@ -64,7 +64,10 @@ const RESERVED_IDS: ReadonlySet<string> = new Set([
   ...RESERVED_THEME_IDS,
   ...MINE_THEMES.map((theme) => theme.id),
 ]);
-const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set([...THEME_COLOR_ROLES, ...THEME_RAIL_ROLES]);
+const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set([
+  ...THEME_COLOR_ROLES,
+  ...THEME_RAIL_ROLES,
+]);
 type AnyThemeColorRole = ThemeColorRole | ThemeRailRole;
 export type ThemeColorOverrides = Readonly<Partial<Record<AnyThemeColorRole, string>>>;
 export type ThemeVariantOverrides = Readonly<Partial<Record<ThemeAppearance, ThemeColorOverrides>>>;
@@ -82,6 +85,7 @@ export type ThemeFile = Readonly<{
   css?: string;
   icon?: string;
   iconDark?: string;
+  backdrop?: string;
 }>;
 
 const customThemeListeners = new Set<() => void>();
@@ -198,6 +202,17 @@ function isThemeIcon(value: unknown): value is string {
   );
 }
 
+// Personal build: a theme's photo is a data URL (or a bundled theme backdrop), stored with the theme.
+export const MAX_THEME_BACKDROP_LENGTH = 1_500_000;
+function isThemeBackdrop(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_THEME_BACKDROP_LENGTH &&
+    (/^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(value) ||
+      /^\/theme-backdrops\/[a-z0-9-]+\.jpg$/.test(value))
+  );
+}
+
 function parseStoredTheme(value: unknown): ThemeDefinition | null {
   if (!isRecord(value)) return null;
   if (!isThemeId(value.id) || RESERVED_IDS.has(value.id)) return null;
@@ -219,6 +234,7 @@ function parseStoredTheme(value: unknown): ThemeDefinition | null {
     ...(isThemeCss(value.css) && value.css.length > 0 ? { css: value.css } : {}),
     ...(isThemeIcon(value.icon) ? { icon: value.icon } : {}),
     ...(isThemeIcon(value.iconDark) ? { iconDark: value.iconDark } : {}),
+    ...(isThemeBackdrop(value.backdrop) ? { backdrop: value.backdrop } : {}),
   };
 }
 
@@ -1655,6 +1671,7 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     ...(value.css ? { css: value.css } : {}),
     ...(isThemeIcon(value.icon) ? { icon: value.icon } : {}),
     ...(isThemeIcon(value.iconDark) ? { iconDark: value.iconDark } : {}),
+    ...(isThemeBackdrop(value.backdrop) ? { backdrop: value.backdrop } : {}),
   };
 }
 
@@ -1685,6 +1702,7 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     ...(canonicalTheme.css ? { css: canonicalTheme.css } : {}),
     ...(canonicalTheme.icon ? { icon: canonicalTheme.icon } : {}),
     ...(canonicalTheme.iconDark ? { iconDark: canonicalTheme.iconDark } : {}),
+    ...(canonicalTheme.backdrop ? { backdrop: canonicalTheme.backdrop } : {}),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
@@ -1785,6 +1803,7 @@ export function applyThemeColorPreview(
   colors: ThemeColors,
   appearance: ThemeAppearance,
   css?: string,
+  backdrop?: string,
 ): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -1795,11 +1814,16 @@ export function applyThemeColorPreview(
   setAppThemeVariables(root, colors);
   applyContextChipVariables(root, colors);
   applyThemeCss(css);
+  applyThemeBackdrop(root, backdrop, undefined);
   setThemePreviewAppearance(appearance);
 }
 
 /** A built-in theme's own photo; otherwise the image an environment theme publishes. */
-function applyThemeBackdrop(root: HTMLElement, backdrop: string | undefined, themeId: string | undefined) {
+function applyThemeBackdrop(
+  root: HTMLElement,
+  backdrop: string | undefined,
+  themeId: string | undefined,
+) {
   if (backdrop) {
     applyThemeBackground(undefined);
     root.style.setProperty("--theme-background-image", `url("${backdrop}")`);

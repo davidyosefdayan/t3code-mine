@@ -3130,9 +3130,93 @@ html[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"] {
     );
   }
 }
+/* Readable over any photo, at any panel opacity: like Acrylic's luminosity layer, the list
+   and chat keep the photo's colors but clamp its brightness to a band (light in light mode,
+   dark in dark mode). Text on it uses one lightness per mode that passes 4.5:1 against both
+   ends of the list's band at 40% opacity (the chat's band is narrower); status colors keep
+   their hue. Rows drop their faded alphas here. */
+html[data-theme-backdrop] {
+  --photo-clamp: contrast(0.45) brightness(1.6) saturate(1.5);
+  --photo-ink-l: 0.375;
+  --photo-ink-c: 0.85;
+  --photo-muted-l: 0.39;
+}
+html.dark[data-theme-backdrop] {
+  --photo-clamp: contrast(0.6) brightness(0.66) saturate(1.3);
+  /* Above the solved 0.855: dark-mode status classes add a 80-90% alpha. */
+  --photo-ink-l: 0.89;
+  --photo-ink-c: 0.6;
+  --photo-muted-l: 0.815;
+}
+html[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"] {
+  --color-sidebar-muted-foreground: oklch(
+    from var(--sidebar-muted-foreground) var(--photo-muted-l) c h
+  );
+  --color-amber-600: oklch(
+    from var(--color-amber-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-emerald-600: oklch(
+    from var(--color-emerald-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-indigo-600: oklch(
+    from var(--color-indigo-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-red-600: oklch(
+    from var(--color-red-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-sky-600: oklch(
+    from var(--color-sky-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-teal-600: oklch(
+    from var(--color-teal-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-violet-600: oklch(
+    from var(--color-violet-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-zinc-500: oklch(from var(--color-zinc-600) var(--photo-ink-l) c h);
+  --color-warning-foreground: oklch(
+    from var(--warning-foreground) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-guest-foreground: oklch(
+    from var(--guest-foreground) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  &::before {
+    -webkit-backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
+    backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
+  }
+}
+html.dark[data-theme-backdrop] [data-variant="inset"] [data-slot="sidebar-inner"] {
+  --color-amber-300: oklch(
+    from var(--color-amber-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-emerald-300: oklch(
+    from var(--color-emerald-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-indigo-300: oklch(
+    from var(--color-indigo-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-red-300: oklch(
+    from var(--color-red-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-sky-300: oklch(
+    from var(--color-sky-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-teal-300: oklch(
+    from var(--color-teal-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-violet-300: oklch(
+    from var(--color-violet-500) var(--photo-ink-l) calc(c * var(--photo-ink-c)) h
+  );
+  --color-zinc-400: oklch(from var(--color-zinc-500) var(--photo-ink-l) c h);
+}
 html[data-theme-backdrop][data-panel-see-through] {
+  :is([data-slot="sidebar-inset"], [data-panel-sheet]) {
+    --color-muted-foreground: oklch(from var(--muted-foreground) var(--photo-muted-l) c h);
+  }
   [data-slot="sidebar-inset"]::before {
     background-color: color-mix(in srgb, var(--background) var(--panel-opacity), transparent);
+    -webkit-backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
+    backdrop-filter: blur(var(--panel-blur, 24px)) var(--photo-clamp);
   }
   /* Layout surfaces only: controls (switch thumbs, inputs, checkboxes) carry a data-slot
      and keep their fill. */

@@ -204,8 +204,14 @@ export function mineThemeSeedOf(colors: ThemeColors, appearance: ThemeAppearance
 export function counterpartSeed(seed: MineThemeSeed, to: ThemeAppearance): MineThemeSeed {
   const rail = toOklch(color(seed.rail));
   const accent = toOklch(color(seed.accent));
+  const canvas = seed.canvas ? toOklch(color(seed.canvas)) : undefined;
+  const canvasFor = (l: number, chroma: number) =>
+    canvas
+      ? { canvas: hex({ mode: "oklch", l, c: (canvas.c ?? 0) * chroma, h: canvas.h ?? 0 }) }
+      : {};
   return to === "dark"
     ? {
+        ...canvasFor(Math.min(canvas?.l ?? 0, 0.2), 0.8),
         rail: hex({ mode: "oklch", l: Math.min(rail.l, 0.22), c: rail.c ?? 0, h: rail.h ?? 0 }),
         accent: hex({
           mode: "oklch",
@@ -215,6 +221,7 @@ export function counterpartSeed(seed: MineThemeSeed, to: ThemeAppearance): MineT
         }),
       }
     : {
+        ...canvasFor(Math.max(canvas?.l ?? 0, 0.98), 0.5),
         rail: hex({
           mode: "oklch",
           l: Math.max(rail.l, 0.92),
