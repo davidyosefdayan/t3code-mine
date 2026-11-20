@@ -68,6 +68,7 @@ import {
   latestProviderTurnForAttempt,
   repositoryRewindCheckpoint,
   parseGoalCommand,
+  pullRequestNotReadyReasons,
   orchestrationV2RunWorkStartedAt,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
@@ -5199,6 +5200,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ? current === null
               : current?.kind === next.kind &&
                 current.reason === next.reason &&
+                current.guardPullRequest === next.guardPullRequest &&
                 current.wakeOnMerge === next.wakeOnMerge &&
                 current.pullRequest?.number === next.pullRequest?.number &&
                 current.pullRequest?.repository === next.pullRequest?.repository
@@ -5214,6 +5216,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     ...next,
                     since: current?.kind === next.kind ? current.since : DateTime.formatIso(now),
                   },
+            // A dismissed mark is told with the user's next message; any other change makes it stale.
+            waitingOnYouNotice:
+              command.dismissed === true && current !== null
+                ? { via: "dismiss", kind: current.kind, reason: current.reason }
+                : null,
             updatedAt: now,
           };
         }
@@ -5686,13 +5693,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         occurredAt: now,
         payload: link,
       });
-      // Personal build: a "Needs you" mark naming this pull request ends when it merges or closes.
+      // Personal build: a "Needs you" mark naming this pull request ends when it merges or closes,
+      // and a guarded one also when the pull request stops being ready to merge.
       const waiting = updatedThread.waitingOnYou;
       const state = link.snapshot?.state;
+      const guarded = waiting?.guardPullRequest === true || waiting?.wakeOnMerge === true;
+      const notReady = guarded && state === "open" ? pullRequestNotReadyReasons(link.snapshot) : [];
       if (
         command.type === "thread.pull-request-link.sync" &&
         waiting?.pullRequest !== undefined &&
-        (state === "merged" || state === "closed") &&
+        (state === "merged" || state === "closed" || notReady.length > 0) &&
         threadPullRequestKeysEqual(
           normalizeThreadPullRequestKey(waiting.pullRequest),
           normalizeThreadPullRequestKey(command),
@@ -5708,9 +5718,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: { ...updatedThread, waitingOnYou: null, updatedAt: now },
         });
+        const merged = state === "merged";
         if (
-          waiting.wakeOnMerge === true &&
-          state === "merged" &&
+          guarded &&
+          (merged || notReady.length > 0) &&
           updatedThread.archivedAt === null &&
           updatedThread.settledOverride !== "settled"
         ) {
@@ -5721,12 +5732,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               type: "message.dispatch",
               commandId: command.commandId,
               threadId: command.threadId,
-              messageId: MessageId.make(`message:needs-you-merged:${command.commandId}`),
-              text: `Pull request #${link.number} (${link.url}) was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.`,
+              messageId: MessageId.make(
+                `message:needs-you-${merged ? "merged" : "not-ready"}:${command.commandId}`,
+              ),
+              text: merged
+                ? `Pull request #${link.number} (${link.url}) was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.`
+                : `Pull request #${link.number} (${link.url}) is no longer ready to merge: ${notReady.join(", ")}. T3 Code took this thread out of Needs you.`,
               notification: {
                 source: { kind: "monitor" },
                 outcome: "updated",
-                summary: `#${link.number}: merged`,
+                summary: `#${link.number}: ${merged ? "merged" : "no longer ready to merge"}`,
               },
               attachments: [],
               dispatchMode: { type: "queue_after_active" },
@@ -5740,7 +5755,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               Ref.set(events, committed.events).pipe(
                 Effect.andThen(Ref.set(effects, committed.effects)),
                 Effect.andThen(
-                  Effect.logWarning("Needs you merge wake could not start", {
+                  Effect.logWarning("Needs you wake could not start", {
                     threadId: command.threadId,
                     error,
                   }),
@@ -7689,25 +7704,42 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     // Personal build: a reply answers what the agent marked, so it ends the
     // mark. Only a merge mark naming a pull request waits for the merge instead.
+    // The agent reads that with this message, or a dismissed mark with the first one after it.
     const waitingOnYou = projection.thread.waitingOnYou ?? null;
-    if (
-      command.createdBy === "user" &&
-      !automaticWake &&
-      waitingOnYou !== null &&
-      !(waitingOnYou.kind === "merge" && waitingOnYou.pullRequest !== undefined)
-    ) {
-      const now = yield* DateTime.now;
-      const event = yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: command.threadId,
-        providerInstanceId: projection.thread.providerInstanceId,
-        occurredAt: now,
-        payload: { ...projection.thread, waitingOnYou: null, updatedAt: now },
-      });
-      projection = applyToProjection(projection, event);
+    const heldNotice = projection.thread.waitingOnYouNotice ?? null;
+    if (command.createdBy === "user" && !automaticWake) {
+      const answered =
+        waitingOnYou !== null &&
+        !(waitingOnYou.kind === "merge" && waitingOnYou.pullRequest !== undefined);
+      const notice = answered
+        ? {
+            via: "reply" as const,
+            kind: waitingOnYou.kind,
+            reason: waitingOnYou.reason,
+            messageId: command.messageId,
+          }
+        : heldNotice !== null && heldNotice.messageId === undefined
+          ? { ...heldNotice, messageId: command.messageId }
+          : null;
+      if (answered || heldNotice !== null) {
+        const now = yield* DateTime.now;
+        const event = yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: projection.thread.providerInstanceId,
+          occurredAt: now,
+          payload: {
+            ...projection.thread,
+            ...(answered ? { waitingOnYou: null } : {}),
+            waitingOnYouNotice: notice,
+            updatedAt: now,
+          },
+        });
+        projection = applyToProjection(projection, event);
+      }
     }
     const userMessages = projection.messages.filter((message) => message.role === "user");
     // The recent runs of a compacted thread can hold only a `/compact` while an older prompt

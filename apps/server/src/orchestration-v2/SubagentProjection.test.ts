@@ -86,9 +86,11 @@ function makeParentThread(): OrchestrationV2AppThread {
   };
 }
 
-it("resets a subagent child's snooze, title job and remote delegation but keeps its workspace", () => {
+it("resets a subagent child's snooze, Needs you, title job and remote delegation but keeps its workspace", () => {
   const parentThread: OrchestrationV2AppThread = {
     ...makeParentThread(),
+    waitingOnYou: { kind: "decision", reason: "Pick a plan", since: DateTime.formatIso(snoozedAt) },
+    waitingOnYouNotice: { via: "dismiss", kind: "decision", reason: "Pick a plan" },
     titleRegeneration: { requestId: CommandId.make("command:parent-title"), startedAt: snoozedAt },
     delegatedFrom: {
       environmentId: EnvironmentId.make("linked-environment"),
@@ -113,6 +115,8 @@ it("resets a subagent child's snooze, title job and remote delegation but keeps 
 
   assert.isNull(childThread.snoozedUntil);
   assert.isNull(childThread.snoozedAt);
+  assert.isNull(childThread.waitingOnYou);
+  assert.isNull(childThread.waitingOnYouNotice);
   assert.isNull(childThread.titleRegeneration);
   assert.isUndefined(childThread.delegatedFrom);
   assert.equal(childThread.projectId, parentThread.projectId);

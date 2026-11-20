@@ -40,7 +40,9 @@ import {
   RunId,
   ScheduledTaskId,
   ThreadId,
+  type ThreadPullRequestSnapshot,
   ThreadWaitingOnYouRequest,
+  withWaitingOnYouNotice,
   waitingOnYouRequestId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -3645,148 +3647,244 @@ const writeHtmlRenderRun = Effect.fn("test.writeHtmlRenderRun")(function* (input
 });
 
 it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
-  // Personal build: a "Merge ready" mark naming a PR ends when the PR merges, and can wake the agent.
-  it.effect("clears a Needs you mark when its pull request merges and wakes the agent", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const key = { host: "github.com", repository: "acme/app", number: 7 };
-      yield* seedProject({
-        projectId: ProjectId.make("needs-you-project"),
-        title: "Needs you",
-        workspaceRoot: "/workspace/needs-you",
-        defaultModelSelection: null,
-        createdAt: "2026-11-01T00:00:00.000Z",
-      });
-      const wakesAfterMerge = Effect.fn(function* (name: string, projectId: string) {
-        const threadId = ThreadId.make(`needs-you-${name}`);
-        yield* orchestrator.dispatch({
-          type: "thread.create",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make(`needs-you-${name}-create`),
-          threadId,
-          projectId: ProjectId.make(projectId),
-          title: "Needs you merge",
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+  // Personal build: a "Merge ready" mark naming a PR ends when the PR merges, and a guarded one
+  // also when the PR stops being ready to merge; both can wake the agent.
+  it.effect(
+    "clears a guarded Needs you mark when its pull request merges or stops being ready",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const key = { host: "github.com", repository: "acme/app", number: 7 };
+        yield* seedProject({
+          projectId: ProjectId.make("needs-you-project"),
+          title: "Needs you",
+          workspaceRoot: "/workspace/needs-you",
+          defaultModelSelection: null,
+          createdAt: "2026-11-01T00:00:00.000Z",
         });
-        yield* orchestrator.dispatch({
-          type: "thread.pull-request.link",
-          commandId: CommandId.make(`needs-you-${name}-link`),
-          threadId,
-          ...key,
-          url: "https://github.com/acme/app/pull/7",
-          source: "agent",
-        });
-        yield* orchestrator.dispatch({
-          type: "thread.waiting-on-you.set",
-          commandId: CommandId.make(`needs-you-${name}-set`),
-          threadId,
-          waitingOnYou: { kind: "merge", reason: "PR #7", pullRequest: key, wakeOnMerge: true },
-        });
-        for (const state of ["open", "merged"] as const) {
-          if (state === "merged") {
-            assert.deepInclude((yield* orchestrator.getThreadShell(threadId))?.waitingOnYou, {
-              reason: "PR #7",
-            });
-          }
+        const wakesAfter = Effect.fn(function* (
+          name: string,
+          projectId: string,
+          mark: { readonly guardPullRequest?: boolean; readonly wakeOnMerge?: boolean },
+          last: Partial<ThreadPullRequestSnapshot>,
+        ) {
+          const threadId = ThreadId.make(`needs-you-${name}`);
           yield* orchestrator.dispatch({
-            type: "thread.pull-request-link.sync",
-            commandId: CommandId.make(`needs-you-${name}-${state}`),
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`needs-you-${name}-create`),
+            threadId,
+            projectId: ProjectId.make(projectId),
+            title: "Needs you merge",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+          yield* orchestrator.dispatch({
+            type: "thread.pull-request.link",
+            commandId: CommandId.make(`needs-you-${name}-link`),
             threadId,
             ...key,
-            snapshot: {
-              state,
-              title: "Feature",
-              headBranch: "feature",
-              baseBranch: "main",
-              isDraft: false,
-              updatedAt: null,
-              syncedAt: "2026-11-09T12:00:00.000Z",
-            },
-            stack: null,
+            url: "https://github.com/acme/app/pull/7",
+            source: "agent",
           });
-        }
-        assert.isNull((yield* orchestrator.getThreadShell(threadId))?.waitingOnYou);
-        const { messages } = yield* orchestrator.getThreadProjection(threadId);
-        return messages.filter((message) => message.text.includes("was merged")).length;
-      });
+          yield* orchestrator.dispatch({
+            type: "thread.waiting-on-you.set",
+            commandId: CommandId.make(`needs-you-${name}-set`),
+            threadId,
+            waitingOnYou: { kind: "merge", reason: "PR #7", pullRequest: key, ...mark },
+          });
+          const syncs = [
+            { state: "open", checksState: "pending", mergeability: "unknown" },
+            last,
+          ] as const;
+          for (const [index, snapshot] of syncs.entries()) {
+            if (index === 1) {
+              assert.deepInclude((yield* orchestrator.getThreadShell(threadId))?.waitingOnYou, {
+                reason: "PR #7",
+              });
+            }
+            yield* orchestrator.dispatch({
+              type: "thread.pull-request-link.sync",
+              commandId: CommandId.make(`needs-you-${name}-${index}`),
+              threadId,
+              ...key,
+              snapshot: {
+                state: "open",
+                title: "Feature",
+                headBranch: "feature",
+                baseBranch: "main",
+                isDraft: false,
+                updatedAt: null,
+                syncedAt: `2026-11-09T12:00:0${index}.000Z`,
+                ...snapshot,
+              },
+              stack: null,
+            });
+          }
+          const shell = yield* orchestrator.getThreadShell(threadId);
+          const { messages } = yield* orchestrator.getThreadProjection(threadId);
+          return {
+            cleared: shell?.waitingOnYou == null,
+            wakes: messages
+              .filter((message) => message.id.startsWith("message:needs-you-"))
+              .map((message) => message.text.replace(/^Pull request #7 \([^)]*\) /, "")),
+          };
+        });
 
-      assert.equal(yield* wakesAfterMerge("wake", "needs-you-project"), 1);
-      // A wake that cannot start (here its project is gone) still clears the mark.
-      assert.equal(yield* wakesAfterMerge("no-project", "needs-you-missing-project"), 0);
-    }),
+        const guard = { guardPullRequest: true };
+        assert.deepEqual(
+          yield* wakesAfter("merged", "needs-you-project", guard, { state: "merged" }),
+          {
+            cleared: true,
+            wakes: [
+              "was merged, so T3 Code took this thread out of Needs you. Carry on with what comes after the merge.",
+            ],
+          },
+        );
+        assert.deepEqual(
+          yield* wakesAfter("not-ready", "needs-you-project", guard, {
+            checksState: "failing",
+            mergeability: "conflicting",
+            reviewDecision: "changes-requested",
+          }),
+          {
+            cleared: true,
+            wakes: [
+              "is no longer ready to merge: a check failed, it has a merge conflict, a reviewer requested changes. T3 Code took this thread out of Needs you.",
+            ],
+          },
+        );
+        // Marks saved with the old name are guarded too.
+        assert.deepEqual(
+          yield* wakesAfter(
+            "legacy",
+            "needs-you-project",
+            { wakeOnMerge: true },
+            {
+              checksState: "failing",
+            },
+          ),
+          {
+            cleared: true,
+            wakes: [
+              "is no longer ready to merge: a check failed. T3 Code took this thread out of Needs you.",
+            ],
+          },
+        );
+        // An unguarded mark waits for the merge, and a merge clears it without a wake.
+        assert.deepEqual(
+          yield* wakesAfter("unguarded-red", "needs-you-project", {}, { checksState: "failing" }),
+          { cleared: false, wakes: [] },
+        );
+        assert.deepEqual(
+          yield* wakesAfter("unguarded-merged", "needs-you-project", {}, { state: "merged" }),
+          { cleared: true, wakes: [] },
+        );
+        // A wake that cannot start (here its project is gone) still clears the mark.
+        assert.deepEqual(
+          yield* wakesAfter("no-project", "needs-you-missing-project", guard, { state: "merged" }),
+          { cleared: true, wakes: [] },
+        );
+      }),
   );
 
-  it.effect("a reply clears a Needs you mark unless it waits on a pull request to merge", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projectId = ProjectId.make("needs-you-reply-project");
-      yield* seedProject({
-        projectId,
-        title: "Needs you reply",
-        workspaceRoot: "/workspace/needs-you-reply",
-        defaultModelSelection: null,
-        createdAt: "2026-09-07T00:00:00.000Z",
-      });
-      const key = { host: "github.com", repository: "acme/app", number: 7 };
-      const waitingAfterReply = Effect.fn("test.waitingAfterReply")(function* (
-        name: string,
-        waitingOnYou: typeof ThreadWaitingOnYouRequest.Type,
-      ) {
-        const threadId = ThreadId.make(`needs-you-reply-${name}`);
-        yield* orchestrator.dispatch({
-          type: "thread.create",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make(`needs-you-reply-${name}-create`),
-          threadId,
+  it.effect(
+    "a reply or Dismiss clears a Needs you mark and the agent is told with the next message",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projectId = ProjectId.make("needs-you-reply-project");
+        yield* seedProject({
           projectId,
           title: "Needs you reply",
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          workspaceRoot: "/workspace/needs-you-reply",
+          defaultModelSelection: null,
+          createdAt: "2026-09-07T00:00:00.000Z",
         });
-        yield* orchestrator.dispatch({
-          type: "thread.waiting-on-you.set",
-          commandId: CommandId.make(`needs-you-reply-${name}-set`),
-          threadId,
-          waitingOnYou,
+        const key = { host: "github.com", repository: "acme/app", number: 7 };
+        const afterReply = Effect.fn("test.afterReply")(function* (
+          name: string,
+          marks: ReadonlyArray<typeof ThreadWaitingOnYouRequest.Type | "dismiss">,
+        ) {
+          const threadId = ThreadId.make(`needs-you-reply-${name}`);
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`needs-you-reply-${name}-create`),
+            threadId,
+            projectId,
+            title: "Needs you reply",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+          for (const [index, mark] of marks.entries()) {
+            yield* orchestrator.dispatch({
+              type: "thread.waiting-on-you.set",
+              commandId: CommandId.make(`needs-you-reply-${name}-set-${index}`),
+              threadId,
+              ...(mark === "dismiss"
+                ? { waitingOnYou: null, dismissed: true }
+                : { waitingOnYou: mark }),
+            });
+          }
+          const messageId = MessageId.make(`needs-you-reply-${name}-reply`);
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`needs-you-reply-${name}-reply`),
+            threadId,
+            messageId,
+            text: "Done.",
+            attachments: [],
+            dispatchMode: { type: "defer_start" },
+          });
+          const { thread } = yield* orchestrator.getThreadProjection(threadId);
+          return {
+            waiting: thread.waitingOnYou?.reason ?? null,
+            agentReads: withWaitingOnYouNotice("Done.", messageId, thread.waitingOnYouNotice),
+          };
         });
-        yield* orchestrator.dispatch({
-          type: "message.dispatch",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make(`needs-you-reply-${name}-reply`),
-          threadId,
-          messageId: MessageId.make(`needs-you-reply-${name}-reply`),
-          text: "Done.",
-          attachments: [],
-          dispatchMode: { type: "defer_start" },
-        });
-        return (yield* orchestrator.getThreadShell(threadId))?.waitingOnYou?.reason ?? null;
-      });
 
-      assert.isNull(
-        yield* waitingAfterReply("decision", { kind: "decision", reason: "Pick a plan" }),
-      );
-      assert.isNull(
-        yield* waitingAfterReply("pr-decision", {
-          kind: "decision",
-          reason: "PR #7: pick a plan",
-          pullRequest: key,
-        }),
-      );
-      assert.equal(
-        yield* waitingAfterReply("merge", { kind: "merge", reason: "PR #7", pullRequest: key }),
-        "PR #7",
-      );
-    }),
+        const plan = { kind: "decision", reason: "Pick a plan" } as const;
+        assert.deepEqual(yield* afterReply("decision", [plan]), {
+          waiting: null,
+          agentReads:
+            'Done.\n\n<needs_you_cleared>\nT3 Code took this thread out of Needs you ("Pick a plan") because the user replied. Set it again with t3_needs_you if you still need them.\n</needs_you_cleared>',
+        });
+        assert.deepInclude(
+          yield* afterReply("pr-decision", [
+            { kind: "decision", reason: "PR #7: pick a plan", pullRequest: key },
+          ]),
+          { waiting: null },
+        );
+        assert.deepEqual(
+          yield* afterReply("merge", [{ kind: "merge", reason: "PR #7", pullRequest: key }]),
+          { waiting: "PR #7", agentReads: "Done." },
+        );
+        assert.deepEqual(yield* afterReply("dismissed", [plan, "dismiss"]), {
+          waiting: null,
+          agentReads:
+            'Done.\n\n<needs_you_cleared>\nEarlier, the user dismissed this thread\'s Needs you ("Pick a plan") in T3 Code. Set it again with t3_needs_you if you still need them.\n</needs_you_cleared>',
+        });
+        // A mark the agent set after the dismiss makes the notice stale.
+        assert.deepEqual(
+          yield* afterReply("dismissed-then-set", [
+            plan,
+            "dismiss",
+            { kind: "merge", reason: "PR #7", pullRequest: key },
+          ]),
+          { waiting: "PR #7", agentReads: "Done." },
+        );
+      }),
   );
 
   it.effect("applies lifecycle commands idempotently and emits archive/removal shell deltas", () =>

@@ -97,6 +97,9 @@ export function makeSubagentChildThread(input: {
     pinnedAt: null,
     pinOrderKey: null,
     autoSettleDisabledAt: null,
+    // Personal build: a Needs you mark belongs to the thread that set it.
+    waitingOnYou: null,
+    waitingOnYouNotice: null,
     // A guest link belongs to the thread it was made for.
     guestShare: null,
     lastVisitedAt: null,
