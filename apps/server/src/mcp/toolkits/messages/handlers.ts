@@ -38,8 +38,8 @@ export const layer = McpToolAccess.toLayer(MessagesToolkit, {
         if (input.kind === undefined || input.reason === undefined) {
           return yield* invalid("set needs `kind` and `reason`.");
         }
-        if (input.wakeOnMerge === true && input.pullRequest === undefined) {
-          return yield* invalid("`wakeOnMerge` needs `pullRequest`.");
+        if (input.guardPullRequest === true && input.pullRequest === undefined) {
+          return yield* invalid("`guardPullRequest` needs `pullRequest`.");
         }
         const linked =
           input.pullRequest === undefined
@@ -64,7 +64,9 @@ export const layer = McpToolAccess.toLayer(MessagesToolkit, {
                   number: linked.number,
                 },
               }),
-          ...(input.wakeOnMerge === undefined ? {} : { wakeOnMerge: input.wakeOnMerge }),
+          ...(input.guardPullRequest === undefined
+            ? {}
+            : { guardPullRequest: input.guardPullRequest }),
         };
         yield* threads
           .dispatch({

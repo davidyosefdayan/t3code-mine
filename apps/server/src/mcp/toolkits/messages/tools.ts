@@ -18,7 +18,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 // sidebar shows, when the user or a skill asks. Pending prompts count without it.
 const NeedsYouTool = Tool.make("t3_needs_you", {
   description:
-    "Put a thread in the user's \"Needs you\" section with a short reason, or take it out. Omit `threadId` for this thread. Use it only when the user or a skill tells you to, such as when a PR is ready to merge; don't use it on your own. It stays until cleared, and reading the thread doesn't clear it. With `pullRequest`, T3 clears it when that PR merges or closes, and `wakeOnMerge` wakes you after the merge. Pending approvals and questions show there without this.",
+    "Put a thread in the user's \"Needs you\" section with a short reason, or take it out. Omit `threadId` for this thread. Use it only when the user or a skill tells you to, such as when a PR is ready to merge; don't use it on your own. It stays until cleared, and reading the thread doesn't clear it. With `pullRequest`, T3 clears it when that PR merges or closes. `guardPullRequest` also clears it when the PR stops being ready to merge (a failed check, a conflict, or changes requested) and wakes you then and after the merge. Pending approvals and questions show there without this.",
   parameters: Schema.Struct({
     action: Schema.Literals(["set", "clear"]),
     kind: Schema.optional(ThreadWaitingOnYouKind).annotate({
@@ -32,8 +32,9 @@ const NeedsYouTool = Tool.make("t3_needs_you", {
     pullRequest: Schema.optional(PositiveInt).annotate({
       description: "For set. The number of a PR linked to the thread that this waits on.",
     }),
-    wakeOnMerge: Schema.optional(Schema.Boolean).annotate({
-      description: "For set with pullRequest. Wake this thread's agent once the PR merges.",
+    guardPullRequest: Schema.optional(Schema.Boolean).annotate({
+      description:
+        "For set with pullRequest. Wake this thread's agent when the PR merges or stops being ready to merge.",
     }),
     threadId: Schema.optional(ThreadId),
   }),
