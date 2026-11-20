@@ -76,7 +76,7 @@ export function SidebarGroupButton(props: {
         "group/label flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-left text-2xs font-semibold tracking-wider uppercase outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         props.isDropTarget
           ? "text-primary"
-          : "text-sidebar-muted-foreground/80 hover:text-sidebar-foreground",
+          : "text-sidebar-muted-foreground/80 hover:text-sidebar-foreground in-data-[theme-backdrop]:text-sidebar-muted-foreground in-data-[theme-backdrop]:hover:text-sidebar-foreground",
       )}
     >
       {props.label}
@@ -85,7 +85,7 @@ export function SidebarGroupButton(props: {
           {props.count}
         </span>
       ) : (
-        <span className="font-medium text-sidebar-muted-foreground/60 tabular-nums">
+        <span className="font-medium text-sidebar-muted-foreground/60 tabular-nums in-data-[theme-backdrop]:text-sidebar-muted-foreground">
           {props.count}
         </span>
       )}
@@ -476,7 +476,11 @@ function ThreadRowProviderStack(props: {
               current && shouldShowInstanceBadge(entry, props.providerEntryByInstanceId.values())
             }
             size="compact"
-            iconClassName={current ? "opacity-60" : "size-3 opacity-35 grayscale"}
+            iconClassName={
+              current
+                ? "opacity-60 in-data-[theme-backdrop]:opacity-100"
+                : "size-3 opacity-35 grayscale in-data-[theme-backdrop]:opacity-80"
+            }
           />
         );
       })}
@@ -497,7 +501,7 @@ function RowMetaLine(props: {
   trailing: ReactNode;
 }) {
   return (
-    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground/75">
+    <div className="flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground/75 in-data-[theme-backdrop]:text-sidebar-muted-foreground">
       {props.project ? (
         <ProjectFavicon project={props.project} className="size-3 shrink-0 rounded-xs" />
       ) : null}
