@@ -208,6 +208,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.skillsDelete]: "workspace",
   // Personal build: the worktree list in Settings → Storage.
   [WS_METHODS.serverGetStorageWorktrees]: "server",
+  [WS_METHODS.serverGetReadAloudVoices]: "server",
+  [WS_METHODS.serverReadAloudSpeak]: "server",
   [WS_METHODS.serverFreeStorageWorktreePackages]: "server",
   [WS_METHODS.serverDeleteStorageWorktree]: "server",
   [WS_METHODS.filesystemBrowse]: "workspace",

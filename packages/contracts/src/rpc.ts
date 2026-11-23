@@ -438,6 +438,12 @@ import {
   StorageWorktreeTarget,
 } from "./storageWorktrees.ts";
 import {
+  ServerReadAloudClip,
+  ServerReadAloudError,
+  ServerReadAloudSpeakInput,
+  ServerReadAloudVoices,
+} from "./readAloudVoice.ts";
+import {
   StorageCleanupReport,
   DatabaseReclaimError,
   DatabaseStorageStatus,
@@ -676,6 +682,9 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
   // Personal build: where a weekly limit went, for Usage → Limits.
   serverGetUsageBreakdown: "server.getUsageBreakdown",
+  // Personal build: Siri voices for read aloud.
+  serverGetReadAloudVoices: "server.getReadAloudVoices",
+  serverReadAloudSpeak: "server.readAloudSpeak",
 
   workflowsSubscribe: "workflows.subscribe",
   workflowsCounts: "workflows.counts",
@@ -1786,6 +1795,18 @@ const WsServerDeleteStorageWorktreeRpc = Rpc.make(WS_METHODS.serverDeleteStorage
   error: StorageWorktreeRpcError,
 });
 
+// Personal build: Siri voices for read aloud.
+const WsServerGetReadAloudVoicesRpc = Rpc.make(WS_METHODS.serverGetReadAloudVoices, {
+  payload: Schema.Struct({}),
+  success: ServerReadAloudVoices,
+  error: EnvironmentAuthorizationError,
+});
+const WsServerReadAloudSpeakRpc = Rpc.make(WS_METHODS.serverReadAloudSpeak, {
+  payload: ServerReadAloudSpeakInput,
+  success: ServerReadAloudClip,
+  error: Schema.Union([ServerReadAloudError, EnvironmentAuthorizationError]),
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -2846,6 +2867,8 @@ export const ForkWsRpcGroup = RpcGroup.make(
   WsServerGetStorageWorktreesRpc,
   WsServerFreeStorageWorktreePackagesRpc,
   WsServerDeleteStorageWorktreeRpc,
+  WsServerGetReadAloudVoicesRpc,
+  WsServerReadAloudSpeakRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsRpcGroup = UpstreamWsRpcGroup.merge(ForkWsRpcGroup);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { wordTimings } from "./readAloudTimings";
+import { siriWordTimings, wordTimings } from "./readAloudTimings";
 
 const PAD = 0;
 const SPACE = 16;
@@ -50,5 +50,36 @@ describe("wordTimings", () => {
         secondsPerFrame: 1,
       }),
     ).toEqual([{ start: 0, end: 0 }]);
+  });
+});
+
+describe("siriWordTimings", () => {
+  it("gives each written word the start of the timed word at or before it", () => {
+    // Siri timed "Good", "news:" and "fixed." but grouped "it's" with "news:".
+    const timings = siriWordTimings({
+      text: "Good news: it's fixed.",
+      timed: [
+        { start: 0, location: 0 },
+        { start: 0.5, location: 5 },
+        { start: 1.4, location: 16 },
+      ],
+      samples: new Float32Array(20),
+      sampleRate: 10,
+    });
+    expect(timings).toEqual([
+      { start: 0, end: 0.5 },
+      { start: 0.5, end: 0.5 },
+      { start: 0.5, end: 1.4 },
+      { start: 1.4, end: 2 },
+    ]);
+  });
+
+  it("spreads words over the speech between silences when the voice reports no timings", () => {
+    const samples = Float32Array.from({ length: 40 }, (_, index) =>
+      index >= 10 && index < 30 ? 0.5 : 0,
+    );
+    const timings = siriWordTimings({ text: "Done. Go", timed: [], samples, sampleRate: 10 });
+    // "Done." weighs 6 + 4 for its pause, "Go" 3, over the speech from 1.0 s.
+    expect(timings.map(({ start }) => +start.toFixed(2))).toEqual([1, 2.46]);
   });
 });

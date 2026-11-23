@@ -54,6 +54,7 @@ export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
 export * from "./skills.ts";
 export * from "./storageWorktrees.ts";
+export * from "./readAloudVoice.ts";
 export * from "./threadWaitingOnYou.ts";
 export * from "./project.ts";
 export * from "./workspaceFolders.ts";

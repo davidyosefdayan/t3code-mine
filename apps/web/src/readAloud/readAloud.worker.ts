@@ -5,13 +5,13 @@ import { env, KokoroTTS } from "kokoro-js";
 // script policy blocks remote code, and it should work offline once downloaded.
 import ortWasmUrl from "kokoro-ort-dist/ort-wasm-simd-threaded.jsep.wasm?url";
 
-import type { ReadAloudVoice } from "./readAloudSettings";
+import type { KokoroVoice } from "./readAloudSettings";
 import { wordTimings, type WordTiming } from "./readAloudTimings";
 
 export type ReadAloudWorkerRequest = {
   readonly id: number;
   readonly text: string;
-  readonly voice: ReadAloudVoice;
+  readonly voice: KokoroVoice;
 };
 
 export type ReadAloudWorkerResponse =

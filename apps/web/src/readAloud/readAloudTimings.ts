@@ -70,3 +70,53 @@ export function wordTimings(input: {
     return toSeconds({ start, end: frameAt(chars / totalChars) });
   });
 }
+
+/**
+ * Word times for a clip from a Siri voice. Standard voices report where each
+ * timed word sits in the text, so every written word takes the start of the
+ * timed word at or before it; expressive voices report nothing, so the speech
+ * between the clip's silences is shared by word length, pausing after punctuation.
+ */
+export function siriWordTimings(input: {
+  readonly text: string;
+  readonly timed: ReadonlyArray<{ readonly start: number; readonly location: number }>;
+  readonly samples: Float32Array;
+  readonly sampleRate: number;
+}): WordTiming[] {
+  const { text, timed, samples, sampleRate } = input;
+  const duration = samples.length / sampleRate;
+  const words = [...text.matchAll(/\S+/g)].map((match) => ({
+    word: match[0],
+    offset: match.index,
+  }));
+  let starts: number[];
+  if (timed.length > 0) {
+    const sorted = timed.toSorted((a, b) => a.location - b.location);
+    starts = words.map(({ offset }) => {
+      let start = sorted[0]!.start;
+      for (const timing of sorted) {
+        if (timing.location > offset) break;
+        start = timing.start;
+      }
+      return start;
+    });
+  } else {
+    const loud = (index: number) => Math.abs(samples[index] ?? 0) > 0.02;
+    let first = 0;
+    while (first < samples.length && !loud(first)) first += 1;
+    let last = samples.length - 1;
+    while (last > first && !loud(last)) last -= 1;
+    const span = Math.max(last - first, 0) / sampleRate;
+    const weights = words.map(
+      ({ word }) => word.length + 1 + (/[.!?;:,]["')\]]*$/.test(word) ? 4 : 0),
+    );
+    const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+    let passed = 0;
+    starts = weights.map((weight) => {
+      const start = first / sampleRate + (passed / total) * span;
+      passed += weight;
+      return start;
+    });
+  }
+  return starts.map((start, index) => ({ start, end: starts[index + 1] ?? duration }));
+}

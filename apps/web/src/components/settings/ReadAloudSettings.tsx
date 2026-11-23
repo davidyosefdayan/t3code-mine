@@ -2,11 +2,23 @@
 import { CheckIcon, SquareIcon, Volume2Icon } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import type {
+  EnvironmentId,
+  ServerReadAloudVoice,
+  ServerReadAloudVoices,
+} from "@t3tools/contracts";
+
 import {
+  decodePcm,
   deleteReadAloudModel,
   hasReadAloudModel,
   stopReadAloud,
+  wavBlob,
 } from "~/readAloud/readAloudPlayer";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { usePrimaryEnvironmentId } from "~/state/environments";
+import { readAloudVoiceEnvironment } from "~/state/readAloudVoice";
 import {
   DEFAULT_READ_ALOUD_SPEED,
   MAX_READ_ALOUD_SPEED,
@@ -38,22 +50,105 @@ function voiceSampleUrl(voice: ReadAloudVoice) {
   return VOICE_SAMPLES[`../../readAloud/previews/${voice}.m4a`];
 }
 
+const SIRI_SAMPLE =
+  "Here's where things stand. The fix is in, the tests pass, and the build is ready for you to try.";
+
+/** A Siri voice sample, made by the server the first time it's asked for. */
+async function siriSampleUrl(environmentId: EnvironmentId, voice: string): Promise<string | null> {
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    readAloudVoiceEnvironment.speak,
+    { environmentId, input: { text: SIRI_SAMPLE, voice } },
+    { reportFailure: false },
+  );
+  if (result._tag !== "Success") return null;
+  return URL.createObjectURL(wavBlob(decodePcm(result.value.pcm), result.value.sampleRate));
+}
+
+type VoiceOption = { readonly id: ReadAloudVoice; readonly name: string; readonly detail: string };
+
+const KOKORO_OPTIONS: readonly VoiceOption[] = READ_ALOUD_VOICES.map((option) => ({
+  id: option.id,
+  name: option.name,
+  detail: `${option.accent} · ${option.gender}`,
+}));
+
+const ACCENTS: Record<string, string> = { "en-US": "American", "en-GB": "British" };
+
+function siriOption(voice: ServerReadAloudVoice): VoiceOption {
+  const accent = ACCENTS[voice.language] ?? voice.language;
+  const gender = voice.gender ? voice.gender.charAt(0).toUpperCase() + voice.gender.slice(1) : "";
+  return {
+    id: `siri:${voice.id}`,
+    name: voice.name,
+    detail: [accent, gender, voice.kind === "standard" ? "Classic" : ""]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
+/** The Siri voices on this Mac's server. */
+function useSiriVoices(): ServerReadAloudVoices | null {
+  const environmentId = usePrimaryEnvironmentId();
+  const [voices, setVoices] = useState<ServerReadAloudVoices | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server once which Siri voices it has
+  useEffect(() => {
+    if (!environmentId) return;
+    let live = true;
+    void runAtomCommand(
+      appAtomRegistry,
+      readAloudVoiceEnvironment.voices,
+      { environmentId, input: {} },
+      { reportFailure: false },
+    ).then((result) => {
+      if (live) setVoices(result._tag === "Success" ? result.value : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [environmentId]);
+  return voices;
+}
+
 /** Plays one voice sample at a time, at the chosen reading speed. */
 function useVoiceSample(speed: number) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState<ReadAloudVoice | null>(null);
 
+  const request = useRef(0);
+
   const stop = () => {
+    request.current += 1;
     audioRef.current?.pause();
     audioRef.current = null;
     setPlaying(null);
   };
 
-  const play = (voice: ReadAloudVoice) => {
-    const url = voiceSampleUrl(voice);
-    if (!url) return;
+  const environmentId = usePrimaryEnvironmentId();
+  const siriSamples = useRef(new Map<string, Promise<string | null>>());
+
+  const play = async (voice: ReadAloudVoice) => {
     stop();
     stopReadAloud();
+    const mine = request.current;
+    let url: string | null | undefined = voiceSampleUrl(voice);
+    if (voice.startsWith("siri:") && environmentId) {
+      setPlaying(voice);
+      const siriVoice = voice.slice("siri:".length);
+      let pending = siriSamples.current.get(siriVoice);
+      if (!pending) {
+        pending = siriSampleUrl(environmentId, siriVoice);
+        siriSamples.current.set(siriVoice, pending);
+      }
+      url = await pending;
+      if (request.current !== mine) return;
+      if (!url) {
+        siriSamples.current.delete(siriVoice);
+        setPlaying(null);
+        return;
+      }
+    }
+    if (!url) return;
     const audio = new Audio(url);
     // Read-aloud speeds up playback the same way, so this is what answers sound like.
     audio.preservesPitch = true;
@@ -72,6 +167,102 @@ function useVoiceSample(speed: number) {
   useEffect(() => () => audioRef.current?.pause(), []);
 
   return { playing, play, stop };
+}
+
+function VoiceGrid({
+  options,
+  voice,
+  setVoice,
+  sample,
+}: {
+  readonly options: readonly VoiceOption[];
+  readonly voice: ReadAloudVoice;
+  readonly setVoice: (voice: ReadAloudVoice) => void;
+  readonly sample: ReturnType<typeof useVoiceSample>;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Voice" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {options.map((option) => {
+        const preview = sample.playing === option.id;
+        const selected = option.id === voice;
+        return (
+          <div
+            key={option.id}
+            className={cn(
+              "relative flex items-center rounded-xl border bg-card/40 shadow-xs/5 transition-colors",
+              selected ? "border-primary/70 bg-primary/5" : "border-border/60 hover:bg-accent/40",
+            )}
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setVoice(option.id)}
+              className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-xl py-2.5 ps-3 pe-11 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            >
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                {option.name}
+                {selected ? <CheckIcon className="size-3.5 text-primary" /> : null}
+              </span>
+              <span className="text-xs text-muted-foreground">{option.detail}</span>
+            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={preview ? `Stop ${option.name}` : `Hear ${option.name}`}
+                    className="absolute end-2"
+                    onClick={() => (preview ? sample.stop() : void sample.play(option.id))}
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost-muted"
+                  />
+                }
+              >
+                {preview ? (
+                  <SquareIcon className="size-2.5 fill-current" />
+                ) : (
+                  <Volume2Icon className="size-3.5" />
+                )}
+              </TooltipTrigger>
+              <TooltipPopup>{preview ? "Stop" : "Hear this voice"}</TooltipPopup>
+            </Tooltip>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SiriVoiceSection({
+  voice,
+  setVoice,
+  sample,
+}: {
+  readonly voice: ReadAloudVoice;
+  readonly setVoice: (voice: ReadAloudVoice) => void;
+  readonly sample: ReturnType<typeof useVoiceSample>;
+}) {
+  const siri = useSiriVoices();
+  if (!siri) return null;
+  return (
+    <SettingsSection id="read-aloud-siri-voice" title="Siri voices" variant="plain">
+      {!siri.supported ? (
+        <p className="text-xs text-muted-foreground">{siri.reason}</p>
+      ) : siri.voices.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No English Siri voices are installed. Add one in System Settings → Siri → Voice.
+        </p>
+      ) : (
+        <VoiceGrid
+          options={siri.voices.map(siriOption)}
+          voice={voice}
+          setVoice={setVoice}
+          sample={sample}
+        />
+      )}
+    </SettingsSection>
+  );
 }
 
 export function ReadAloudSettings() {
@@ -93,61 +284,9 @@ export function ReadAloudSettings() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="read-aloud-voice" title="Voice" variant="plain">
-        <div role="radiogroup" aria-label="Voice" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {READ_ALOUD_VOICES.map((option) => {
-            const preview = sample.playing === option.id;
-            const selected = option.id === voice;
-            return (
-              <div
-                key={option.id}
-                className={cn(
-                  "relative flex items-center rounded-xl border bg-card/40 shadow-xs/5 transition-colors",
-                  selected
-                    ? "border-primary/70 bg-primary/5"
-                    : "border-border/60 hover:bg-accent/40",
-                )}
-              >
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setVoice(option.id)}
-                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-xl py-2.5 ps-3 pe-11 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                >
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                    {option.name}
-                    {selected ? <CheckIcon className="size-3.5 text-primary" /> : null}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {option.accent} · {option.gender}
-                  </span>
-                </button>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        aria-label={preview ? `Stop ${option.name}` : `Hear ${option.name}`}
-                        className="absolute end-2"
-                        onClick={() => (preview ? sample.stop() : sample.play(option.id))}
-                        size="icon-xs"
-                        type="button"
-                        variant="ghost-muted"
-                      />
-                    }
-                  >
-                    {preview ? (
-                      <SquareIcon className="size-2.5 fill-current" />
-                    ) : (
-                      <Volume2Icon className="size-3.5" />
-                    )}
-                  </TooltipTrigger>
-                  <TooltipPopup>{preview ? "Stop" : "Hear this voice"}</TooltipPopup>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
+      <SiriVoiceSection voice={voice} setVoice={setVoice} sample={sample} />
+      <SettingsSection id="read-aloud-voice" title="Built-in voices" variant="plain">
+        <VoiceGrid options={KOKORO_OPTIONS} voice={voice} setVoice={setVoice} sample={sample} />
       </SettingsSection>
 
       <SettingsSection id="read-aloud" title="Playback">

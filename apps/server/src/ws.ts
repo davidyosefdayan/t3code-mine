@@ -271,6 +271,7 @@ import * as UsageService from "./usage/UsageService.ts";
 // Personal build: Usage → Limits and the Skills page.
 import { readUsageBreakdown } from "./usage/usageBreakdown.ts";
 import * as SkillLibrary from "./skills/SkillLibrary.ts";
+import * as ReadAloudVoice from "./readAloud/ReadAloudVoice.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -773,6 +774,7 @@ const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
     const sql = yield* SqlClient.SqlClient;
     const skillLibrary = yield* SkillLibrary.SkillLibrary;
     const storageCleanup = yield* StorageCleanup.StorageCleanup;
+    const readAloudVoice = yield* ReadAloudVoice.ReadAloudVoice;
     return ForkServerWsRpcGroup.of({
       [WS_METHODS.serverGetUsageBreakdown]: (input) =>
         readUsageBreakdown(input).pipe(
@@ -788,6 +790,8 @@ const layerForkWsRpc = ForkServerWsRpcGroup.toLayer(
       [WS_METHODS.serverFreeStorageWorktreePackages]: (input) =>
         storageCleanup.freeWorktreePackages(input),
       [WS_METHODS.serverDeleteStorageWorktree]: (input) => storageCleanup.deleteWorktree(input),
+      [WS_METHODS.serverGetReadAloudVoices]: () => readAloudVoice.voices,
+      [WS_METHODS.serverReadAloudSpeak]: (input) => readAloudVoice.speak(input),
     });
   }),
 );

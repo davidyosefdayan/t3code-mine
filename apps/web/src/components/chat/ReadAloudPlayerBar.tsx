@@ -39,7 +39,7 @@ import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerBanner } from "./ComposerBanner";
 
-const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].filter(
+const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4].filter(
   (speed) => speed >= MIN_READ_ALOUD_SPEED && speed <= MAX_READ_ALOUD_SPEED,
 );
 

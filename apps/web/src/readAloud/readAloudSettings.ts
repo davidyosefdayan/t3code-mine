@@ -16,20 +16,30 @@ export const READ_ALOUD_VOICES = [
   { id: "bf_emma", name: "Emma", accent: "British", gender: "Female" },
 ] as const;
 
-export type ReadAloudVoice = (typeof READ_ALOUD_VOICES)[number]["id"];
+export type KokoroVoice = (typeof READ_ALOUD_VOICES)[number]["id"];
+/** A Siri voice on the server's Mac, as `siri:<kind>:<name>`. */
+export type SiriVoice = `siri:${string}`;
+export type ReadAloudVoice = KokoroVoice | SiriVoice;
 
-export const DEFAULT_READ_ALOUD_VOICE: ReadAloudVoice = "am_michael";
+export function siriVoiceOf(voice: ReadAloudVoice): string | null {
+  return voice.startsWith("siri:") ? voice.slice("siri:".length) : null;
+}
+
+export const DEFAULT_READ_ALOUD_VOICE: KokoroVoice = "am_michael";
 export const DEFAULT_READ_ALOUD_SPEED = 1;
 export const MIN_READ_ALOUD_SPEED = 0.75;
-export const MAX_READ_ALOUD_SPEED = 3;
+export const MAX_READ_ALOUD_SPEED = 4;
 
 const VOICE_KEY = "t3code:read-aloud-voice";
 const SPEED_KEY = "t3code:read-aloud-speed";
 
-const VoiceSchema = Schema.Literals(READ_ALOUD_VOICES.map((voice) => voice.id));
+const VoiceSchema = Schema.Union([
+  Schema.Literals(READ_ALOUD_VOICES.map((voice) => voice.id)),
+  Schema.TemplateLiteral(["siri:", Schema.String]),
+]);
 
 export function useReadAloudVoice() {
-  return useLocalStorage(VOICE_KEY, DEFAULT_READ_ALOUD_VOICE, VoiceSchema);
+  return useLocalStorage<ReadAloudVoice, string>(VOICE_KEY, DEFAULT_READ_ALOUD_VOICE, VoiceSchema);
 }
 
 export function useReadAloudSpeed() {

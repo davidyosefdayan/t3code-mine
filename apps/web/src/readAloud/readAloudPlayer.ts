@@ -6,7 +6,13 @@
 // closed to hand its memory back.
 import { useSyncExternalStore } from "react";
 
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+
 import { toastManager } from "~/components/ui/toast";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { readPrimaryEnvironmentId } from "~/state/environments";
+import { formatEnvironmentQueryError } from "~/state/query";
+import { readAloudVoiceEnvironment } from "~/state/readAloudVoice";
 import type { ReadAloudWorkerRequest, ReadAloudWorkerResponse } from "./readAloud.worker";
 import ReadAloudWorker from "./readAloud.worker.ts?worker";
 import { MessageHighlighter } from "./readAloudHighlight";
@@ -15,9 +21,14 @@ import {
   releaseMediaSession,
   setMediaSessionPlaying,
 } from "./readAloudMediaSession";
-import { readAloudPreferences, type ReadAloudVoice } from "./readAloudSettings";
+import {
+  type KokoroVoice,
+  readAloudPreferences,
+  type ReadAloudVoice,
+  siriVoiceOf,
+} from "./readAloudSettings";
 import { speakableChunks } from "./readAloudText";
-import type { WordTiming } from "./readAloudTimings";
+import { siriWordTimings, type WordTiming } from "./readAloudTimings";
 
 export type ReadAloudState =
   | { readonly status: "idle" }
@@ -284,14 +295,54 @@ function pump(current: Session) {
   const buffered = current.ready.reduce((sum, clip) => sum + clip.duration, remaining);
   if (buffered / current.speed > BUFFER_AHEAD_SECONDS) return;
   const id = ++requestCounter;
-  const request: ReadAloudWorkerRequest = {
-    id,
-    text: current.chunks[current.nextChunk]!,
-    voice: current.voice,
-  };
+  const text = current.chunks[current.nextChunk]!;
   current.pendingRequest = { id, chunk: current.nextChunk };
   current.nextChunk += 1;
+  const siriVoice = siriVoiceOf(current.voice);
+  if (siriVoice) {
+    void speakWithSiri(id, text, siriVoice).then(handleWorkerMessage);
+    return;
+  }
+  const request: ReadAloudWorkerRequest = { id, text, voice: current.voice as KokoroVoice };
   ensureWorker().postMessage(request);
+}
+
+/** One sentence from a Siri voice on this Mac's server, shaped like the Kokoro worker's answer. */
+async function speakWithSiri(
+  id: number,
+  text: string,
+  voice: string,
+): Promise<ReadAloudWorkerResponse> {
+  const environmentId = readPrimaryEnvironmentId();
+  if (!environmentId) return { type: "error", id, message: "Not connected to this Mac's server." };
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    readAloudVoiceEnvironment.speak,
+    { environmentId, input: { text, voice } },
+    { reportFailure: false },
+  );
+  if (result._tag !== "Success") {
+    return { type: "error", id, message: formatEnvironmentQueryError(result.cause) };
+  }
+  const samples = decodePcm(result.value.pcm);
+  return {
+    type: "audio",
+    id,
+    samples,
+    sampleRate: result.value.sampleRate,
+    words: siriWordTimings({
+      text,
+      timed: result.value.words,
+      samples,
+      sampleRate: result.value.sampleRate,
+    }),
+  };
+}
+
+export function decodePcm(pcm: string): Float32Array {
+  const bytes = Uint8Array.from(atob(pcm), (char) => char.charCodeAt(0));
+  const samples = new Int16Array(bytes.buffer, 0, bytes.length >> 1);
+  return Float32Array.from(samples, (sample) => sample / 0x8000);
 }
 
 /** The sentence holding spoken word `word`. */
@@ -604,7 +655,7 @@ function fail(message: string) {
 }
 
 /** 16-bit mono WAV, which every browser's audio element plays. */
-function wavBlob(samples: Float32Array, sampleRate: number): Blob {
+export function wavBlob(samples: Float32Array, sampleRate: number): Blob {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
   const write = (offset: number, text: string) => {

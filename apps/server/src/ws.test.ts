@@ -160,6 +160,7 @@ import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as SkillLibrary from "./skills/SkillLibrary.ts";
+import * as ReadAloudVoice from "./readAloud/ReadAloudVoice.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
@@ -906,6 +907,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ServerSelfUpdate.ServerSelfUpdate)({}),
   Layer.mock(NpmRelease.NpmRelease)({}),
   Layer.mock(SkillLibrary.SkillLibrary)({}),
+  Layer.mock(ReadAloudVoice.ReadAloudVoice)({}),
   Layer.mock(SessionStore.SessionStore)({ cookieName: "config-test", legacyCookieName: undefined }),
   Layer.mock(SourceControlDiscovery.SourceControlDiscovery)({}),
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
@@ -1974,7 +1976,7 @@ it.effect(
           Layer.mock(ServerEnvironment.ServerEnvironment)({}),
           Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
         );
-        const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+        const server = yield* RpcServer.makeNoSerialization(UpstreamWsRpcGroup, {
           ...WS_RPC_SERVER_OPTIONS,
           onFromServer: (response) =>
             response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
@@ -2065,7 +2067,7 @@ it.effect(
           Layer.mock(ServerEnvironment.ServerEnvironment)({}),
           Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
         );
-        const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+        const server = yield* RpcServer.makeNoSerialization(UpstreamWsRpcGroup, {
           ...WS_RPC_SERVER_OPTIONS,
           onFromServer: (response) =>
             response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,

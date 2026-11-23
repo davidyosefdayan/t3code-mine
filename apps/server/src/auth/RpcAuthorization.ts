@@ -195,6 +195,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.skillsDelete]: AuthProvidersManageScope,
   // Personal build: the worktree list in Settings → Storage, guarded like running cleanup.
   [WS_METHODS.serverGetStorageWorktrees]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverGetReadAloudVoices]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverReadAloudSpeak]: AuthOrchestrationReadScope,
   [WS_METHODS.serverFreeStorageWorktreePackages]: AuthSettingsWriteScope,
   [WS_METHODS.serverDeleteStorageWorktree]: AuthSettingsWriteScope,
   [WS_METHODS.filesystemBrowse]: AuthFilesystemReadScope,

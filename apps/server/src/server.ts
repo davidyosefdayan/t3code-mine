@@ -53,6 +53,7 @@ import * as ProcessLauncher from "./process/ProcessLauncher.ts";
 import * as SpawnWorker from "./process/SpawnWorker.ts";
 // Personal build: the Skills page.
 import * as SkillLibrary from "./skills/SkillLibrary.ts";
+import * as ReadAloudVoice from "./readAloud/ReadAloudVoice.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as SpeechModelStore from "./speech/SpeechModelStore.ts";
@@ -789,6 +790,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
   // Personal build: the Skills page.
   SkillLibrary.layer,
+  // Personal build: Siri voices for read aloud.
+  ReadAloudVoice.layer,
   // Catches overrides left behind by a project deleted before this cleanup
   // existed, or by a cleanup write that failed. See ProjectService.delete
   // for the normal (on-delete) path.
